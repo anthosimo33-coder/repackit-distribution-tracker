@@ -95,6 +95,9 @@ crons.interval("radar-transcripts", { hours: 2 }, internal.radarSources.runTrans
 crons.daily("radar-ads-purge", { hourUTC: 4, minuteUTC: 5 }, internal.radarSources.purgeAds, {});
 // Ce qui sort du lot chez les concurrents de chaque projet (Concurrents › Vue d'ensemble).
 crons.interval("radar-insights", { hours: 6 }, internal.radarInsights.refreshInsights, {});
+// Comptes en pause « hors sujet » rejugés sur leurs vidéos déjà lues (aucun crédit) :
+// celui qui cite une app devenue suivie change de réseau et reprend.
+crons.interval("radar-rejudge-paused", { hours: 6 }, internal.radarNetworks.rejudgePaused, {});
 // Familles de hooks d'une langue à l'autre (Claude Haiku, poste « Analyse IA » du budget ; rien sans ANTHROPIC_API_KEY).
 crons.interval("radar-families", { hours: 6 }, internal.radarFamilies.runFamilies, {});
 

@@ -6,6 +6,7 @@ import {
   curveOf,
   earlyHits,
   isEarlyHit,
+  isTextOnShot,
   sharesWell,
   groupAds,
   handledToday,
@@ -25,7 +26,7 @@ const DAY = 24 * HOUR;
 // 9 novembre 2026, 15 h à Paris (14 h UTC).
 const NOW = Date.UTC(2026, 10, 9, 14, 0);
 
-type S = FilterableSignal & { id: string; markedAt: number | null; elsewhere?: boolean; network?: string | null };
+type S = FilterableSignal & { id: string; markedAt: number | null; elsewhere?: boolean; network?: string | null; durationSec?: number | null };
 const sig = (id: string, o: Partial<S> = {}): S => ({
   id,
   handle: id,
@@ -259,5 +260,30 @@ describe("repérer les gagnants (09/11/2026)", () => {
     f.sort = "shares";
     const r = applyFilters([sig("a", { views: 100_000, shares: 500 }), sig("b", { views: 10_000, shares: 900 })], f, NOW);
     expect(r.map((s) => s.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("« texte sur plan » : 12 secondes ou moins, hors de ce qu'on regarde (09/11/2026)", () => {
+  it("12 secondes ou moins ; une durée inconnue ou nulle n'est pas « courte »", () => {
+    expect(isTextOnShot({ durationSec: 9 })).toBe(true);
+    expect(isTextOnShot({ durationSec: 12 })).toBe(true);
+    expect(isTextOnShot({ durationSec: 12.1 })).toBe(false);
+    expect(isTextOnShot({ durationSec: null })).toBe(false);
+    expect(isTextOnShot({})).toBe(false);
+    expect(isTextOnShot({ durationSec: 0 })).toBe(false);
+  });
+
+  it("elle sort de la file du jour et d'« en train de partir » ; la semaine d'un concurrent la range après les autres, Explorer la garde", () => {
+    const signals = [
+      sig("courte", { competitor: "RecentFollow", app: "RecentFollow", multiplier: 80, durationSec: 9, publishedAt: NOW - 5 * HOUR }),
+      sig("demo", { competitor: "RecentFollow", app: "RecentFollow", multiplier: 20, durationSec: 31, publishedAt: NOW - 5 * HOUR }),
+      sig("sansDuree", { competitor: "RecentFollow", app: "RecentFollow", multiplier: 12, publishedAt: NOW - 5 * HOUR }),
+    ];
+    expect(todayQueue(signals, NOW).map((s) => s.id)).toEqual(["demo", "sansDuree"]);
+    expect(earlyHits(signals, NOW).map((s) => s.id)).toEqual(["demo", "sansDuree"]);
+    // « Sa meilleure » = la meilleure vidéo qui n'est pas un texte sur plan.
+    expect(appWeek("RecentFollow", signals, [], NOW).hits.map((s) => s.id)).toEqual(["demo", "sansDuree", "courte"]);
+    // Explorer (les filtres par défaut) la garde, en tête de son tri.
+    expect(applyFilters(signals, defaultFilters(), NOW).map((s) => s.id)).toEqual(["courte", "demo", "sansDuree"]);
   });
 });

@@ -142,24 +142,24 @@ test.describe("Nouveau Radar — Signaux", () => {
       // Pas de clé ScrapeCreators en e2e : la collecte se dit en pause.
       await expect(page.getByRole("status").filter({ hasText: /Collecte en pause/ })).toBeVisible();
       await expect(page.getByTestId("radar-etat")).toHaveText("Collecte en pause : pas de clé ScrapeCreators");
-      // Défaut : recherche (3,38 $) + courbe 100 vidéos/jour (16,92 $) + 2 000 relevés de
+      // Défaut : recherche 20/jour (1,13 $) + courbe 100 vidéos/jour (16,92 $) + 2 000 relevés de
       // comptes/jour (112,80 $) + réseaux (22,56 $) + Instagram 300/jour (16,92 $)
-      // + transcriptions 50/jour (2,82 $) + pubs (2,82 $) + 2 $ d'analyse IA = 180,22 $ prévus sur 300 $.
+      // + transcriptions 50/jour (2,82 $) + pubs (2,82 $) + 2 $ d'analyse IA = 177,97 $ prévus sur 300 $.
       const verdict = page.getByTestId("radar-budget-verdict");
-      await expect(verdict).toContainText("119,78");
+      await expect(verdict).toContainText("122,03");
 
       await page.getByRole("radio", { name: /^400,00\s\$$/ }).click();
-      await expect(verdict).toContainText("219,78");
+      await expect(verdict).toContainText("222,03");
       await page.getByRole("switch", { name: "Couper : Suivre la courbe des vidéos repérées" }).click();
-      // Sans la courbe : 163,30 $ prévus.
-      await expect(verdict).toContainText("236,70");
+      // Sans la courbe : 161,05 $ prévus.
+      await expect(verdict).toContainText("238,95");
       await page.getByRole("button", { name: "Enregistrer le budget" }).click();
       await expect(page.getByText("Budget enregistré.")).toBeVisible();
 
       await page.reload();
       await expect(page.getByRole("radio", { name: /^400,00\s\$$/ })).toHaveAttribute("aria-checked", "true");
       await expect(page.getByRole("switch", { name: "Rallumer : Suivre la courbe des vidéos repérées" })).toHaveAttribute("aria-checked", "false");
-      await expect(verdict).toContainText("236,70");
+      await expect(verdict).toContainText("238,95");
     } finally {
       await admin.mutation(api.radarSignals.e2eResetRadarBudget, { secret: E2E_SECRET });
     }

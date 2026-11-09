@@ -31,6 +31,24 @@ export function usualViews(s: { views: number; multiplier?: number | null }): nu
   return typeof s.multiplier === "number" && s.multiplier > 0 ? Math.round(s.views / s.multiplier) : null;
 }
 
+// ─── Texte sur plan ──────────────────────────────────────────────────────────
+
+/**
+ * « Texte sur plan » : une vidéo de 12 secondes ou moins — un seul plan, une
+ * phrase à l'écran, personne ne parle, l'app n'est pas montrée (le style
+ * RecentFollow / FollowSpy). Décidé le 09/11/2026 : « ça n'amène pas de
+ * conversion, ce n'est pas un format qui m'intéresse » — 10 passées sur 10, alors
+ * qu'elles faisaient 41 des 53 vidéos de concurrents de Snytch de la semaine.
+ * Elles sortent d'Aujourd'hui, d'« En train de partir », des alertes et des
+ * transcriptions ; Explorer les garde. Une durée inconnue n'est pas « courte ».
+ */
+export const TEXT_ON_SHOT_MAX_SEC = 12;
+export function isTextOnShot(v: { durationSec?: number | null }): boolean {
+  // Écrit « 0 < d » : la garde i18n lit « > 0 && … < » comme du texte JSX.
+  const d = v.durationSec;
+  return typeof d === "number" && 0 < d && d <= TEXT_ON_SHOT_MAX_SEC;
+}
+
 // ─── À regarder aujourd'hui ──────────────────────────────────────────────────
 
 /** Vidéos proposées chaque jour, au plus ; dont celles des concurrents du projet, au plus. */
@@ -45,11 +63,12 @@ export const TODAY_RIVAL_SLOTS = 6;
  *  - le reste : les autres apps et la découverte (ce qui marche partout) ;
  *  - jamais les concurrents d'un AUTRE projet (`elsewhere`, The Ick pour BLUSH),
  *    ni ce qu'un compte suivi publie sans citer d'app (`network` : « TURN OFF
- *    THESE ROKU SETTINGS » d'un compte du réseau Finch) : ils restent dans Explorer.
+ *    THESE ROKU SETTINGS » d'un compte du réseau Finch), ni les « texte sur plan »
+ *    de 12 secondes ou moins (`isTextOnShot`) : ils restent dans Explorer.
  * Une part trop courte est complétée par l'autre. Une vidéo traitée en sort ;
  * la suivante prend sa place.
  */
-export function todayQueue<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null }>(
+export function todayQueue<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(
   signals: readonly T[],
   now: number,
   limit = TODAY_LIMIT,
@@ -57,7 +76,7 @@ export function todayQueue<T extends FilterableSignal & { elsewhere?: boolean; n
 ): T[] {
   const f = defaultFilters();
   f.sel.statut = ["nouveau"];
-  const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network);
+  const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network && !isTextOnShot(s));
   const rivals = ranked.filter((s) => s.competitor);
   const others = ranked.filter((s) => !s.competitor);
   const nRivals = Math.min(rivals.length, Math.max(rivalSlots, limit - others.length));
@@ -137,11 +156,12 @@ export function isEarlyHit(v: { publishedAt: number; views: number; multiplier?:
 /**
  * Les vidéos du projet qui partent tôt (radarNetworkMath.isEarlyHit : moins de 24 h,
  * 10× la normale, 10 000 vues), jamais traitées, sans les concurrents d'un autre
- * projet ni ce qu'un compte publie sans citer d'app — les plus fortes d'abord.
+ * projet, ni ce qu'un compte publie sans citer d'app, ni les « texte sur plan »
+ * de 12 secondes ou moins — les plus fortes d'abord.
  */
-export function earlyHits<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null }>(signals: readonly T[], now: number, limit = 4): T[] {
+export function earlyHits<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(signals: readonly T[], now: number, limit = 4): T[] {
   return signals
-    .filter((s) => s.status === "nouveau" && !s.elsewhere && !s.network && isEarlyHit(s, now))
+    .filter((s) => s.status === "nouveau" && !s.elsewhere && !s.network && !isTextOnShot(s) && isEarlyHit(s, now))
     .sort((a, b) => (b.multiplier ?? 0) - (a.multiplier ?? 0))
     .slice(0, limit);
 }
@@ -230,7 +250,7 @@ export function groupAds<A extends AdLike>(ads: readonly A[]): AdGroup<A>[] { //
  * Ce qu'une app a fait cette semaine : ses vidéos qui sortent du lot (7 jours,
  * hors passées) et ses pubs actives (une créa comptée une fois).
  */
-export function appWeek<S extends FilterableSignal>(
+export function appWeek<S extends FilterableSignal & { durationSec?: number | null }>(
   appName: string,
   signals: readonly S[],
   ads: readonly AdLike[],
@@ -238,7 +258,11 @@ export function appWeek<S extends FilterableSignal>(
 ): { hits: S[]; activeAds: number } {
   const f = defaultFilters();
   f.sel.app = [appName];
-  const hits = applyFilters(signals, f, now);
+  // Les « texte sur plan » de 12 secondes ou moins APRÈS les autres : on ne les
+  // propose pas à regarder, mais la fiche d'un concurrent dit tout ce qu'il fait
+  // (09/11/2026 : 46 des 50 vidéos de concurrents de Snytch en sont).
+  const ranked = applyFilters(signals, f, now);
+  const hits = [...ranked.filter((s) => !isTextOnShot(s)), ...ranked.filter((s) => isTextOnShot(s))];
   const activeAds = groupAds(ads.filter((a) => a.app === appName)).filter((g) => g.activeCount > 0).length;
   return { hits, activeAds };
 }

@@ -16,11 +16,13 @@ import {
   nextReadAt,
   patternsOfCandidate,
   searchKind,
-  FAST_READ_MS,
+  MIN_READ_GAP_MS,
   OFF_TOPIC_MIN_VIDEOS,
+  SECOND_LOOK_MS,
+  accountVerdict,
   formatSuccess,
-  isFastAccount,
   isOffTopic,
+  videoApp,
   nextReadAtFor,
   rivalElsewhere,
   shouldPromote,
@@ -73,10 +75,12 @@ describe("rattachement d'un compte à une app", () => {
     expect(findApp("Voici toutes les applications qu'il faut installer", "arpegesauvage", SEED_APPS)).toBeUndefined();
   });
 
-  it("les apps de départ : 13 concurrentes de Snytch, 6 de BLUSH, puis les autres", () => {
+  it("les apps de départ : 11 concurrentes de Snytch (FollowOtter à part, les jeux d'enquête déclassés), 6 de BLUSH, puis les autres", () => {
     expect(SEED_APPS.filter((a) => a.rivalOf.includes("snytch")).map((a) => a.name)).toEqual([
-      "The Ick", "CheatLove", "RecentFollow", "Stalkie", "FollowSpy", "Snitchy", "Shady", "Lurk", "Katch", "Susly", "Snitch", "Crush Tracker", "Sunsay",
+      "The Ick", "CheatLove", "RecentFollow", "FollowSpy", "FollowOtter", "Lurk", "Katch", "Susly", "Snitch", "Crush Tracker", "Sunsay",
     ]);
+    // Stalkie, Snitchy et Shady (jeux d'enquête) : toujours suivies, plus concurrentes (09/11/2026).
+    for (const slug of ["stalkie", "snitchy", "shady"]) expect(app(slug).rivalOf).toEqual([]);
     expect(SEED_APPS.filter((a) => a.rivalOf.includes("blush")).map((a) => a.name)).toEqual([
       "What Brandon Thinks", "The Cringe", "Rizz App", "Plug AI", "Rizz Master", "Flert Now",
     ]);
@@ -197,15 +201,115 @@ describe("un format réussi se lit sur ses reprises (09/11/2026)", () => {
   });
 });
 
-describe("relevé rapide des comptes où un hit se joue (09/11/2026)", () => {
-  it("concurrente qui a publié ces 3 jours, ou compte chaud (10× cette semaine) : toutes les 6 h", () => {
-    expect(isFastAccount({ rival: true, lastPostAt: NOW - 2 * DAY, best7dMultiplier: 1 }, NOW)).toBe(true);
-    expect(isFastAccount({ rival: true, lastPostAt: NOW - 5 * DAY, best7dMultiplier: 1 }, NOW)).toBe(false);
-    expect(isFastAccount({ rival: false, lastPostAt: NOW - 5 * DAY, best7dMultiplier: 12 }, NOW)).toBe(true);
-    expect(isFastAccount({ rival: false, lastPostAt: NOW - DAY, best7dMultiplier: 4 }, NOW)).toBe(false);
-    expect(isFastAccount({ rival: true, lastPostAt: undefined, best7dMultiplier: undefined }, NOW)).toBe(false);
-    expect(nextReadAtFor({ rival: true, lastPostAt: NOW - DAY, best7dMultiplier: undefined }, NOW)).toBe(NOW + FAST_READ_MS);
-    expect(nextReadAtFor({ rival: false, lastPostAt: NOW - DAY, best7dMultiplier: undefined }, NOW)).toBe(NOW + DAY);
+// Les vraies légendes et textes à l'écran relevés en prod le 09/11/2026.
+const LILY_GIRLTEA = [
+  { caption: "i should’ve checked his follow otter sooner #breakup #relationships #situationship", hook: "Intuition is real because why did I literally spend weeks trying to convince myself I was overthinking" },
+  { caption: "He doesn’t know that I saw EVERYTHING on followotter.com 🙃 #cheater #toxic #redflags" },
+  { caption: "i forgave him 1000 times even after what followotter.com showed me #redflags #breakup #dating" },
+  { caption: "check his following followotter.com #cheater #toxic #heartbroken", hook: "Being cheated on in your first serious relationship will haunt you forever" },
+  { caption: "what i saw on his follow otter ruined it all #toxicrelationship #breakup #exboyfriend" },
+  { caption: "i literally found everything on follow otter #cheater #toxic #redflags" },
+  { caption: "followotter.com showed me everything #toxicrelationship #breakup #dating" },
+  { caption: "check his followotter girl #cheater #toxic #redflags" },
+  { caption: "i found out about his wife on followotter.com #toxicrelationship #breakup #exboyfriend" },
+  { caption: "Let me go check who he follows on followotter.com #cheater #toxic #redflags" },
+  { caption: "follow otter showed me everything #cheater #dating #toxic" },
+  { caption: "Link in my bio 👀 #cheater #redflags #toxic", hook: "How to view your man’s recent following on ig👀" },
+  { caption: "Follows.ai if you wanna try! Link in my bio 🕵🏻 #cheater #exboyfriend #heartbroken" },
+];
+const WYATT = [
+  { caption: "Stopped resenting her and started j checking FollowOtter to save myself the time 🫠 #cheatinggf" },
+  { caption: "Stopped resenting her and started j checking FollowSpy 🫠 #cheatinggf #relatable" },
+  { caption: "The craziest part is she almost got away with it.. almost and then i checked FollowOtter 🫩" },
+  { caption: "The craziest part is she almost got away with it … almost and then i checked Follow Otter 🫠🫠" },
+  { caption: "Thank god for FollowOtter or I’d probably still be in the dark 🫩🫩 #truth" },
+];
+
+describe("un compte va dans le réseau de l'app qu'il cite le plus (09/11/2026)", () => {
+  const others = SEED_APPS.filter((a) => a.slug !== "followspy");
+
+  it("@lily.girltea, rangée sous FollowSpy, 11 vidéos FollowOtter sur 13 : elle change de réseau au lieu d'être « hors sujet »", () => {
+    const v = accountVerdict("caption", LILY_GIRLTEA, "lily.girltea", app("followspy"), others);
+    expect(v).toMatchObject({ kind: "move", cited: 11 });
+    expect(v.kind === "move" && v.to.name).toBe("FollowOtter");
+    // Tant que FollowOtter n'est pas suivie, elle ne cite « aucune app » : c'était la mise en pause à tort.
+    expect(accountVerdict("caption", LILY_GIRLTEA, "lily.girltea", app("followspy"), others.filter((a) => a.slug !== "followotter"))).toEqual({ kind: "offTopic" });
+  });
+
+  it("@wyattsocialhacks cite FollowSpy une fois et FollowOtter quatre : il change aussi ; à égalité ou sous 3 vidéos, il reste", () => {
+    const v = accountVerdict("caption", WYATT, "wyattsocialhacks", app("followspy"), others);
+    expect(v).toMatchObject({ kind: "move", cited: 4 });
+    // 2 vidéos FollowOtter seulement : pas assez pour le bouger.
+    expect(accountVerdict("caption", WYATT.slice(0, 3), "wyattsocialhacks", app("followspy"), others)).toEqual({ kind: "keep" });
+    // Autant de vidéos pour chacune : il reste où il est.
+    const egal = [...WYATT.slice(0, 1), ...WYATT.slice(2, 4), { caption: "FollowSpy again" }, { caption: "followspy.ai link in bio" }, WYATT[1]];
+    expect(accountVerdict("caption", egal, "wyattsocialhacks", app("followspy"), others)).toEqual({ kind: "keep" });
+  });
+
+  it("un compte choisi à la main ou de la liste de départ ne bouge jamais ; @banginout009 reste hors sujet", () => {
+    expect(accountVerdict("manual", LILY_GIRLTEA, "lily.girltea", app("followspy"), others)).toEqual({ kind: "keep" });
+    expect(accountVerdict("seed", LILY_GIRLTEA, "lily.girltea", app("followspy"), others)).toEqual({ kind: "keep" });
+    expect(accountVerdict("caption", BANGINOUT, "banginout009", app("theick"), SEED_APPS.filter((a) => a.slug !== "theick"))).toEqual({ kind: "offTopic" });
+  });
+
+  it("un compte Flert Now qui met #rizzapp sous chaque vidéo reste chez Flert Now : il faut 3 fois plus de citations", () => {
+    // Les vraies légendes de @gustavo_gomes677 (09/11/2026).
+    const gustavo = Array.from({ length: 10 }, (_, i) => ({
+      caption: `Link do App na bio 🤒 #Cantadas #CantadaSparaCrush #story #rizzapp #flerte${i % 4 === 2 ? "" : " @Flert now - Cantadas e flertes"}`,
+    }));
+    expect(accountVerdict("caption", gustavo, "gustavo_gomes677", app("flertnow"), SEED_APPS.filter((a) => a.slug !== "flertnow"))).toEqual({ kind: "keep" });
+  });
+
+  it("« his recent following » n'est pas l'app RecentFollow ; son nom, son hashtag et « recent follow app » le sont", () => {
+    const rf = app("recentfollow");
+    expect(citesApp("I literally just found out how to see my boyfriends recent following on IG🤡", "x", rf)).toBe(false);
+    expect(citesApp("Checking his recent follows on followpeek.com #cheating", "x", rf)).toBe(false);
+    expect(citesApp("who he recently followed 👀", "x", rf)).toBe(false);
+    expect(citesApp("RecentFollow showed me everything", "x", rf)).toBe(true);
+    expect(citesApp("Recent Follow showed me everything", "x", rf)).toBe(true);
+    expect(citesApp("the recent follow app is crazy #recentfollow", "x", rf)).toBe(true);
+    expect(citesApp("recentfollow.com 👀", "x", rf)).toBe(true);
+  });
+
+  it("une vidéo est rangée sous l'app suivie qu'elle cite, en deux mots comme en un", () => {
+    expect(videoApp({ caption: "what i saw on his follow otter ruined it all", handle: "lily.girltea" }, SEED_APPS)?.name).toBe("FollowOtter");
+    expect(videoApp({ caption: "Link in my bio 👀 #cheater", hook: "How to view your man’s recent following on ig👀", handle: "lily.girltea" }, SEED_APPS)).toBeUndefined();
+    expect(citesApp("check his following followotter.com", "lily.girltea", app("followspy"))).toBe(false);
+  });
+});
+
+describe("relevé calé sur la dernière publication + 18 h (09/11/2026)", () => {
+  const H = 3_600_000;
+  it("une vidéo vue à moins de 12 h a son second regard à H+18", () => {
+    expect(nextReadAtFor(NOW - 3 * H, NOW)).toBe(NOW - 3 * H + SECOND_LOOK_MS);
+    expect(nextReadAtFor(NOW - 12 * H, NOW)).toBe(NOW + MIN_READ_GAP_MS);
+  });
+
+  it("au-delà, le relevé suivant tombe 18 h après l'heure où le compte publie, jamais à moins de 6 h", () => {
+    // Dernière vidéo il y a 13 h : H+18 serait dans 5 h, trop près → le lendemain à la même heure.
+    expect(nextReadAtFor(NOW - 13 * H, NOW)).toBe(NOW + 29 * H);
+    // Il y a 20 h : relevé dans 22 h, quand la vidéo du lendemain (même heure) aura 18 h.
+    expect(nextReadAtFor(NOW - 20 * H, NOW)).toBe(NOW + 22 * H);
+    // Il y a 2,9 jours : toujours calé, dans moins de 30 h.
+    const next = nextReadAtFor(NOW - 69.6 * H, NOW);
+    expect((next - (NOW - 69.6 * H) - SECOND_LOOK_MS) % DAY).toBe(0);
+    expect(next - NOW).toBeGreaterThanOrEqual(MIN_READ_GAP_MS);
+    expect(next - NOW).toBeLessThan(30 * H);
+  });
+
+  it("un compte qui publie deux fois par jour : chaque vidéo a son second regard, la plus ancienne des neuves d'abord", () => {
+    // Vidéos il y a 10 h et il y a 1 h : relevé dans 8 h (la première à H+18), pas dans 17 h.
+    expect(nextReadAtFor(NOW - 1 * H, NOW, NOW - 10 * H)).toBe(NOW + 8 * H);
+    // Une vidéo de 11,9 h : son H+18 tombe dans 6,1 h.
+    expect(nextReadAtFor(NOW - 11.9 * H, NOW, NOW - 11.9 * H)).toBe(NOW + 6.1 * H);
+    // Plus de vidéo neuve à suivre (12 h ou plus) : retour au calage sur la dernière publication.
+    expect(nextReadAtFor(NOW - 13 * H, NOW, NOW - 13 * H)).toBe(NOW + 29 * H);
+  });
+
+  it("un compte calme, dormant ou jamais vu garde son rythme : plus de relevé toutes les 6 h", () => {
+    expect(nextReadAtFor(NOW - 5 * DAY, NOW)).toBe(nextReadAt(NOW - 5 * DAY, NOW));
+    expect(nextReadAtFor(NOW - 20 * DAY, NOW)).toBe(NOW + 7 * DAY);
+    expect(nextReadAtFor(undefined, NOW)).toBe(NOW + 3 * DAY);
   });
 });
 

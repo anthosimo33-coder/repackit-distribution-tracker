@@ -36,15 +36,17 @@ import {
   FORMAT_WINDOW_MS,
   MAX_READ_ERRORS,
   MAX_TRACKED,
+  FRESH_VIDEO_MS,
   MEDIAN_WINDOW,
   citesApp,
   formatStarting,
   isHotFormat,
   hookTemplate,
   igHandleFromBio,
-  isOffTopic,
+  accountVerdict,
   formatSuccess,
   nextReadAtFor,
+  videoApp,
   videoCitesApp,
   medianViews,
   multiplierOf,
@@ -56,7 +58,7 @@ import {
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
-import { isEarlyHit } from "./radarDisplay";
+import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
 import {
@@ -313,7 +315,7 @@ export const applyAccountRead = internalMutation({
   handler: async (ctx, { accountId, videos, now }): Promise<{ promoted: number }> => {
     const acc = await ctx.db.get(accountId);
     if (!acc) return { promoted: 0 };
-    const app = await ctx.db.get(acc.appId);
+    let app = await ctx.db.get(acc.appId);
     const fresh: typeof videos = [];
     for (const s of videos) {
       const hk = hookTemplate(s.hook);
@@ -353,8 +355,17 @@ export const applyAccountRead = internalMutation({
       .order("desc")
       .take(MEDIAN_WINDOW);
     const median = medianViews(recent.map((r) => r.views));
-    // Un compte qui ne cite jamais son app (sur ses dernières vidéos lues) n'est plus relevé.
-    const offTopic = !!app && !acc.keptByHand && isOffTopic(acc.matchedBy, recent, acc.handle, app);
+    // Le compte va dans le réseau de l'app qu'il cite le plus ; s'il n'en cite
+    // aucune (sur ses dernières vidéos lues), il n'est plus relevé.
+    const apps = await ctx.db.query("radarApps").collect();
+    const own = app;
+    const verdict = own ? accountVerdict(acc.matchedBy, recent, acc.handle, own, otherActiveApps(apps, own._id)) : { kind: "keep" as const };
+    if (own && verdict.kind === "move") {
+      await moveAccount(ctx, acc, own, verdict.to, recent);
+      app = verdict.to;
+    }
+    const appId = app?._id ?? acc.appId;
+    const offTopic = verdict.kind === "offTopic" && !acc.keptByHand;
     const fans = videos[0]?.authorFans ?? acc.fans;
     const bio = videos.find((s) => s.authorBio)?.authorBio;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
@@ -379,8 +390,8 @@ export const applyAccountRead = internalMutation({
       videosSeen: acc.videosSeen + fresh.length,
       lastPostAt,
       readAt: now,
-      // Toutes les 6 h quand un hit s'y joue (concurrente active, compte chaud), sinon à son rythme.
-      nextReadAt: nextReadAtFor({ rival: !!app && app.rivalOf.length > 0, lastPostAt, best7dMultiplier: best?.multiplier }, now),
+      // Calé sur sa dernière publication + 18 h (second regard sur une vidéo neuve), sinon à son rythme.
+      nextReadAt: nextReadAtFor(lastPostAt, now, recent.filter((r) => !r.platform && now - r.publishedAt < FRESH_VIDEO_MS).at(-1)?.publishedAt),
       readErrors: 0,
       posts7d: week.length,
       best7d: best,
@@ -393,7 +404,7 @@ export const applyAccountRead = internalMutation({
       const member: Member = {
         accountId,
         handle: acc.handle,
-        appId: acc.appId,
+        appId,
         videoId: s.videoId,
         publishedAt: s.publishedAt,
         views: s.views,
@@ -405,9 +416,8 @@ export const applyAccountRead = internalMutation({
       if (s.musicId && s.musicTitle) await shareFormat(ctx, "sound", s.musicId, s.musicTitle, member, now);
     }
 
-    const apps = await ctx.db.query("radarApps").collect();
-    for (const s of fresh) await noteCandidates(ctx, { ...s, authorBio: undefined }, now, apps, acc.appId);
-    if (bio && bio !== acc.bio && videos[0]) await noteCandidates(ctx, { ...videos[0], caption: "", mentions: undefined, authorBio: bio }, now, apps, acc.appId);
+    for (const s of fresh) await noteCandidates(ctx, { ...s, authorBio: undefined }, now, apps, appId);
+    if (bio && bio !== acc.bio && videos[0]) await noteCandidates(ctx, { ...videos[0], caption: "", mentions: undefined, authorBio: bio }, now, apps, appId);
 
     let promoted = 0;
     for (const s of videos) {
@@ -421,17 +431,100 @@ export const applyAccountRead = internalMutation({
         ...(multiplier !== undefined ? { multiplier } : {}),
       });
       if (r === "inserted") promoted++;
-      // En train de partir chez une concurrente, et la vidéo la cite : on prévient ses projets.
-      if (app && app.rivalOf.length > 0 && multiplier !== undefined && isEarlyHit({ publishedAt: s.publishedAt, views: s.views, multiplier }, now)) {
-        if (videoCitesApp({ caption: s.caption, hook: s.hook, handle: acc.handle }, app)) await maybeAlertEarly(ctx, s.videoId, s.platform ?? "tiktok", app.rivalOf);
+      // En train de partir chez une concurrente, et la vidéo la cite : on prévient ses
+      // projets. L'app est celle que la vidéo cite (la sienne d'abord), jamais un
+      // « texte sur plan » de 12 secondes ou moins.
+      if (app && multiplier !== undefined && !isTextOnShot(s) && isEarlyHit({ publishedAt: s.publishedAt, views: s.views, multiplier }, now)) {
+        const text = { caption: s.caption, hook: s.hook, handle: acc.handle };
+        const cited = videoCitesApp(text, app) ? app : videoApp(text, otherActiveApps(apps, app._id));
+        if (cited && cited.rivalOf.length > 0) await maybeAlertEarly(ctx, s.videoId, s.platform ?? "tiktok", cited.rivalOf, cited.name);
       }
     }
     return { promoted };
   },
 });
 
+/** Les autres apps suivies (actives) : celles qu'un compte ou une vidéo peut citer à la place de la sienne. */
+const otherActiveApps = (apps: readonly Doc<"radarApps">[], own: Id<"radarApps">) => apps.filter((a) => a._id !== own && a.status === "active");
+
+/**
+ * Change un compte de réseau (radarNetworkMath.accountVerdict) : lui, ses vidéos
+ * lues récentes (les formats et la vue d'ensemble les rangent par app) et le
+ * compteur de comptes des deux apps.
+ */
+async function moveAccount(
+  ctx: MutationCtx,
+  acc: Doc<"radarTracked">,
+  from: Doc<"radarApps">,
+  to: Doc<"radarApps">,
+  recent: readonly Doc<"radarTrackedVideos">[],
+): Promise<void> {
+  await ctx.db.patch(acc._id, { appId: to._id });
+  for (const vid of recent) if (vid.appId !== to._id) await ctx.db.patch(vid._id, { appId: to._id });
+  // Relus : plusieurs comptes peuvent changer de réseau dans la même mutation.
+  const f = await ctx.db.get(from._id);
+  const t = await ctx.db.get(to._id);
+  if (f?.trackedCount !== undefined) await ctx.db.patch(f._id, { trackedCount: Math.max(0, f.trackedCount - 1) });
+  if (t?.trackedCount !== undefined) await ctx.db.patch(t._id, { trackedCount: t.trackedCount + 1 });
+}
+
+/** Comptes en pause relus par passage. */
+const REJUDGE_BATCH = 400;
+
+/**
+ * Rejuge les comptes mis en pause comme « hors sujet » (aucun crédit : leurs
+ * vidéos déjà lues suffisent). Un compte en pause n'est plus relevé, donc plus
+ * jamais jugé : quand une app qu'il cite devient suivie (FollowOtter le
+ * 09/11/2026), ou que les motifs de la sienne changent, il resterait en pause
+ * pour toujours. Il change alors de réseau, ou reprend dans le sien, et son
+ * prochain relevé est immédiat.
+ */
+export const rejudgePaused = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ moved: number; resumed: number }> => {
+    // Les apps de départ d'abord : une app ajoutée au code doit exister avant qu'on y range ses comptes.
+    await ensureSeedApps(ctx);
+    return rejudgePausedCore(ctx);
+  },
+});
+
+async function rejudgePausedCore(ctx: MutationCtx): Promise<{ moved: number; resumed: number }> {
+  const now = Date.now();
+  const apps = await ctx.db.query("radarApps").collect();
+  const byId = new Map(apps.map((a) => [a._id, a]));
+  const paused = await ctx.db.query("radarTracked").withIndex("by_due", (q) => q.eq("status", "paused")).take(REJUDGE_BATCH);
+  let moved = 0;
+  let resumed = 0;
+  for (const t of paused) {
+    const own = byId.get(t.appId);
+    if (t.pausedReason !== "offTopic" || !own) continue;
+    const recent = await ctx.db
+      .query("radarTrackedVideos")
+      .withIndex("by_account_published", (q) => q.eq("accountId", t._id))
+      .order("desc")
+      .take(MEDIAN_WINDOW);
+    const verdict = accountVerdict(t.matchedBy, recent, t.handle, own, otherActiveApps(apps, own._id));
+    if (verdict.kind === "move") {
+      await moveAccount(ctx, t, own, verdict.to, recent);
+      moved++;
+    } else if (recent.some((r) => !r.platform && videoCitesApp({ caption: r.caption ?? "", hook: r.hook, handle: t.handle }, own))) {
+      // Elle cite maintenant son app (ses motifs ont changé). Des vidéos purgées
+      // ne suffisent pas à le relancer : il faut une citation.
+      resumed++;
+    } else continue;
+    await ctx.db.patch(t._id, { status: "active", pausedReason: undefined, nextReadAt: now, readErrors: 0 });
+  }
+  return { moved, resumed };
+}
+
+/** e2e : rejuge tout de suite (la tâche passe toutes les 6 h), sans créer les apps de départ. */
+export const e2eRejudgePaused = e2eMutation({
+  args: {},
+  handler: (ctx) => rejudgePausedCore(ctx),
+});
+
 /** Prévient (une fois par projet) qu'une vidéo d'un concurrent part tôt. */
-async function maybeAlertEarly(ctx: MutationCtx, videoId: string, platform: "tiktok" | "instagram", slugs: readonly string[]): Promise<void> {
+async function maybeAlertEarly(ctx: MutationCtx, videoId: string, platform: "tiktok" | "instagram", slugs: readonly string[], app: string): Promise<void> {
   const sig = await ctx.db
     .query("radarSignals")
     .withIndex("by_video", (q) => q.eq("platform", platform).eq("videoId", videoId))
@@ -441,20 +534,22 @@ async function maybeAlertEarly(ctx: MutationCtx, videoId: string, platform: "tik
   const toAlert = slugs.filter((x) => !already.includes(x));
   if (toAlert.length === 0) return;
   await ctx.db.patch(sig._id, { earlyAlerted: [...already, ...toAlert] });
-  await ctx.scheduler.runAfter(0, internal.radarNetworks.alertEarly, { signalId: sig._id, slugs: toAlert });
+  await ctx.scheduler.runAfter(0, internal.radarNetworks.alertEarly, { signalId: sig._id, slugs: toAlert, app });
 }
 
 type EarlyAlert = { app: string; handle: string; views: number; hours: number; multiplier: number; hook: string | null };
 
 export const earlyForAlert = internalQuery({
-  args: { signalId: v.id("radarSignals"), slug: v.string() },
-  handler: async (ctx, { signalId, slug }): Promise<{ e: EarlyAlert; projectId: Id<"projects"> } | null> => {
+  // `app` : l'app que la vidéo cite (celle du signal quand elle n'est pas donnée).
+  args: { signalId: v.id("radarSignals"), slug: v.string(), app: v.optional(v.string()) },
+  handler: async (ctx, { signalId, slug, app }): Promise<{ e: EarlyAlert; projectId: Id<"projects"> } | null> => {
     const s = await ctx.db.get(signalId);
     const project = await ctx.db.query("projects").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
-    if (!s || !project || !s.appName) return null;
+    const name = app ?? s?.appName;
+    if (!s || !project || !name) return null;
     return {
       e: {
-        app: s.appName,
+        app: name,
         handle: s.authorHandle,
         views: s.views,
         hours: Math.max(1, Math.round((Date.now() - s.publishedAt) / 3_600_000)),
@@ -468,10 +563,10 @@ export const earlyForAlert = internalQuery({
 
 /** Le message Telegram d'une vidéo de concurrent qui part tôt. */
 export const alertEarly = internalAction({
-  args: { signalId: v.id("radarSignals"), slugs: v.array(v.string()) },
-  handler: async (ctx, { signalId, slugs }): Promise<void> => {
+  args: { signalId: v.id("radarSignals"), slugs: v.array(v.string()), app: v.optional(v.string()) },
+  handler: async (ctx, { signalId, slugs, app }): Promise<void> => {
     for (const slug of slugs) {
-      const r = await ctx.runQuery(internal.radarNetworks.earlyForAlert, { signalId, slug });
+      const r = await ctx.runQuery(internal.radarNetworks.earlyForAlert, { signalId, slug, ...(app ? { app } : {}) });
       if (!r) continue;
       const p = await ctx.runQuery(internal.notifications.getProjectNotify, { projectId: r.projectId });
       const cfg = p ? notifyConfig(p.notify, p.name) : null;
@@ -1023,7 +1118,7 @@ export const e2eSeedNetwork = e2eMutation({
         lang: v.optional(v.string()),
         // Ses vidéos relevées (radarTrackedVideos), pour « ce qui sort du lot ».
         videos: v.optional(
-          v.array(v.object({ videoId: v.string(), ageH: v.number(), views: v.number(), hook: v.optional(v.string()), musicTitle: v.optional(v.string()) })),
+          v.array(v.object({ videoId: v.string(), ageH: v.number(), views: v.number(), hook: v.optional(v.string()), musicTitle: v.optional(v.string()), caption: v.optional(v.string()) })),
         ),
       }),
     ),
@@ -1094,6 +1189,7 @@ export const e2eSeedNetwork = e2eMutation({
           lastSeenAt: now,
           ...(vid.hook !== undefined ? { hook: vid.hook } : {}),
           ...(vid.musicTitle !== undefined ? { musicTitle: vid.musicTitle } : {}),
+          ...(vid.caption !== undefined ? { caption: vid.caption } : {}),
         });
       }
     }

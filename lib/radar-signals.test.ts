@@ -14,7 +14,7 @@ import {
   parseScVideo,
   plannedUsd,
 } from "../convex/radarSignalsMath";
-import { DISCOVERY_QUERIES } from "../convex/radarDiscoveryQueries";
+import { DISCOVERY_QUERIES, DISCOVERY_ROTATION, discoveryRotation } from "../convex/radarDiscoveryQueries";
 import {
   applyFilters,
   chips,
@@ -141,6 +141,20 @@ describe("tri à la découverte et courbe", () => {
 
   it("fait tourner les recherches sans en sauter ni en répéter", () => {
     expect(DISCOVERY_QUERIES).toHaveLength(60);
+    // L'ordre de passage : les 7 tournures de niche, puis 13 des 53 autres, et ainsi de suite.
+    const niche = ["app pour couple", "app para casal", "app para parejas", "app para parejas", "app for couples", "achei um app", "app that tells you"].sort();
+    expect(DISCOVERY_ROTATION).toHaveLength(5 * 7 + 53);
+    expect(DISCOVERY_ROTATION.slice(0, 7).map((x) => x.query).sort()).toEqual(niche);
+    expect(DISCOVERY_ROTATION.slice(20, 27).map((x) => x.query).sort()).toEqual(niche);
+    // À 20 recherches par jour : chaque tournure de niche chaque jour, aucune autre deux fois dans le tour.
+    const jour1 = DISCOVERY_ROTATION.slice(0, 20).map((x) => `${x.query}·${x.region}`);
+    const jour2 = DISCOVERY_ROTATION.slice(20, 40).map((x) => `${x.query}·${x.region}`);
+    expect(jour1.filter((q) => jour2.includes(q))).toHaveLength(7);
+    const autres = DISCOVERY_ROTATION.filter((x) => !niche.includes(x.query)).map((x) => `${x.query}·${x.region}`);
+    expect(new Set(autres).size).toBe(53);
+    expect(autres).toHaveLength(53);
+    // Sans tournure de niche, la rotation est la liste telle quelle.
+    expect(discoveryRotation(DISCOVERY_QUERIES.filter((x) => !niche.includes(x.query)))).toHaveLength(53);
     const a = nextQueries(55, 10, DISCOVERY_QUERIES);
     expect(a.queries.map((x) => x.query)).toEqual([...DISCOVERY_QUERIES.slice(55), ...DISCOVERY_QUERIES.slice(0, 5)].map((x) => x.query));
     expect(a.cursor).toBe(5);
@@ -152,10 +166,10 @@ describe("budget", () => {
   const d = normalizeBudget(null);
   const usage = (poste: string, credits: number, day = "2026-11-06") => ({ poste, credits, day });
 
-  it("prévoit 180,22 $ au plus par défaut sous un plafond de 300 $ : recherche, courbe, comptes, réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
+  it("prévoit 177,97 $ au plus par défaut sous un plafond de 300 $ : 20 recherches/jour, courbe, comptes, réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
     expect(d.capUsd).toBe(300);
-    expect(plannedUsd(d)).toBeCloseTo((60 * 30 + 100 * 3 * 30 + 2_000 * 30 + 12_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
-    expect(plannedUsd(d)).toBeCloseTo(180.224, 3);
+    expect(plannedUsd(d)).toBeCloseTo((20 * 30 + 100 * 3 * 30 + 2_000 * 30 + 12_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
+    expect(plannedUsd(d)).toBeCloseTo(177.968, 3);
   });
 
   it("des réglages d'avant la v4 prennent les postes relevés, les postes branchés et le plafond par défaut ; ceux de la v4 sont respectés", () => {
@@ -173,7 +187,8 @@ describe("budget", () => {
     // Les réglages réels de la prod au 06/11/2026 (v1, plafond 60 $).
     const m = normalizeBudget(v1);
     expect(m.capUsd).toBe(300);
-    expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 60, on: true });
+    // La découverte passe à 20 recherches/jour (v6) : les tournures de niche chaque jour, les autres en rotation.
+    expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 20, on: true });
     expect(m.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 100, on: true });
     expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 2_000, on: true });
     expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 12_000, on: true });
@@ -208,12 +223,14 @@ describe("budget", () => {
     expect(b.capUsd).toBe(300);
     expect(b.postes.find((p) => p.key === "ai")).toEqual({ key: "ai", qty: 2, on: true });
     expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(true);
-    expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 300, on: true });
+    // D'une v4, la découverte prend aussi son défaut (20/jour) ; en v6, une quantité réglée est bornée.
+    expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 20, on: true });
+    expect(normalizeBudget({ postes: [{ key: "search", qty: 1_000, on: true }], budgetVersion: 6 }).postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 300, on: true });
     expect(b.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 88, on: false });
     expect(b.cutOrder).toEqual(["curve", "ai", "search", "transcript", "ads", "insta", "network", "tiktok"]);
     expect(b.alert80).toBe(false);
     // En v5, l'analyse IA réglée est respectée, et le plafond d'une v4 est gardé.
-    const v5 = normalizeBudget({ capUsd: 150, postes: [{ key: "ai", qty: 5, on: false }], cutOrder: [], alert80: true, budgetVersion: 5 });
+    const v5 = normalizeBudget({ capUsd: 150, postes: [{ key: "ai", qty: 5, on: false }], cutOrder: [], alert80: true, budgetVersion: 6 });
     expect([v5.capUsd, v5.postes.find((p) => p.key === "ai")]).toEqual([150, { key: "ai", qty: 5, on: false }]);
   });
 
@@ -238,9 +255,9 @@ describe("budget", () => {
 
   it("donne à un passage sa part du jour, bornée par ce qui reste aujourd'hui", () => {
     const s = budgetState(d, []);
-    expect(allowance(d, s, "search", 0, 4)).toBe(15);
-    expect(allowance(d, s, "search", 55, 4)).toBe(5);
-    expect(allowance(d, s, "search", 60, 4)).toBe(0);
+    expect(allowance(d, s, "search", 0, 4)).toBe(5);
+    expect(allowance(d, s, "search", 17, 4)).toBe(3);
+    expect(allowance(d, s, "search", 20, 4)).toBe(0);
     // 100 vidéos × 3 relevés = 300/jour → 13 par heure ; 2 000 relevés de comptes → 84 par heure.
     expect(allowance(d, s, "curve", 0, 24)).toBe(13);
     expect(allowance(d, s, "tiktok", 0, 24)).toBe(84);
@@ -252,7 +269,9 @@ describe("budget", () => {
   const p1 = (cap: number) => ({
     ...d,
     capUsd: cap,
-    postes: d.postes.map((p) => (p.key === "curve" ? { ...p, qty: 100 } : ["tiktok", "network", "insta", "transcript", "ads", "ai"].includes(p.key) ? { ...p, on: false } : p)),
+    postes: d.postes.map((p) =>
+      p.key === "curve" ? { ...p, qty: 100 } : p.key === "search" ? { ...p, qty: 60 } : ["tiktok", "network", "insta", "transcript", "ads", "ai"].includes(p.key) ? { ...p, on: false } : p,
+    ),
   });
 
   it("au plafond, tout s'arrête", () => {

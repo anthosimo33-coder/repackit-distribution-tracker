@@ -19,6 +19,12 @@ export type AppRule = {
   /** Mot courant : ne rattache qu'avec un mot de `context` dans la même légende. */
   weak?: readonly string[];
   context?: readonly string[];
+  /**
+   * Tournures courantes (avec leurs espaces) qui contiennent le nom sans le
+   * citer : retirées du texte avant de chercher. « his recent following » n'est
+   * pas RecentFollow (09/11/2026 : 17 vidéos sur 246, dont celles de followpeek.com).
+   */
+  not?: readonly string[];
 };
 
 export type SeedApp = AppRule & {
@@ -34,10 +40,16 @@ export type SeedApp = AppRule & {
  * Les apps de départ, concurrentes en tête (l'ordre compte : `findApp` prend la
  * première citée).
  * - Snytch (savoir qui quelqu'un suit) : The Ick, CheatLove, RecentFollow, les
- *   7 apps du sourcing du 30/10/2026 (Stalkie, FollowSpy, Snitchy, Shady, Lurk,
- *   Katch, Susly), et Snitch, Crush Tracker (surtout en pub Meta) et Sunsay (citée
- *   par des comptes « prénom.stalk » sur #tromperie), sans réseau TikTok visible
- *   le 06/11/2026 : suivies pour le voir naître.
+ *   apps du sourcing du 30/10/2026 (FollowSpy, Lurk, Katch, Susly), FollowOtter
+ *   (app à part, décidé le 09/11/2026 : ses 13 comptes « prénom.girltea » et
+ *   « prénom.girlcode », 8,7 M vues en 30 jours, étaient rangés sous FollowSpy
+ *   sans la citer), et Snitch, Crush Tracker (surtout en pub Meta) et Sunsay
+ *   (citée par des comptes « prénom.stalk » sur #tromperie), sans réseau TikTok
+ *   visible le 06/11/2026 : suivies pour le voir naître.
+ * - Stalkie, Snitchy et Shady sont des JEUX D'ENQUÊTE (fouiller un téléphone),
+ *   pas des suiveurs d'abonnements : déclassées le 09/11/2026 — elles ne sont
+ *   plus concurrentes de Snytch (ni places réservées, ni alerte, ni chiffres des
+ *   concurrents) mais restent suivies comme les autres apps, pour leurs formats.
  * - BLUSH (lire une conversation, souffler la réponse) : What Brandon Thinks,
  *   The Cringe, et les apps de textos vérifiées le 06/11/2026 (Rizz App : comptes
  *   « histoires de textos » jusqu'à 2,3 M vues ; Plug AI ; Rizz Master et Flert
@@ -64,17 +76,16 @@ const BLUSH = ["blush"] as const;
 export const SEED_APPS: readonly SeedApp[] = [
   { slug: "theick", name: "The Ick", rivalOf: SNYTCH, strong: ["theickio", "theick.io"], weak: ["theick"], context: STALK_CONTEXT, searches: ["theickio", "theick tromperie", "theick insta", "#theickio", "#theick"] },
   { slug: "cheatlove", name: "CheatLove", rivalOf: SNYTCH, strong: ["cheatloveio", "cheatlove.io"], weak: ["cheatlove"], context: STALK_CONTEXT, searches: ["cheatlove", "cheatlove tromperie", "#cheatlove"] },
-  { slug: "recentfollow", name: "RecentFollow", rivalOf: SNYTCH, strong: ["recentfollow"], searches: ["recentfollow", "recent follow app", "#recentfollow"] },
-  { slug: "stalkie", name: "Stalkie", rivalOf: SNYTCH, strong: ["stalkie"], searches: ["stalkie", "stalkie app", "#stalkie"] },
+  { slug: "recentfollow", name: "RecentFollow", rivalOf: SNYTCH, strong: ["recentfollow"], not: ["recent following", "recent follows", "recent follower", "recently follow"], searches: ["recentfollow", "recent follow app", "#recentfollow"] },
   { slug: "followspy", name: "FollowSpy", rivalOf: SNYTCH, strong: ["followspy"], searches: ["followspy", "#followspy"] },
-  { slug: "snitchy", name: "Snitchy", rivalOf: SNYTCH, strong: ["snitchy"], searches: ["snitchy", "#snitchy"] },
-  { slug: "shady", name: "Shady", rivalOf: SNYTCH, strong: ["shadyapp", "usoshady", "usashady", "conshady", "shadysabe"], weak: ["shady", "shody"], context: STALK_CONTEXT, searches: ["shady app stalk", "shady instagram"] },
+  // « Follow Otter » s'écrit aussi en deux mots : la forme collée couvre les deux.
+  { slug: "followotter", name: "FollowOtter", rivalOf: SNYTCH, strong: ["followotter"], searches: ["followotter", "follow otter app", "#followotter"] },
   // « lurk » seul est de l'argot anglais : le pseudo « prénom.lurk » suffit.
   { slug: "lurk", name: "Lurk", rivalOf: SNYTCH, strong: [".lurk", "@lurk", "lurkambassador", "lurkapp"], searches: ["lurk app stalk", "lurk instagram"] },
   { slug: "katch", name: "Katch", rivalOf: SNYTCH, strong: ["katch.io", "katchio", "katchembaixador"], weak: ["katch"], context: STALK_CONTEXT, searches: ["katch.io", "katchio"] },
   { slug: "susly", name: "Susly", rivalOf: SNYTCH, strong: ["susly"], searches: ["susly", "susly app"] },
-  // Après Snitchy : « creators.getsnitchy.app » ne doit pas devenir Snitch.
-  // « Snitch app » est aussi une marque de vêtements indienne : le domaine seul.
+  // « Snitch app » est aussi une marque de vêtements indienne : le domaine seul
+  // (« creators.getsnitchy.app » ne le contient pas : Snitchy garde ses vidéos).
   { slug: "snitch", name: "Snitch", rivalOf: SNYTCH, strong: ["snitchapp.io"], searches: ["snitch app instagram", "snitchapp"] },
   { slug: "crushtracker", name: "Crush Tracker", rivalOf: SNYTCH, strong: ["crushtracker"], searches: ["crush tracker app"] },
   // « Sunsay » est aussi un chanteur et une marque d'énergie : seul, il lui faut un mot de contexte.
@@ -85,6 +96,10 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "plugai", name: "Plug AI", rivalOf: BLUSH, strong: ["@plugai"], weak: ["plugai"], context: TEXT_CONTEXT, searches: ["plug ai rizz", "#plugai"] },
   { slug: "rizzmaster", name: "Rizz Master", rivalOf: BLUSH, strong: ["rizzmaster"], searches: ["rizz master app"] },
   { slug: "flertnow", name: "Flert Now", rivalOf: BLUSH, strong: ["flertnow"], searches: ["flert now"] },
+  // Jeux d'enquête, déclassés le 09/11/2026 : suivis pour leurs formats, plus concurrents de Snytch.
+  { slug: "stalkie", name: "Stalkie", rivalOf: [], strong: ["stalkie"], searches: ["stalkie", "stalkie app", "#stalkie"] },
+  { slug: "snitchy", name: "Snitchy", rivalOf: [], strong: ["snitchy"], searches: ["snitchy", "#snitchy"] },
+  { slug: "shady", name: "Shady", rivalOf: [], strong: ["shadyapp", "usoshady", "usashady", "conshady", "shadysabe"], weak: ["shady", "shody"], context: STALK_CONTEXT, searches: ["shady app stalk", "shady instagram"] },
   { slug: "vocaai", name: "Voca AI", rivalOf: [], strong: ["vocaai"], searches: ["voca ai", "#vocaai"] },
   { slug: "praktika", name: "Praktika", rivalOf: [], strong: ["praktika"], searches: ["praktika", "#praktika"] },
   { slug: "fluencify", name: "Fluencify", rivalOf: [], strong: ["fluencify"], searches: ["fluencify"] },
@@ -150,13 +165,18 @@ export function normalize(text: string) {
   return { lower, compact: lower.replace(/[\s_\-]+/g, "") };
 }
 
-/** La légende ou le pseudo cite-t-il l'app ? */
-export function citesApp(caption: string, handle: string, rule: AppRule): boolean {
-  const { lower, compact } = normalize(`${caption} ${handle}`);
+/** Le texte, déjà normalisé (`normalize`), cite-t-il l'app ? Pour juger un texte contre beaucoup d'apps. */
+export function citesNormalized(n: { lower: string; compact: string }, rule: AppRule): boolean {
+  const { lower, compact } = rule.not?.length ? normalize(rule.not.reduce((t, p) => t.split(p).join(" "), n.lower)) : n;
   if (rule.strong.some((p) => compact.includes(p))) return true;
   if (!rule.weak?.length) return false;
   const weakHit = rule.weak.some((p) => compact.includes(p));
   return weakHit && (rule.context ?? []).some((c) => lower.includes(c));
+}
+
+/** La légende ou le pseudo cite-t-il l'app ? */
+export function citesApp(caption: string, handle: string, rule: AppRule): boolean {
+  return citesNormalized(normalize(`${caption} ${handle}`), rule);
 }
 
 /**
@@ -187,10 +207,51 @@ export function isOffTopic(
   handle: string,
   rule: AppRule,
 ): boolean {
-  if (matchedBy !== "caption") return false;
+  return accountVerdict(matchedBy, videos, handle, rule, []).kind === "offTopic";
+}
+
+/** Vidéos qui citent une AUTRE app suivie avant d'y ranger le compte, et combien de fois plus que la sienne. */
+export const REASSIGN_MIN_VIDEOS = 3;
+export const REASSIGN_DOMINANCE = 3;
+
+export type AccountVerdict<T> = { kind: "keep" } | { kind: "move"; to: T; cited: number } | { kind: "offTopic" };
+
+/**
+ * Ce qu'on fait d'un compte entré dans un réseau sur une légende, au vu de ses
+ * vidéos lues : il va dans le réseau de l'app qu'il cite NETTEMENT le plus.
+ *  - une autre app suivie citée par au moins 3 vidéos, et au moins 3 fois plus
+ *    que la sienne → il change de réseau (`move`). Le 09/11/2026, 13 comptes de
+ *    FollowOtter étaient rangés sous FollowSpy sur une seule légende, et 5
+ *    d'entre eux (4,3 M vues en 7 jours) avaient été mis en pause comme « hors
+ *    sujet » : ils citaient une app, pas la bonne. « Nettement » : un compte
+ *    Flert Now qui met #rizzapp sous chaque vidéo cite Rizz App plus souvent
+ *    que la sienne sans en faire partie (rejoué sur la prod : il reste) ;
+ *  - sinon, aucune vidéo lue (9 au moins) ne cite la sienne → `offTopic` ;
+ *  - sinon → `keep`.
+ * Les comptes choisis à la main ou de la liste de départ ne sont jamais jugés.
+ * `others` : les autres apps suivies (pas la sienne).
+ */
+export function accountVerdict<T extends AppRule>(
+  matchedBy: "caption" | "manual" | "seed",
+  videos: readonly { caption?: string; hook?: string; platform?: string }[],
+  handle: string,
+  own: AppRule,
+  others: readonly T[],
+): AccountVerdict<T> {
+  if (matchedBy !== "caption") return { kind: "keep" };
   const read = videos.filter((v) => !v.platform && (v.caption !== undefined || v.hook !== undefined));
-  if (read.length < OFF_TOPIC_MIN_VIDEOS) return false;
-  return !read.some((v) => videoCitesApp({ caption: v.caption ?? "", hook: v.hook, handle }, rule));
+  let ownCount = 0;
+  const counts = new Map<T, number>();
+  for (const v of read) {
+    const n = normalize(`${v.caption ?? ""} ${v.hook ?? ""} ${handle}`);
+    if (citesNormalized(n, own)) ownCount++;
+    for (const a of others) if (citesNormalized(n, a)) counts.set(a, (counts.get(a) ?? 0) + 1);
+  }
+  let best: { to: T; cited: number } | undefined;
+  for (const [to, cited] of counts) if (!best || cited > best.cited) best = { to, cited };
+  if (best && best.cited >= REASSIGN_MIN_VIDEOS && best.cited >= REASSIGN_DOMINANCE * Math.max(1, ownCount)) return { kind: "move", ...best };
+  if (read.length >= OFF_TOPIC_MIN_VIDEOS && ownCount === 0) return { kind: "offTopic" };
+  return { kind: "keep" };
 }
 
 /** Concurrente d'autres projets, et pas de celui-ci (The Ick vue de BLUSH). */
@@ -200,7 +261,13 @@ export function rivalElsewhere(rivalOf: readonly string[], projectSlug: string):
 
 /** La première app citée (les apps sont essayées dans l'ordre donné). */
 export function findApp<T extends AppRule>(caption: string, handle: string, apps: readonly T[]): T | undefined {
-  return apps.find((a) => citesApp(caption, handle, a));
+  const n = normalize(`${caption} ${handle}`);
+  return apps.find((a) => citesNormalized(n, a));
+}
+
+/** L'app qu'une vidéo cite parmi les apps suivies (légende, texte à l'écran, ce qui est dit, pseudo). */
+export function videoApp<T extends AppRule>(v: { caption: string; hook?: string | null; transcript?: string | null; handle: string }, apps: readonly T[]): T | undefined {
+  return findApp([v.caption, v.hook ?? "", v.transcript ?? ""].join(" "), v.handle, apps);
 }
 
 /** Médiane d'une liste de vues (undefined si trop peu de vidéos pour s'y fier). */
@@ -237,24 +304,36 @@ export function nextReadAt(lastPostAt: number | undefined, now: number): number 
 }
 
 /**
- * Relevé RAPIDE (toutes les 6 h) des comptes où un hit se joue (09/11/2026 : une
- * vidéo n'était vue qu'à H+48 en médiane, 32 sur 405 avant H+12) : ceux des
- * concurrentes d'un projet qui ont publié ces 3 derniers jours, et les comptes
- * « chauds » (une vidéo à 10× leur normale cette semaine). ~260 comptes en prod,
- * +~790 relevés/jour, sous le plafond des relevés de comptes.
+ * Le prochain relevé d'un compte ACTIF (une publication ces 3 derniers jours) est
+ * CALÉ sur sa dernière publication : à publication + 18 h, puis toutes les 24 h,
+ * jamais à moins de 6 h du relevé qu'on vient de faire.
+ *  - une vidéo vue à moins de 12 h a ainsi un SECOND REGARD à H+18, quand on sait
+ *    si elle part (« en train de partir » : moins de 24 h, 10× sa normale) ;
+ *  - un compte qui publie à heure fixe est relevé chaque jour ~18 h après, au
+ *    lieu de l'être à l'heure où il publie (avant : relevé + 24 h, soit 25,5 h en
+ *    vrai avec la tâche horaire — la vidéo du jour était vue trop tôt pour être jugée).
+ * Remplace le relevé toutes les 6 h des concurrentes actives du 09/11/2026
+ * (#481), qui doublait la dépense des relevés. Rejoué avec cette fonction sur 7
+ * jours de publications réelles des 466 comptes actifs : 71 % des vidéos ont un
+ * regard entre H+12 et H+24 (35 % en relevé quotidien simple, 52 % avec le 6 h),
+ * soit toutes celles vues avant H+24, pour 0,93 relevé par compte et par jour
+ * (0,75 en quotidien, 1,55 avec le 6 h). Les comptes calmes gardent leur rythme.
  */
-export const FAST_READ_MS = 6 * HOUR;
-export const HOT_ACCOUNT_MULTIPLIER = 10;
+export const SECOND_LOOK_MS = 18 * HOUR;
+export const MIN_READ_GAP_MS = 6 * HOUR;
+/** Une vidéo de moins de 12 h n'a pas encore eu son regard entre H+12 et H+24. */
+export const FRESH_VIDEO_MS = 12 * HOUR;
 
-export function isFastAccount(a: { rival: boolean; lastPostAt: number | undefined; best7dMultiplier: number | undefined }, now: number): boolean {
-  if (a.lastPostAt === undefined) return false;
-  const idle = now - a.lastPostAt;
-  return (a.rival && idle <= 3 * DAY) || ((a.best7dMultiplier ?? 0) >= HOT_ACCOUNT_MULTIPLIER && idle <= 7 * DAY);
-}
-
-/** Le prochain relevé, rapide pour un compte où un hit se joue (`isFastAccount`). */
-export function nextReadAtFor(a: { rival: boolean; lastPostAt: number | undefined; best7dMultiplier: number | undefined }, now: number): number {
-  return isFastAccount(a, now) ? now + FAST_READ_MS : nextReadAt(a.lastPostAt, now);
+/**
+ * `freshOldestAt` : la publication de sa plus ANCIENNE vidéo de moins de 12 h
+ * (un compte qui publie deux fois par jour : chacune a son second regard).
+ */
+export function nextReadAtFor(lastPostAt: number | undefined, now: number, freshOldestAt?: number): number {
+  if (lastPostAt === undefined || now - lastPostAt > 3 * DAY) return nextReadAt(lastPostAt, now);
+  const earliest = now + MIN_READ_GAP_MS;
+  if (freshOldestAt !== undefined && now - freshOldestAt < FRESH_VIDEO_MS) return Math.max(earliest, freshOldestAt + SECOND_LOOK_MS);
+  const first = lastPostAt + SECOND_LOOK_MS;
+  return first >= earliest ? first : first + Math.ceil((earliest - first) / DAY) * DAY;
 }
 
 /** Trois relevés d'affilée en échec (compte supprimé, privé) : le compte passe en pause. */
