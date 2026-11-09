@@ -15,7 +15,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 import { tiktokPlayerEmbedUrl } from "@/lib/embed";
 import { useConvexError } from "@/lib/use-convex-error";
 import { formatCount, formatDuration } from "@/components/admin/radar/radar-format";
-import { ScoreBadge, SignalThumb, signalTitle, useAge, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
+import { ACCENT_LINK, ScoreBadge, SignalThumb, signalTitle, useAge, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
 import { curveOf, lastGrowth, scoreOf, usualViews } from "@/convex/radarDisplay";
 import type { SignalStatus } from "@/convex/radarSignalFilters";
 
@@ -93,7 +93,7 @@ export function RadarViewer({
             aria-valuemax={n}
             className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100"
           >
-            <div className="h-full rounded-full bg-orange-500 transition-[width]" style={{ width: `${n ? (Math.min(index, n) / n) * 100 : 0}%` }} />
+            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${n ? (Math.min(index, n) / n) * 100 : 0}%` }} />
           </div>
           <div className="flex gap-1">
             <button type="button" onClick={() => go(index - 1)} disabled={index === 0} aria-label={tr("precedente")} className="flex size-9 items-center justify-center rounded-lg border border-slate-300 disabled:opacity-40">
@@ -190,7 +190,7 @@ function Player({ s }: { s: RadarSignal }) {
           />
         </div>
       )}
-      <a href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-semibold text-orange-700 hover:underline">
+      <a href={s.url} target="_blank" rel="noopener noreferrer" className={cn("inline-flex items-center gap-1.5 text-sm", ACCENT_LINK)}>
         <ExternalLinkIcon className="size-3.5" aria-hidden />
         {s.platform === "instagram" ? tr("ouvrirInstagram") : tr("ouvrirTiktok")}
       </a>
@@ -215,6 +215,11 @@ function Details({ s, now }: { s: RadarSignal; now: number }) {
           {s.app && (
             <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", s.competitor ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>
               {s.competitor ? tu("appConcurrent", { app: s.app }) : s.app}
+            </span>
+          )}
+          {s.network && (
+            <span className="rounded-md border border-slate-200 px-2 py-0.5 text-xs text-slate-600" title={tu("compteSuiviPourAide", { app: s.network })} data-testid="radar-reseau-seul">
+              {tu("compteSuiviPour", { app: s.network })}
             </span>
           )}
           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">{tu(`langueLongue.${s.lang}` as Parameters<typeof tu>[0])}</span>
@@ -336,9 +341,9 @@ function CurveChart({ points }: { points: { h: number; views: number }[] }) {
           </text>
         </g>
       ))}
-      <polyline points={all.map((p) => `${x(p.h)},${y(p.views)}`).join(" ")} fill="none" stroke="#f97316" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={all.map((p) => `${x(p.h)},${y(p.views)}`).join(" ")} fill="none" className="stroke-primary" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
       {points.map((p, i) => (
-        <circle key={i} cx={x(p.h)} cy={y(p.views)} r="4.5" fill="#f97316" />
+        <circle key={i} cx={x(p.h)} cy={y(p.views)} r="4.5" className="fill-primary" />
       ))}
       {labelled.map((p, i) => (
         <text

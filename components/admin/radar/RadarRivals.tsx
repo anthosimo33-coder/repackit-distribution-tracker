@@ -11,12 +11,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
-import { SignalCard, useFormatLabel, useNow, useSignalStatus } from "@/components/admin/radar/radar-ui";
+import { ACCENT_LINK, SignalCard, useFormatLabel, useNow, useSignalStatus } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
 import { AccountsTable, NetworkSearchBlock, type AppRow } from "@/components/admin/radar/RadarNetworks";
 import { AdGroupCard } from "@/components/admin/radar/RadarAds";
 import type { RadarGo } from "@/components/admin/radar/RadarToday";
-import { appWeek, groupAds } from "@/convex/radarDisplay";
+import { appWeek, groupAds, scoreOf } from "@/convex/radarDisplay";
 import { listSince } from "@/convex/radarSignalFilters";
 
 /** Autres apps montrées avant « Voir toutes » ; vidéos, formats et pubs d'une fiche. */
@@ -96,7 +96,7 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
             <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{tr("autresApps")}</h2>
             {(allOthers ? others : others.slice(0, OTHERS_SHOWN)).map(appLink)}
             {others.length > OTHERS_SHOWN && (
-              <button type="button" onClick={() => setAllOthers((x) => !x)} className="px-2.5 py-1.5 text-left text-[13px] font-semibold text-orange-700 hover:underline">
+              <button type="button" onClick={() => setAllOthers((x) => !x)} className={cn("px-2.5 py-1.5 text-left text-[13px]", ACCENT_LINK)}>
                 {allOthers ? tr("moins") : tr("voirToutes", { n: others.length })}
               </button>
             )}
@@ -122,10 +122,11 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
 
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
           <Kpi label={tr("kpiCartonnent")} value={String(hits.length)} sub={tr("septJours")} testId="radar-kpi-cartonnent" />
+          {/* Sa meilleure vidéo QUI LA CITE, pas la meilleure de ses comptes (qui publient aussi autre chose). */}
           <Kpi
             label={tr("kpiMeilleure")}
-            value={app.best ? formatCount(app.best.views, loc) : "—"}
-            sub={app.best ? tr("meilleureSous", { x: formatOutlierRatio(app.best.multiplier, loc), handle: app.best.handle }) : tr("rienCetteSemaine")}
+            value={hits[0] ? formatCount(hits[0].views, loc) : "—"}
+            sub={hits[0] ? tr("meilleureSous", { x: formatOutlierRatio(scoreOf(hits[0]).value, loc), handle: hits[0].handle }) : tr("rienCetteSemaine")}
           />
           <Kpi label={tr("kpiPubs")} value={String(w.activeAds)} sub={tr("tiktokEtMeta")} testId="radar-kpi-pubs" />
           <Kpi label={tr("kpiComptes")} value={String(app.accounts)} sub={tr("comptesSous", { posts: app.posts7d })} />
@@ -137,7 +138,7 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
               {tr("sesVideos")}
             </h3>
             {hits.length > 0 && (
-              <button type="button" onClick={() => go("explorer", { a: app.name })} className="text-sm font-semibold text-orange-700 hover:underline">
+              <button type="button" onClick={() => go("explorer", { a: app.name })} className={cn("text-sm", ACCENT_LINK)}>
                 {tr("toutesDansExplorer", { n: hits.length })}
               </button>
             )}

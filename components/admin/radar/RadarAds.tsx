@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatPublished } from "@/components/admin/radar/radar-format";
 import { groupAds, type AdGroup } from "@/convex/radarDisplay";
+import { AccentTag } from "@/components/admin/radar/radar-ui";
 
 type Ad = FunctionReturnType<typeof api.radarSources.listAds>[number];
 type PlatformFilter = "all" | Ad["platform"];
@@ -90,7 +91,7 @@ export function AdGroupCard({ g }: { g: AdGroup<Ad> }) {
     <li className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-4" data-testid="radar-pub">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700">{tr(key(`plateformes.${a.platform}`))}</span>
-        {a.app && <span className={cn("rounded-md px-1.5 py-0.5 font-semibold", a.rival ? "bg-orange-500 text-slate-950" : "bg-slate-900 text-white")}>{a.app}</span>}
+        {a.app && (a.rival ? <AccentTag className="px-1.5 py-0.5">{a.app}</AccentTag> : <span className="rounded-md bg-slate-900 px-1.5 py-0.5 font-semibold text-white">{a.app}</span>)}
         <span className={cn("rounded-md px-1.5 py-0.5 font-semibold", active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500")}>
           {active ? tr("active") : tr("arretee")}
         </span>

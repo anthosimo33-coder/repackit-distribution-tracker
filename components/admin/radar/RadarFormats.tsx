@@ -8,7 +8,7 @@ import { api } from "@/convex/_generated/api";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useFormatLabel } from "@/components/admin/radar/radar-ui";
+import { AccentTag, useFormatLabel } from "@/components/admin/radar/radar-ui";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount, formatOutlierRatio, formatRelative } from "@/components/admin/radar/radar-format";
 
@@ -97,7 +97,7 @@ function FormatCard({ f }: { f: Format }) {
           <Icon className="size-3.5" aria-hidden />
           {tr(f.kind === "hook" ? "memeHook" : "memeSon")}
         </span>
-        {f.rival && <span className="rounded-md bg-orange-500 px-1.5 py-0.5 font-bold text-slate-950">{tr("pousseParUnConcurrent")}</span>}
+        {f.rival && <AccentTag className="px-1.5 py-0.5">{tr("pousseParUnConcurrent")}</AccentTag>}
         <span className="text-slate-500">
           {tr("comptesEtApps", { comptes: f.accountCount, apps: f.apps.map((a) => a.name).join(", ") })}
           {f.variants > 1 && ` · ${tr("variantes", { n: f.variants })}`}

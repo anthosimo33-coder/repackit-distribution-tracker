@@ -159,6 +159,18 @@ export function citesApp(caption: string, handle: string, rule: AppRule): boolea
   return weakHit && (rule.context ?? []).some((c) => lower.includes(c));
 }
 
+/**
+ * Une vidéo est-elle DE l'app dont son compte fait partie du réseau ? Elle doit
+ * la citer elle-même : légende, texte à l'écran, ce qui est dit, ou le pseudo du
+ * compte. Un compte entré dans un réseau sur une seule légende publie aussi tout
+ * autre chose — le 09/11/2026, un extrait de podcast Disney sous The Ick, un
+ * tutoriel allemand sous The Cringe : sur 7 jours, 134 des 245 vidéos promues de
+ * comptes rattachés par légende ne citaient pas leur app. Vérifié à chaque vidéo.
+ */
+export function videoCitesApp(v: { caption: string; hook?: string | null; transcript?: string | null; handle: string }, rule: AppRule): boolean {
+  return citesApp([v.caption, v.hook ?? "", v.transcript ?? ""].join(" "), v.handle, rule);
+}
+
 /** La première app citée (les apps sont essayées dans l'ordre donné). */
 export function findApp<T extends AppRule>(caption: string, handle: string, apps: readonly T[]): T | undefined {
   return apps.find((a) => citesApp(caption, handle, a));

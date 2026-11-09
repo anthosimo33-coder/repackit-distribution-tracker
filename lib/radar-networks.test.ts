@@ -17,6 +17,7 @@ import {
   patternsOfCandidate,
   searchKind,
   shouldPromote,
+  videoCitesApp,
 } from "../convex/radarNetworkMath";
 import { NETWORK_SEARCH_STALE_MS, networkSearchOutcome, networkSearchPhase } from "../convex/radarNetworkSearch";
 import { SEED_ACCOUNTS } from "../convex/radarSeedAccounts";
@@ -117,6 +118,29 @@ describe("rythme des relevés", () => {
   it("« #thecringe » est une recherche de hashtag, le reste des mots-clés", () => {
     expect(searchKind("#thecringe")).toEqual({ kind: "hashtag", value: "thecringe" });
     expect(searchKind("theick tromperie")).toEqual({ kind: "keyword", value: "theick tromperie" });
+  });
+});
+
+/** Vidéos relevées en prod le 09/11/2026 chez des comptes des réseaux. */
+describe("une vidéo n'est de l'app que si elle la cite (09/11/2026)", () => {
+  it("l'extrait Disney d'un compte du réseau The Ick, le tuto allemand d'un compte du réseau The Cringe : non", () => {
+    expect(
+      videoCitesApp(
+        { caption: "How Moseby’s Unforgettable Accent Was Really Created#DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia", handle: "banginout009" },
+        app("theick"),
+      ),
+    ).toBe(false);
+    expect(
+      videoCitesApp({ caption: "", hook: "Illegales Streaming: Es ist nicht mehr die Frage ob sondern wann ihr erwischt werdet‼️", handle: "thehandyman2go" }, app("thecringe")),
+    ).toBe(false);
+  });
+
+  it("la légende, le texte à l'écran, ce qui est dit ou le pseudo qui la cite : oui", () => {
+    expect(videoCitesApp({ caption: "Luego uno se anda enterando en recentfollow \n\n#fyp #infidelidad", handle: "soysarahi303" }, app("recentfollow"))).toBe(true);
+    expect(videoCitesApp({ caption: "Recent Follow me abrió los ojos y duele pero es lo mejor.", handle: "mari279785" }, app("recentfollow"))).toBe(true);
+    expect(videoCitesApp({ caption: "#fyp", hook: "C'est cheatlove.io si vous voulez y jeter un œil", handle: "x" }, app("cheatlove"))).toBe(true);
+    expect(videoCitesApp({ caption: "", transcript: "allez voir recentfollow ça m'a ouvert les yeux", handle: "x" }, app("recentfollow"))).toBe(true);
+    expect(videoCitesApp({ caption: "", handle: "the.recentfollow.girl" }, app("recentfollow"))).toBe(true);
   });
 });
 
