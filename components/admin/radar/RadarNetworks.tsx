@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AccentTag } from "@/components/admin/radar/radar-ui";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
 import { formatCount, formatOutlierRatio, formatRelative } from "@/components/admin/radar/radar-format";
@@ -188,7 +189,7 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
 
   return (
     <li
-      className={cn("overflow-hidden rounded-xl border bg-white", paused ? "border-slate-200 opacity-70" : running ? "border-orange-300" : "border-slate-200")}
+      className={cn("overflow-hidden rounded-xl border bg-white", paused ? "border-slate-200 opacity-70" : running ? "border-primary/50" : "border-slate-200")}
       data-testid="radar-app"
       aria-busy={running}
     >
@@ -211,7 +212,7 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
         <div className="min-w-0 flex-[1_1_240px] text-sm">
           {app.best ? (
             <a href={app.best.url} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1.5 text-slate-900 hover:underline">
-              <span className="rounded-md bg-orange-500 px-1.5 py-0.5 text-xs font-bold text-slate-950">{formatOutlierRatio(app.best.multiplier, loc)}</span>
+              <AccentTag className="px-1.5 py-0.5 text-xs">{formatOutlierRatio(app.best.multiplier, loc)}</AccentTag>
               <span className="truncate">{tr("meilleure", { handle: app.best.handle, vues: formatCount(app.best.views, loc) })}</span>
               <ExternalLinkIcon className="size-3.5 shrink-0 text-slate-500" aria-hidden />
             </a>
@@ -232,7 +233,7 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
       </div>
       {running && ns && (
         <div
-          className="h-1 w-full bg-orange-100"
+          className="h-1 w-full bg-primary/15"
           role="progressbar"
           aria-label={tr("rechercheEnCours")}
           aria-valuenow={ns.step}
@@ -264,7 +265,7 @@ function SearchStatus({ app, phase }: { app: AppRow; phase: ReturnType<typeof ne
   if (phase === "running" && ns) {
     return (
       <span role="status" className={cn(box, "flex items-center gap-1.5 font-medium text-slate-900")} data-testid="radar-recherche">
-        <Loader2Icon className="size-3.5 shrink-0 animate-spin text-orange-600" aria-hidden />
+        <Loader2Icon className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden />
         <span>
           {ns.startedAt === undefined || ns.step === 0 ? tr("rechercheEnCours") : tr("rechercheEnCoursEtape", { step: ns.step, steps: ns.steps })}
           {ns.attached > 0 && <span className="text-emerald-700"> · {tr("nouveauxComptes", { n: ns.attached })}</span>}
@@ -388,7 +389,7 @@ export function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appN
                       {r.best7d ? (
                         <>
                           <a href={r.best7d.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:underline">
-                            <span className="rounded-md bg-orange-500 px-1.5 py-0.5 text-xs font-bold text-slate-950">{formatOutlierRatio(r.best7d.multiplier, loc)}</span>
+                            <AccentTag className="px-1.5 py-0.5 text-xs">{formatOutlierRatio(r.best7d.multiplier, loc)}</AccentTag>
                             {tr("vues", { n: formatCount(r.best7d.views, loc) })}
                           </a>
                           {r.best7d.hook && <span className="mt-0.5 block max-w-[260px] truncate text-xs text-slate-500">{tr("hookCite", { hook: r.best7d.hook })}</span>}
@@ -441,12 +442,12 @@ function Candidates({ rows, onFollow }: { rows: Candidate[]; onFollow: (c: Candi
   const showError = useConvexError();
   const ignore = useProjectMutation(api.radarNetworks.ignoreCandidate);
   return (
-    <section aria-labelledby="radar-apps-reperees" className="space-y-2 rounded-xl border border-orange-200 bg-orange-50/60 p-4">
+    <section aria-labelledby="radar-apps-reperees" className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
       <h2 id="radar-apps-reperees" className="text-base font-semibold">
         {tr("appsReperees")}
       </h2>
       <p className="text-sm text-slate-600">{tr("appsRepereesAide")}</p>
-      <ul className="divide-y divide-orange-100">
+      <ul className="divide-y divide-primary/15">
         {rows.map((c) => (
           <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5" data-testid="radar-app-reperee">
             <div className="min-w-0 flex-[1_1_260px]">

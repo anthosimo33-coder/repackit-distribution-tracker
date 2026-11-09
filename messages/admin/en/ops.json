@@ -610,7 +610,9 @@
     "instagram": "Instagram",
     "vues": "{n} views",
     "hookCite": "“{hook}”",
-    "sonOriginalDe": "Original sound by @{handle}"
+    "sonOriginalDe": "Original sound by @{handle}",
+    "compteSuiviPour": "account followed for {app}",
+    "compteSuiviPourAide": "Its account is followed for {app}, but this video does not mention the app: it does not count as a {app} video."
   },
   "RadarViewer": {
     "titre": "Watch one by one",

@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_QUERIES } from "./radarDiscoveryQueries";
-import { SEED_APPS, canTrack, candidatesOf, findApp } from "./radarNetworkMath";
+import { SEED_APPS, canTrack, candidatesOf, findApp, videoCitesApp } from "./radarNetworkMath";
 import { SEED_ACCOUNTS } from "./radarSeedAccounts";
 import {
   BUDGET_VERSION,
@@ -703,9 +703,18 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
     .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
     .collect();
   const markOf = new Map<Id<"radarSignals">, Doc<"radarSignalMarks">>(marks.map((m) => [m.signalId, m]));
+  // Les règles de chaque app (une quarantaine de lignes) : une vidéo n'est rangée
+  // sous son app que si elle la cite (radarNetworkMath.videoCitesApp).
+  const rules = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id, a]));
   return {
     truncated: rows.length === SIGNALS_LIST_CAP,
-    signals: rows.map((r) => ({
+    signals: rows.map((r) => {
+      const rule = r.appId ? rules.get(r.appId) : undefined;
+      // Une vidéo de compte suivi qui ne cite pas l'app de son réseau n'est pas
+      // « de » cette app : ni étiquette, ni concurrent ; l'écran dit seulement
+      // pour quelle app son compte est suivi (`network`).
+      const cited = !rule || videoCitesApp({ caption: r.caption, hook: r.hook, transcript: r.transcript, handle: r.authorHandle }, rule);
+      return {
       id: r._id,
       videoId: r.videoId,
       url: r.url,
@@ -729,14 +738,16 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       ratio: r.ratio,
       multiplier: r.multiplier ?? null,
       snapshots: r.snapshots,
-      app: r.appName ?? r.competitor ?? null,
-      competitor: competitorFor(r, slug),
+      app: cited ? (r.appName ?? r.competitor ?? null) : null,
+      network: cited ? null : (r.appName ?? null),
+      competitor: cited ? competitorFor(r, slug) : null,
       tracked: r.trackedAccountId !== undefined,
       inCurve: r.nextCheckAt !== undefined,
       status: markOf.get(r._id)?.status ?? ("nouveau" as const),
       // Quand l'équipe l'a traitée : « N traitées aujourd'hui » (radarDisplay.handledToday).
       markedAt: markOf.get(r._id)?.updatedAt ?? null,
-    })),
+      };
+    }),
   };
 }
 
@@ -867,10 +878,14 @@ export const e2eSeedSignals = e2eMutation({
   handler: async (ctx, { signals, rivalProject }) => {
     const now = Date.now();
     const ids: Id<"radarSignals">[] = [];
+    // Une app semée nommée par `app` : la vidéo lui est rattachée comme en vrai (appId),
+    // donc soumise à la même vérification « la vidéo cite-t-elle l'app ? ».
+    const semees = await ctx.db.query("radarApps").collect();
     for (const s of signals) {
       const seed = findApp(s.caption, s.handle, SEED_APPS);
+      const semee = s.app ? semees.find((a) => a.name === s.app) : undefined;
       const app = s.app
-        ? { appName: s.app, appRivalOf: rivalProject ? [rivalProject] : [] }
+        ? { ...(semee ? { appId: semee._id } : {}), appName: s.app, appRivalOf: rivalProject ? [rivalProject] : [] }
         : seed
           ? { appName: seed.name, appRivalOf: [...seed.rivalOf, ...(rivalProject ? [rivalProject] : [])] }
           : {};

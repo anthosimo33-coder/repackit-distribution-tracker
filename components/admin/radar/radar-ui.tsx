@@ -12,10 +12,29 @@ import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
 import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
+import { inkOn } from "@/lib/accent-ink";
 import { curveOf, originalSoundOf, scoreOf, sparklinePoints } from "@/convex/radarDisplay";
 import type { SignalStatus } from "@/convex/radarSignalFilters";
 
 export type RadarSignal = FunctionReturnType<typeof api.radarSignals.listSignals>["signals"][number];
+
+/**
+ * L'encre lisible sur la couleur du projet (`bg-primary`) : blanche sur le violet
+ * de Snytch, noire sur le rose de BLUSH ou l'orange par défaut (lib/accent-ink).
+ */
+export function useAccentInk(): string {
+  const { project } = useProject();
+  return inkOn(project.accentColor || "#FF5200") === "light" ? "text-white" : "text-slate-950";
+}
+
+/** Une étiquette à la couleur du projet (score, « concurrent », « poussé par un concurrent »). */
+export function AccentTag({ children, className }: { children: React.ReactNode; className?: string }) {
+  const ink = useAccentInk();
+  return <span className={cn("rounded-md bg-primary font-bold", ink, className)}>{children}</span>;
+}
+
+/** Un lien d'action du Radar : texte sombre (lisible), souligné à la couleur du projet. */
+export const ACCENT_LINK = "font-semibold text-slate-900 underline decoration-primary decoration-2 underline-offset-4 hover:decoration-slate-900";
 
 /**
  * Le score d'une vidéo, le même partout : « 286× » = 286 fois ce que son compte
@@ -24,12 +43,14 @@ export type RadarSignal = FunctionReturnType<typeof api.radarSignals.listSignals
 export function ScoreBadge({ s, size = "md", className }: { s: Pick<RadarSignal, "multiplier" | "ratio">; size?: "sm" | "md" | "lg"; className?: string }) {
   const tr = useTranslations("admin.ops.RadarUi");
   const loc = useIntlLocale();
+  const ink = useAccentInk();
   const { value, basis } = scoreOf(s);
   const x = formatOutlierRatio(value, loc);
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-md bg-orange-500 font-bold text-slate-950",
+        "inline-flex shrink-0 items-center gap-1 rounded-md bg-primary font-bold",
+        ink,
         size === "sm" ? "px-1.5 py-0.5 text-xs" : size === "lg" ? "px-2.5 py-1 text-2xl" : "px-2 py-0.5 text-[13px]",
         className,
       )}
@@ -49,7 +70,7 @@ export function Sparkline({ s, className }: { s: Pick<RadarSignal, "snapshots" |
   if (!pts) return null;
   return (
     <svg width="74" height="26" viewBox="0 0 74 26" role="img" aria-label={tr("courbeDesVues")} className={className}>
-      <polyline points={pts} fill="none" stroke="#f97316" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={pts} fill="none" className="stroke-primary" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
 }
@@ -229,6 +250,11 @@ export function SignalCard({
         <p className="truncate text-[13px] text-slate-500">
           @{s.handle} · {age(s.publishedAt, now)}
         </p>
+        {s.network && (
+          <p className="truncate text-xs text-slate-500" data-testid="radar-reseau-seul">
+            {tr("compteSuiviPour", { app: s.network })}
+          </p>
+        )}
         {showActions && (
           <div className="mt-auto pt-1">
             <SignalActions s={s} onStatus={onStatus} />

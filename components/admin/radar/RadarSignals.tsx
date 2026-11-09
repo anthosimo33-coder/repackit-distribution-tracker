@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount } from "@/components/admin/radar/radar-format";
-import { ScoreBadge, SignalActions, SignalThumb, Sparkline, signalTitle, useAge, useNow, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
+import { ACCENT_LINK, ScoreBadge, SignalActions, SignalThumb, Sparkline, signalTitle, useAge, useNow, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
 import {
   PRESETS,
@@ -278,14 +278,14 @@ export function RadarSignals() {
             type="button"
             onClick={() => apply(removeChip(f, c))}
             aria-label={tr("retirerLeFiltre", { filtre: chipLabel(c) })}
-            className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-orange-300 bg-orange-50 py-1 pl-3 pr-2 text-sm text-orange-900"
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 py-1 pl-3 pr-2 text-sm text-slate-900"
           >
             {chipLabel(c)}
             <XIcon className="size-3.5" aria-hidden />
           </button>
         ))}
         {activeChips.length > 0 && (
-          <button type="button" onClick={() => apply(clearAll(f))} className="min-h-8 px-2 text-sm font-semibold text-orange-700 underline">
+          <button type="button" onClick={() => apply(clearAll(f))} className={cn("min-h-8 px-2 text-sm", ACCENT_LINK)}>
             {tr("toutEffacer")}
           </button>
         )}
@@ -313,7 +313,7 @@ export function RadarSignals() {
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => apply(clearAll(f))} className="text-sm font-semibold text-orange-700 underline">
+          <button type="button" onClick={() => apply(clearAll(f))} className={cn("text-sm", ACCENT_LINK)}>
             {tr("toutEffacer")}
           </button>
         </div>
@@ -353,6 +353,11 @@ function SignalRow({ s, now, onOpen, onStatus }: { s: RadarSignal; now: number; 
         {s.app && (
           <span className={cn("truncate rounded-md px-1.5 py-0.5 text-xs font-semibold", s.competitor ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>
             {s.app}
+          </span>
+        )}
+        {s.network && (
+          <span className="truncate text-xs text-slate-500" title={tu("compteSuiviPourAide", { app: s.network })} data-testid="radar-reseau-seul">
+            {tu("compteSuiviPour", { app: s.network })}
           </span>
         )}
         {s.status !== "nouveau" && (
@@ -402,7 +407,7 @@ function Menu({
             className={cn(
               "inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm",
               plain ? "text-slate-900" : "border bg-white",
-              !plain && (active ? "border-orange-300 bg-orange-50" : dashed ? "border-dashed border-slate-400" : "border-slate-300"),
+              !plain && (active ? "border-primary/50 bg-primary/10" : dashed ? "border-dashed border-slate-400" : "border-slate-300"),
             )}
           >
             <span className="text-slate-500">{label}</span>

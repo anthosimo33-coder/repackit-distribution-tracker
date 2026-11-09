@@ -26,13 +26,15 @@ function semis(ts: number) {
   const rival = `E2E Rival auj ${ts}`;
   const now = Date.now();
   const hook = (n: number) => `Quand ton mec like en secret ${n} ${ts}`;
-  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][]) => ({
+  // `cite` : la légende cite l'app (son motif). Sinon, c'est une vidéo d'un compte
+  // du réseau qui parle d'autre chose (09/11 : un extrait Disney sous The Ick).
+  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true) => ({
     videoId: `${m}${n}`,
     handle: `rxauj${n}_${ts}`,
     fans: 1_000 + n,
     views: snaps[snaps.length - 1][1],
     lang: "fr",
-    caption: `${hook(n)} ${m}`,
+    caption: `${hook(n)} ${m}${cite ? ` avec ${p}a` : ""}`,
     publishedAt: now - ageH * HOUR,
     multiplier,
     hook: hook(n),
@@ -57,6 +59,8 @@ function semis(ts: number) {
       s(2, 9_800, 40, [[24, 980_000]]),
       s(3, 9_700, 50, [[24, 970_000]]),
       s(4, 9_600, 60, [[24, 960_000]]),
+      // Un compte du réseau, une vidéo qui ne cite pas l'app : ni étiquette ni concurrent.
+      s(5, 9_500, 70, [[24, 950_000]], false),
     ],
     ads: [
       // La même créa, deux annonces actives : une seule ligne, une seule pub active.
@@ -86,10 +90,13 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       await expect(page.getByRole("link", { name: /^Aujourd'hui/ })).toHaveAttribute("aria-current", "page");
       await expect(page.getByTestId("radar-a-regarder")).toHaveText(/^\d+ vidéos? à regarder aujourd'hui$/);
       const cartes = page.getByTestId("radar-signal");
-      for (const [i, n] of [1, 2, 3, 4].entries()) await expect(cartes.nth(i)).toContainText(z.hook(n));
+      for (const [i, n] of [1, 2, 3, 4, 5].entries()) await expect(cartes.nth(i)).toContainText(z.hook(n));
       await expect(carte(1).getByTestId("radar-score")).toHaveText("9900×");
       await expect(carte(1)).toContainText(`${z.rival} · concurrent`);
-      // La semaine du concurrent : 4 vidéos qui cartonnent, une créa active (deux annonces).
+      // La vidéo qui ne cite pas l'app : pas d'étiquette, seulement le réseau de son compte.
+      await expect(carte(5)).not.toContainText(z.rival + " · concurrent");
+      await expect(carte(5).getByTestId("radar-reseau-seul")).toHaveText(`compte suivi pour ${z.rival}`);
+      // La semaine du concurrent : 4 vidéos qui cartonnent (pas la 5e), une créa active (deux annonces).
       const semaine = page.getByTestId("radar-concurrent-semaine").filter({ hasText: z.rival });
       await expect(semaine.getByRole("cell").nth(1)).toHaveText("4");
       await expect(semaine.getByRole("cell").nth(3)).toHaveText("1");

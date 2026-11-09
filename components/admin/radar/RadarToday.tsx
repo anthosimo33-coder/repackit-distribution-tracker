@@ -8,9 +8,10 @@ import { api } from "@/convex/_generated/api";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { useProject } from "@/components/project/ProjectProvider";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
-import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
-import { SignalCard, useFormatLabel, useNow, useSignalStatus } from "@/components/admin/radar/radar-ui";
+import { formatCount } from "@/components/admin/radar/radar-format";
+import { ACCENT_LINK, AccentTag, ScoreBadge, SignalCard, useFormatLabel, useNow, useSignalStatus } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
 import { appWeek, handledToday, todayQueue } from "@/convex/radarDisplay";
 import { applyFilters, defaultFilters, listSince } from "@/convex/radarSignalFilters";
@@ -117,7 +118,7 @@ export function RadarToday({ go }: { go: RadarGo }) {
             </h2>
             <p className="mt-1 text-sm text-slate-500">{tr("formatsAide", { n: hot.length })}</p>
           </div>
-          <button type="button" onClick={() => go("explorer", { vue: "formats" })} className="text-sm font-semibold text-orange-700 hover:underline">
+          <button type="button" onClick={() => go("explorer", { vue: "formats" })} className={cn("text-sm", ACCENT_LINK)}>
             {tr("tousLesFormats")}
           </button>
         </div>
@@ -143,7 +144,7 @@ export function RadarToday({ go }: { go: RadarGo }) {
             <p className="mt-1 text-sm text-slate-500">{tr("concurrentsAide")}</p>
           </div>
           {rivals.length > 0 && (
-            <button type="button" onClick={() => go("concurrents")} className="text-sm font-semibold text-orange-700 hover:underline">
+            <button type="button" onClick={() => go("concurrents")} className={cn("text-sm", ACCENT_LINK)}>
               {tr("lesConcurrents", { n: rivals.length, projet: project.name })}
             </button>
           )}
@@ -174,10 +175,11 @@ export function RadarToday({ go }: { go: RadarGo }) {
                     </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums">{w.hits.length}</td>
                     <td className="px-4 py-3">
-                      {a.best ? (
-                        <a href={a.best.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-slate-700 hover:underline">
-                          <span className="rounded-md bg-orange-500 px-1.5 py-0.5 text-xs font-bold text-slate-950">{formatOutlierRatio(a.best.multiplier, loc)}</span>
-                          {tr("meilleure", { handle: a.best.handle, vues: formatCount(a.best.views, loc) })}
+                      {/* Sa meilleure vidéo QUI LA CITE (pas la meilleure de ses comptes, qui publient aussi autre chose). */}
+                      {w.hits[0] ? (
+                        <a href={w.hits[0].url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-slate-700 hover:underline">
+                          <ScoreBadge s={w.hits[0]} size="sm" />
+                          {tr("meilleure", { handle: w.hits[0].handle, vues: formatCount(w.hits[0].views, loc) })}
                         </a>
                       ) : (
                         <span className="text-slate-500">{tr("rienCetteSemaine")}</span>
@@ -210,7 +212,7 @@ export function FormatTile({ f, label, onSee }: { f: Format; label: string; onSe
           <Icon className="size-3.5" aria-hidden />
           {f.kind === "hook" ? tr("memeTexte") : tr("memeSon")}
         </span>
-        {f.rival && <span className="rounded-md bg-orange-500 px-2 py-0.5 font-bold text-slate-950">{tr("pousseParUnConcurrent")}</span>}
+        {f.rival && <AccentTag className="px-2 py-0.5">{tr("pousseParUnConcurrent")}</AccentTag>}
       </div>
       <p className="line-clamp-3 break-words text-[15px] font-semibold leading-snug text-slate-900">{label}</p>
       <p className="text-[13px] leading-relaxed text-slate-500">
@@ -218,7 +220,7 @@ export function FormatTile({ f, label, onSee }: { f: Format; label: string; onSe
         {f.variants > 1 && ` · ${tr("variantes", { n: f.variants })}`}
       </p>
       <div className="mt-auto border-t border-slate-100 pt-2.5">
-        <button type="button" onClick={onSee} className="text-sm font-semibold text-orange-700 hover:underline">
+        <button type="button" onClick={onSee} className={cn("text-sm", ACCENT_LINK)}>
           {tr("voirLeFormat")}
         </button>
       </div>

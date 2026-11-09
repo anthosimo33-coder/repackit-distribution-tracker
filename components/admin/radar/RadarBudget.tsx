@@ -143,7 +143,7 @@ function BudgetEditor({ data }: { data: BudgetData }) {
             <span className="text-slate-500">{tr("depenseCeMois", { plafond: money(draft.capUsd) })}</span>
           </div>
           <div className="h-3 overflow-hidden rounded-full bg-slate-100" aria-hidden>
-            <div className={cn("h-3", st.capReached ? "bg-red-700" : st.over80 ? "bg-orange-500" : "bg-slate-900")} style={{ width: `${spentPct}%` }} />
+            <div className={cn("h-3", st.capReached ? "bg-red-700" : st.over80 ? "bg-amber-500" : "bg-slate-900")} style={{ width: `${spentPct}%` }} />
           </div>
           <p className="text-sm text-slate-700">
             {tr("prevu", { prevu: money(planned) })}
@@ -154,7 +154,7 @@ function BudgetEditor({ data }: { data: BudgetData }) {
             {plannedOver ? tr("depassePlafond", { ecart: money(planned - draft.capUsd) }) : tr("margeRestante", { marge: money(draft.capUsd - planned) })}
           </p>
           {st.cut.length > 0 && (
-            <p className="text-sm text-orange-800">{tr("postesCoupes", { postes: st.cut.map((p) => tr(k(`poste.${p}.titre`))).join(", ") })}</p>
+            <p className="text-sm text-amber-800">{tr("postesCoupes", { postes: st.cut.map((p) => tr(k(`poste.${p}.titre`))).join(", ") })}</p>
           )}
         </section>
 

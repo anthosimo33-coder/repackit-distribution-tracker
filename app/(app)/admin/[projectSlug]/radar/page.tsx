@@ -16,7 +16,7 @@ import { RadarToday } from "@/components/admin/radar/RadarToday";
 import { RadarExplorer, type ExplorerVue } from "@/components/admin/radar/RadarExplorer";
 import { RadarRivals } from "@/components/admin/radar/RadarRivals";
 import { RadarSettings } from "@/components/admin/radar/RadarSettings";
-import { useNow } from "@/components/admin/radar/radar-ui";
+import { useAccentInk, useNow } from "@/components/admin/radar/radar-ui";
 import { todayQueue } from "@/convex/radarDisplay";
 import { listSince } from "@/convex/radarSignalFilters";
 
@@ -65,6 +65,7 @@ function RadarPageInner() {
   const projectPath = useProjectPath();
   const searchParams = useSearchParams();
   const now = useNow();
+  const ink = useAccentInk();
   const signals = useProjectQuery(api.radarSignals.listSignals, { since: listSince(now) });
   const budget = useProjectQuery(api.radarSignals.getRadarBudget, {});
 
@@ -151,7 +152,7 @@ function RadarPageInner() {
             >
               {t.label}
               {t.id === "aujourdhui" && toWatch !== null && toWatch > 0 && (
-                <span className="rounded-full bg-orange-500 px-2 py-px text-xs font-bold text-slate-950" data-testid="radar-badge-aujourdhui">
+                <span className={cn("rounded-full bg-primary px-2 py-px text-xs font-bold", ink)} data-testid="radar-badge-aujourdhui">
                   {toWatch}
                 </span>
               )}
