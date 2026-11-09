@@ -233,6 +233,10 @@ const ETAPES: Record<TablePurgee, Etape> = {
   assignmentStatusEvents: etape((ctx, pid, n) =>
     ctx.db.query("assignmentStatusEvents").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  // Décisions de la Validation (temps de réponse) : partent avec les missions.
+  videoReviews: etape((ctx, pid, n) =>
+    ctx.db.query("videoReviews").withIndex("by_project_decidedAt", (q) => q.eq("projectId", pid)).take(n),
+  ),
   // Archive des vidéos de missions supprimées : supprimer le PROJET est un
   // effacement total et voulu — les fichiers partent avec, sans délai de 30 j.
   deletedSubmittedVideos: etape(

@@ -97,6 +97,8 @@ export const NON_CREATOR_ASSIGNMENT_FIELDS = [
   "deadlineReminderSentAt",
   "lastNudgeAt",
   "adminFeedback",
+  // Entrée dans la file Validation : mesure du temps de réponse DE L'ÉQUIPE.
+  "inReviewSince",
   // Legacy mono-cible : l'info vit désormais sur les cibles ENRICHIES.
   "accountId",
   "publishedUrl",

@@ -22,7 +22,19 @@ type Validation = {
     total: number;
     aPublierDemain: number;
     parCreneau: { enRetard: number; aujourdhui: number; demain: number; plusTard: number; sansDate: number };
-    videos: { createatrice: string; jourPrevu: string | null; creneau: string; comptes: string[] }[];
+    videos: {
+      createatrice: string;
+      jourPrevu: string | null;
+      creneau: string;
+      comptes: string[];
+      enAttenteDepuis?: string;
+    }[];
+  };
+  tempsDeReponse: {
+    septDerniersJours: { videos: number };
+    trenteDerniersJours: { videos: number };
+    plusLongueAttenteEnCours: { createatrice: string; depuis: string } | null;
+    mesureDepuis: string | null;
   };
   publieesRecemment: { createatrice: string; liens: string[] }[];
 };
@@ -127,6 +139,9 @@ test.describe("Outil MCP validation", () => {
           secret: E2E_SECRET,
           id: ligne._id,
           status: "video_submitted",
+          // Seule « demain » a une heure d'entrée dans la file (envoyée il y a
+          // 1 j 7 h) ; les autres sont comme les vidéos d'avant la mesure.
+          ...(ligne === demain ? { inReviewSince: Date.now() - (31 * 3_600_000) } : {}),
         });
       }
       const lien = `https://www.tiktok.com/${handle}/video/77${ts}`;
@@ -157,6 +172,19 @@ test.describe("Outil MCP validation", () => {
       expect(creneauDe(null)).toBe("sans date prévue");
       expect(r.aRelire.videos[0].comptes).toEqual([`${handle} (TikTok)`]);
       expect(r.publieesRecemment).toEqual([expect.objectContaining({ createatrice: nomCreatrice, liens: [lien] })]);
+
+      // ── Temps de réponse : depuis quand chacune attend, et rien d'inventé ──
+      // Une seule vidéo a une heure d'entrée : elle seule dit depuis quand elle
+      // attend ; les autres (heure inconnue) ne disent rien, jamais « 0 min ».
+      const enAttente = r.aRelire.videos.filter((v) => v.enAttenteDepuis !== undefined);
+      expect(enAttente).toEqual([
+        expect.objectContaining({ jourPrevu: shiftDay(aujourdhui, 1), enAttenteDepuis: "1 j 7 h" }),
+      ]);
+      expect(r.tempsDeReponse.plusLongueAttenteEnCours).toEqual({ createatrice: nomCreatrice, depuis: "1 j 7 h" });
+      // Projet dédié, aucune décision prise : rien de mesuré.
+      expect(r.tempsDeReponse.septDerniersJours).toEqual({ videos: 0 });
+      expect(r.tempsDeReponse.trenteDerniersJours).toEqual({ videos: 0 });
+      expect(r.tempsDeReponse.mesureDepuis).toBeNull();
 
       // ── La file de l'écran, avec la règle de l'écran à l'heure de Paris ────
       const ecran = await admin.query(api.assignments.listVideoSubmitted, { projectId });

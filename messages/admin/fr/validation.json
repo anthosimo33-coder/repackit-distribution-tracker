@@ -69,7 +69,8 @@
     "refuseeLeCreateurPeutRe": "Refusée — le créateur peut re-soumettre.",
     "echecDuRefusDeLa": "Échec du refus de la vidéo",
     "hookLibre": "✍️ hook libre",
-    "hookLibreAValider": "Hook libre : la créatrice dit l'accroche avec ses mots. Vérifie l'idée, pas la phrase de l'exemple."
+    "hookLibreAValider": "Hook libre : la créatrice dit l'accroche avec ses mots. Vérifie l'idée, pas la phrase de l'exemple.",
+    "envoyeeIlYa": "Envoyée il y a {duree}"
   },
   "BonusRow": {
     "post": "{postCount} {postCount, plural, one {post} other {posts}}",
@@ -148,5 +149,31 @@
     "published": "Publié",
     "rejected": "Refusé",
     "expired": "Expiré"
+  },
+  "ReviewDelayCard": {
+    "titre": "Temps de réponse",
+    "explication": "De l'envoi de la vidéo jusqu'à « Valider » ou « Refuser », nuits et week-ends compris. Une vidéo renvoyée après un refus compte comme une nouvelle attente.",
+    "periode": "Période",
+    "septJours": "7 derniers jours",
+    "septJoursAvant": "Les 7 jours d'avant",
+    "trenteJours": "30 derniers jours",
+    "videos": "Vidéos",
+    "moyenne": "Moyenne",
+    "mediane": "Médiane",
+    "rapide": "En moins de 12 h",
+    "plusLong": "Plus long",
+    "pourcent": "{p} %",
+    "parPersonne": "Par personne (30 jours)",
+    "sansNom": "Sans nom",
+    "attenteEnCours": "Plus longue attente en cours : {duree} ({createatrice}).",
+    "aucuneMesure": "Pas encore de mesure : le délai se compte pour chaque vidéo envoyée depuis la mise en place de ce suivi, jusqu'à « Valider » ou « Refuser ». Les vidéos envoyées avant n'ont pas d'heure d'envoi.",
+    "mesureDepuis": "Mesuré depuis le {date} — les vidéos envoyées avant n'ont pas d'heure d'envoi."
+  },
+  "duree": {
+    "minutes": "{m} min",
+    "heures": "{h} h {m}",
+    "heuresRondes": "{h} h",
+    "jours": "{j} j {h} h",
+    "joursRonds": "{j} j"
   }
 }

@@ -99,6 +99,8 @@ export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
   "deadlineReminderSentAt",
   "lastNudgeAt",
   "adminFeedback",
+  // Entrée dans la file Validation : mesure du temps de réponse DE L'ÉQUIPE.
+  "inReviewSince",
   // Sans objet dans le flux clip (cf en-tête).
   "formatId",
   "managedByAdmin",

@@ -125,6 +125,8 @@ import {
   listVideoSubmittedCore,
 } from "./assignments";
 import { countTomorrow, reviewSlot } from "./reviewQueue";
+import { tempsDeReponseCore } from "./videoReviews";
+import { SEUIL_RAPIDE_MS, decoupeDuree, type Fenetre } from "./reviewDelay";
 import {
   getChallengeCore,
   listChallengesCore,
@@ -585,8 +587,31 @@ export const lireValidation = mcpPermissionQuery("review.manage")({
   handler: async (ctx) => ({
     aRelire: await listVideoSubmittedCore(ctx),
     publiees: await listPublishedCore(ctx),
+    delais: await tempsDeReponseCore(ctx),
   }),
 });
+
+/** « 45 min », « 3 h 05 », « 2 j 4 h » — même découpage que l'écran. */
+function dureeFr(ms: number): string {
+  const d = decoupeDuree(ms);
+  if (d.unite === "minutes") return `${d.m} min`;
+  if (d.unite === "heures") return d.m === 0 ? `${d.h} h` : `${d.h} h ${String(d.m).padStart(2, "0")}`;
+  return d.h === 0 ? `${d.j} j` : `${d.j} j ${d.h} h`;
+}
+
+/** Une fenêtre du temps de réponse, lisible. */
+function fenetreLisible(f: Fenetre) {
+  if (f.videos === 0) return { videos: 0 };
+  return {
+    videos: f.videos,
+    validees: f.validees,
+    refusees: f.refusees,
+    moyenne: dureeFr(f.moyenneMs ?? 0),
+    mediane: dureeFr(f.medianeMs ?? 0),
+    [`enMoinsDe${SEUIL_RAPIDE_MS / 3_600_000}h`]: `${Math.round((f.partRapide ?? 0) * 100)} %`,
+    plusLong: dureeFr(f.plusLongMs ?? 0),
+  };
+}
 
 /**
  * La vidéo SOUMISE d'une mission, et ce qu'elle devait montrer — pour
@@ -1120,7 +1145,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "validation",
     title: "Vidéos à relire (Validation)",
     description:
-      "La file de l'écran Validation : les vidéos soumises par les créatrices, en attente de validation avant publication, dans l'ordre de la file (date de publication prévue), avec leur créneau (en retard, aujourd'hui, DEMAIN, plus tard, sans date) — même règle que l'écran, lue à l'heure de Paris ; puis les publications récentes avec leurs liens. Filtre par créatrice.",
+      "La file de l'écran Validation : les vidéos soumises par les créatrices, en attente de validation avant publication, dans l'ordre de la file (date de publication prévue), avec leur créneau (en retard, aujourd'hui, DEMAIN, plus tard, sans date) — même règle que l'écran, lue à l'heure de Paris — et depuis quand chacune attend ; le TEMPS DE RÉPONSE de l'équipe (de l'envoi d'une vidéo à « Valider » / « Refuser » : moyenne, médiane, part en moins de 12 h, plus long, sur 7 jours, les 7 d'avant et 30 jours, par personne) ; puis les publications récentes avec leurs liens. Filtre par créatrice (la file seulement).",
     inputSchema: {
       type: "object",
       properties: {
@@ -2896,7 +2921,7 @@ export function jarviaServer(
       }
 
       if (name === "validation") {
-        const { aRelire, publiees } = await lire(() => ctx.runQuery(internal.mcpTools.lireValidation, ids));
+        const { aRelire, publiees, delais } = await lire(() => ctx.runQuery(internal.mcpTools.lireValidation, ids));
         const maintenant = Date.now();
         // LE créneau de la file (convex/reviewQueue), lu à l'heure de l'ÉQUIPE : le
         // serveur n'a pas de « jour local », l'écran d'un admin à Paris, si.
@@ -2913,8 +2938,30 @@ export function jarviaServer(
           file.filter((v) => reviewSlot(v.postDate, maintenant, fuseau) === c).length;
         const limite = typeof args.limite === "number" ? args.limite : 30;
         const recentes = publiees.filter((p) => filtreNom(p.creatorName, args.createatrice));
+        const attentes = file
+          .filter((v) => v.inReviewSince !== null)
+          .map((v) => ({ createatrice: v.creatorName, ms: maintenant - v.inReviewSince! }))
+          .sort((a, b) => b.ms - a.ms);
         return json({
           projet: projet.slug,
+          tempsDeReponse: {
+            septDerniersJours: fenetreLisible(delais.septJours),
+            septJoursDAvant: fenetreLisible(delais.septJoursAvant),
+            trenteDerniersJours: fenetreLisible(delais.trenteJours),
+            ...(delais.parPersonne.length > 1
+              ? {
+                  parPersonne30Jours: delais.parPersonne.map((p) => ({
+                    personne: p.nom ?? "sans nom",
+                    ...fenetreLisible(p),
+                    ...(p.viaClaude > 0 ? { dontViaClaude: p.viaClaude } : {}),
+                  })),
+                }
+              : {}),
+            plusLongueAttenteEnCours: attentes[0]
+              ? { createatrice: attentes[0].createatrice, depuis: dureeFr(attentes[0].ms) }
+              : null,
+            mesureDepuis: jour(delais.mesureDepuis),
+          },
           aRelire: {
             total: file.length,
             aPublierDemain: countTomorrow(file, maintenant, fuseau),
@@ -2934,6 +2981,7 @@ export function jarviaServer(
               comptes: v.targets.map((t) => `${t.accountHandle ?? "?"} (${t.platform})`),
               jourPrevu: v.postDate == null ? null : plannedDayKey(v.postDate),
               creneau: creneaux[reviewSlot(v.postDate, maintenant, fuseau)],
+              ...(v.inReviewSince !== null ? { enAttenteDepuis: dureeFr(maintenant - v.inReviewSince) } : {}),
               echeance: jour(v.dueDate),
               ...(v.comboSummary ? { combo: v.comboSummary } : {}),
             })),
@@ -2948,6 +2996,7 @@ export function jarviaServer(
             "« aRelire » = vidéos soumises par les créatrices, en attente de validation avant publication, dans l'ordre de la file (date de publication prévue).",
             "Créneaux lus à l'heure de Paris (l'écran les lit à l'heure de l'admin) : « demain » est ce qui doit être validé en priorité.",
             "Pour VOIR une vidéo de la file : `regarder_video` avec la créatrice et son jour prévu (images clés + script attendu).",
+            "« tempsDeReponse » = de l'entrée de la vidéo dans la file (envoi, renvoi après un refus) jusqu'à « Valider » ou « Refuser », nuits et week-ends compris ; chaque décision compte une fois. Les vidéos envoyées avant « mesureDepuis » n'ont pas d'heure d'envoi : ni comptées, ni « enAttenteDepuis ». Absent ≠ rapide.",
           ],
         });
       }

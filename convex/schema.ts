@@ -1978,6 +1978,26 @@ export default defineSchema({
     .index("by_assignment", ["assignmentId", "at"])
     .index("by_project", ["projectId"]),
 
+  // DÉCISIONS DE LA VALIDATION (convex/videoReviews) — une ligne par « Valider »
+  // ou « Refuser », de quoi mesurer le temps de réponse de l'équipe (convex/
+  // reviewDelay). `submittedAt` = l'entrée de la vidéo dans la file
+  // (`assignments.inReviewSince`), `decidedAt` = le clic. Seules les vidéos
+  // entrées dans la file APRÈS la mise en place de la mesure en ont une : avant,
+  // l'heure d'envoi n'était écrite nulle part. Supprimée avec la mission.
+  videoReviews: defineTable({
+    projectId: v.id("projects"),
+    assignmentId: v.id("assignments"),
+    creatorId: v.id("creators"),
+    submittedAt: v.number(),
+    decidedAt: v.number(),
+    decision: v.union(v.literal("approved"), v.literal("rejected")),
+    by: v.optional(v.id("users")),
+    /** Fait par Claude (outil MCP) plutôt qu'à l'écran. */
+    via: v.optional(v.literal("claude")),
+  })
+    .index("by_project_decidedAt", ["projectId", "decidedAt"])
+    .index("by_assignment", ["assignmentId"]),
+
   // MESSAGES DE L'ÉQUIPE À UNE CRÉATRICE (le coach, convex/mcpCoach.ts) : écrits
   // par Claude, relus, envoyés par email (convex/emails.sendTeamMessage). Gardés
   // pour l'historique et le délai entre deux messages (convex/messageEquipe).
@@ -2675,6 +2695,12 @@ export default defineSchema({
     // Feedback admin au REFUS d'une vidéo (visible créateur). Remplace le rôle de
     // l'ancien adminFeedback (migré).
     videoReviewFeedback: v.optional(v.string()),
+    // ENTRÉE DANS LA FILE VALIDATION — posée quand la mission passe en
+    // `video_submitted` (envoi, renvoi après refus, mission rétablie, confiance
+    // retirée), retirée à la décision. Le départ du temps de réponse (cf
+    // convex/reviewDelay) et « envoyée il y a » sur la carte. Absent sur les
+    // vidéos entrées avant la mesure : leur heure d'envoi n'est connue nulle part.
+    inReviewSince: v.optional(v.number()),
     // Anti-spam du rappel de deadline par email (cf convex/emails.ts) : posé au
     // 1er rappel ENVOYÉ, jamais réécrit → une mission ne génère qu'un rappel.
     // Optional : aucune migration, les assignments existants valent "jamais relancé".

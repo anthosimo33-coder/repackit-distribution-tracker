@@ -76,6 +76,7 @@ import { statutARetablir } from "./missionAbandon";
 import { hasSubmittedVideo } from "./assignmentVideo";
 import { archiveSubmittedVideo } from "./deletedVideos";
 import { poserVideoSoumise } from "./videoSubmission";
+import { enregistrerDecision, supprimerDecisionsDe } from "./videoReviews";
 import { buildZoneMap } from "./creatorDay";
 import { creatorZoneOnly } from "./creatorTimezone";
 import { ERR, err } from "./errorCodes";
@@ -1411,7 +1412,12 @@ export async function restoreAssignmentCore(
       );
     }
   }
-  await ctx.db.patch(id, { status });
+  // Rétablie dans la file Validation : elle y ENTRE maintenant (le temps passé
+  // abandonnée n'est l'attente de personne).
+  await ctx.db.patch(id, {
+    status,
+    ...(status === "video_submitted" ? { inReviewSince: Date.now() } : {}),
+  });
   await ctx.db.insert("assignmentStatusEvents", {
     projectId: a.projectId,
     assignmentId: id,
@@ -1488,9 +1494,11 @@ export async function archiveAndDeleteAssignment(
   await ctx.db.delete(a._id);
 }
 
-/** La trace d'abandon part avec la mission (cf `assignmentStatusEvents`). */
+/** Les traces de la mission partent avec elle : abandons (`assignmentStatusEvents`)
+ *  et décisions de la Validation (`videoReviews`). */
 async function deleteStatusEvents(ctx: MutationCtx, id: Id<"assignments">): Promise<void> {
   for (const e of await statusEventsOf(ctx, id)) await ctx.db.delete(e._id);
+  await supprimerDecisionsDe(ctx, id);
 }
 
 /**
@@ -2160,13 +2168,20 @@ export const reviewVideoApprove = permissionMutation("review.manage")({
 });
 
 /** Cœur de « Valider » — l'écran Validation et l'outil MCP `valider_video`. */
-export async function reviewVideoApproveCore(ctx: ProjectMutationCtx, id: Id<"assignments">) {
+export async function reviewVideoApproveCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  opts: { via?: "claude" } = {},
+) {
   const a = await requireProjectAssignmentInScope(ctx, id);
   if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
   if (a.status !== "video_submitted") {
     throw err(ERR.VIDEO_NOT_IN_REVIEW_APPROVE, "Seules les vidéos en revue peuvent être validées.");
   }
-  await ctx.db.patch(id, { status: "to_publish" });
+  // Temps de réponse : la décision est notée AVANT que la mission quitte la
+  // file (l'entrée dans la file est lue sur la mission telle qu'elle était).
+  await enregistrerDecision(ctx, a, "approved", { userId: ctx.userId, via: opts.via });
+  await ctx.db.patch(id, { status: "to_publish", inReviewSince: undefined });
   // Notification créateur — hors transaction : un échec d'email ne remet pas
   // en cause la validation. Non atteint sur le retour idempotent ci-dessus,
   // donc re-valider n'envoie pas de second mail.
@@ -2190,7 +2205,12 @@ export const reviewVideoReject = permissionMutation("review.manage")({
 });
 
 /** Cœur de « Refuser » — l'écran Validation et l'outil MCP `refuser_video`. */
-export async function reviewVideoRejectCore(ctx: ProjectMutationCtx, id: Id<"assignments">, feedback: string) {
+export async function reviewVideoRejectCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  feedback: string,
+  opts: { via?: "claude" } = {},
+) {
   const a = await requireProjectAssignmentInScope(ctx, id);
   if (a.status !== "video_submitted") {
     throw err(ERR.VIDEO_NOT_IN_REVIEW_REJECT, "Seules les vidéos en revue peuvent être refusées.");
@@ -2199,11 +2219,13 @@ export async function reviewVideoRejectCore(ctx: ProjectMutationCtx, id: Id<"ass
   if (fb.length === 0) {
     throw err(ERR.REJECTION_REASON_REQUIRED, "Un motif de refus est requis.");
   }
+  await enregistrerDecision(ctx, a, "rejected", { userId: ctx.userId, via: opts.via });
   await ctx.db.patch(id, {
     status: "video_rejected",
     videoReviewFeedback: fb,
     // Horodate le refus → la file « à traiter » peut repérer ceux qui stagnent.
     videoRejectedAt: Date.now(),
+    inReviewSince: undefined,
   });
   // Notification créateur avec le feedback DÉJÀ saisi ici (aucune ressaisie
   // demandée à l'admin). Hors transaction : le refus reste acquis si l'email
@@ -2402,6 +2424,9 @@ export async function listVideoSubmittedCore(ctx: ProjectQueryCtx) {
             // vidéos soumises ensemble affichaient cinq fois la même date.
             postDate: a.postDate ?? null,
             postWindow: a.postWindow ?? null,
+            // Entrée dans la file — « envoyée il y a » sur la carte. Null pour
+            // une vidéo entrée avant la mesure (heure inconnue, rien affiché).
+            inReviewSince: a.inReviewSince ?? null,
             videoStorageId: a.submittedVideoStorageId ?? null,
             videoUrl: a.submittedVideoStorageId
               ? await ctx.storage.getUrl(a.submittedVideoStorageId)
@@ -4639,12 +4664,16 @@ export const e2eSetAssignmentStatus = e2eMutation({
     // deux valent alors la même chose. Même rôle que le `now` injecté de
     // l'expiration des rushes : le test exerce le vrai code, il ne le simule pas.
     createdAt: v.optional(v.number()),
+    // Entrée dans la file ANTIDATÉE : de quoi mesurer un temps de réponse
+    // d'heures sans attendre des heures (le vrai `reviewVideoApprove` le lit).
+    inReviewSince: v.optional(v.number()),
   },
-  handler: async (ctx, { id, status, videoReviewFeedback, createdAt }) => {
+  handler: async (ctx, { id, status, videoReviewFeedback, createdAt, inReviewSince }) => {
     await ctx.db.patch(id, {
       status,
       videoReviewFeedback,
       ...(createdAt !== undefined ? { createdAt } : {}),
+      ...(inReviewSince !== undefined ? { inReviewSince } : {}),
     });
     return { ok: true };
   },

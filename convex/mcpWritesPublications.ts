@@ -211,7 +211,7 @@ export const ecrireValidationVideo = mcpWriteMutation("review.manage", "publicat
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, enRevue);
     const photos = await photographier(ctx, "assignments", [m.a._id]);
-    await reviewVideoApproveCore(ctx, m.a._id);
+    await reviewVideoApproveCore(ctx, m.a._id, { via: "claude" });
     const summary = `${m.libelle} : vidéo validée`;
     await journaliser(ctx, { tool: "valider_video", summary, section: "validation", path: "validation", etats: await etatsApres(ctx, photos) });
     return { summary };
@@ -223,7 +223,7 @@ export const ecrireRefusVideo = mcpWriteMutation("review.manage", "publications"
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, enRevue);
     const photos = await photographier(ctx, "assignments", [m.a._id]);
-    await reviewVideoRejectCore(ctx, m.a._id, a.motif);
+    await reviewVideoRejectCore(ctx, m.a._id, a.motif, { via: "claude" });
     const court = a.motif.trim().length > 80 ? `${a.motif.trim().slice(0, 77)}…` : a.motif.trim();
     const summary = `${m.libelle} : vidéo refusée — « ${court} »`;
     await journaliser(ctx, { tool: "refuser_video", summary, section: "validation", path: "validation", etats: await etatsApres(ctx, photos) });
