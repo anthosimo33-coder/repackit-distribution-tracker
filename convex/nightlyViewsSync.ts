@@ -4,23 +4,27 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
-  apifyFailureReason,
-  fetchApifyViewsForPlatform,
   fetchInstagramProfiles,
   tiktokPostId,
   instagramShortcode,
   type ApifyPostStat,
 } from "./apifyApi";
 import {
+  fetchFacebookViewsSc,
+  fetchInstagramViewsSc,
+  releveScKey,
+  scFailureReason,
+} from "./scrapeCreatorsViews";
+import {
   extractYouTubeId,
   fetchYouTubeViews,
   fetchYouTubeChannelStats,
 } from "./youtubeApi";
 import {
-  APIFY_RESCUE_BUDGET,
+  TIKTOK_RESCUE_BUDGET,
   BREAKER_CLOSED,
   collectTikTokInternally,
-  rescueWithApify,
+  rescueWithScrapeCreators,
   type BreakerState,
 } from "./tiktokInternal";
 import {
@@ -36,7 +40,6 @@ import {
 import {
   facebookMatchKey,
   facebookNightlyBudget,
-  fetchFacebookViews,
   planFacebookBudget,
   type FacebookPostStat,
 } from "./facebookApify";
@@ -96,12 +99,13 @@ import {
  * clôture de la fenêtre de paie (J+29, J+30) et les vidéos d'un défi actif,
  * relevées chaque nuit. YouTube, gratuit, reste quotidien.
  *
- * SOURCES : TikTok est lu sur la page publique du post, Apify n'y sert plus
- * que de secours borné (cf `convex/tiktokInternal.ts`) ; Instagram reste chez
- * Apify, sa page publique exigeant une connexion ; Snapchat est lu sur la page
- * publique du Spotlight, sans secours (cf `convex/snapchatInternal.ts`) ;
- * Facebook passe par l'actor Apify officiel, sous un PLAFOND de posts par nuit
- * (cf `convex/facebookApify.ts`) — sa page publique exige une connexion.
+ * SOURCES : TikTok est lu sur la page publique du post, ScrapeCreators n'y
+ * sert que de secours borné (cf `convex/tiktokInternal.ts`) ; Instagram passe
+ * par ScrapeCreators, compte par compte, sa page publique exigeant une
+ * connexion ; Snapchat est lu sur la page publique du Spotlight, sans secours
+ * (cf `convex/snapchatInternal.ts`) ; Facebook passe par ScrapeCreators, post
+ * par post, sous un PLAFOND de posts par nuit (cf `convex/facebookApify.ts`).
+ * Apify jusqu'au 09/11/2026, cf convex/scrapeCreatorsViews.ts.
  *
  * RYTHME : les lots partent SÉQUENTIELLEMENT, un à la fois, avec 30-60 s de
  * temporisation aléatoire entre deux lots, et 1,5-3 s entre deux pages TikTok
@@ -177,7 +181,7 @@ const tallyValidator = v.object({
 export type NightlyPlan = {
   started: boolean;
   reason?: string;
-  /** Lots enchaînés (TikTok : 25 pages ; Instagram : 1 run Apify facturé). */
+  /** Lots enchaînés (TikTok : 25 pages ; Instagram : 25 posts, lus par compte). */
   lots: number;
   /** Comptes YouTube relevés dans la foulée. */
   youtubeComptes: number;
@@ -477,9 +481,9 @@ async function syncYouTube(
  * porte son état dans ses arguments (coupe-circuit, budget de secours) : pas de
  * table de run à maintenir.
  *
- * TikTok : page publique d'abord, Apify en secours borné (cf
- * `convex/tiktokInternal.ts`). Instagram : Apify, inchangé — sa page publique
- * exige une connexion.
+ * TikTok : page publique d'abord, ScrapeCreators en secours borné (cf
+ * `convex/tiktokInternal.ts`). Instagram et Facebook : ScrapeCreators — leurs
+ * pages publiques exigent une connexion.
  *
  * Tout échec est avalé AU LOT : la chaîne continue coûte que coûte.
  */
@@ -498,10 +502,10 @@ export const syncApifyLot = internalAction({
       }),
     ),
     /**
-     * Posts TikTok que le secours Apify peut encore prendre CETTE nuit, tous
+     * Posts TikTok que le secours payant peut encore prendre CETTE nuit, tous
      * lots confondus. Absent au premier lot = budget plein. Décrémenté et
      * transmis : sans ce report, chaque lot repartirait à zéro et un blocage
-     * TikTok renverrait toute la collecte vers Apify, donc vers la facture.
+     * TikTok renverrait toute la collecte vers le secours, donc vers la facture.
      */
     rescueBudget: v.optional(v.number()),
     /**
@@ -525,15 +529,15 @@ export const syncApifyLot = internalAction({
       return null;
     }
 
-    const apiToken = process.env.APIFY_API_TOKEN;
+    const scKey = releveScKey();
     let breaker: BreakerState = args.breaker ?? BREAKER_CLOSED;
-    let rescueBudget = args.rescueBudget ?? APIFY_RESCUE_BUDGET;
+    let rescueBudget = args.rescueBudget ?? TIKTOK_RESCUE_BUDGET;
     let snapBreaker: BreakerState = args.snapBreaker ?? BREAKER_CLOSED;
     let releves: Set<string>;
 
     try {
       if (lot.plateforme === "TikTok") {
-        const r = await syncTikTokLot(ctx, lot.targets, apiToken, breaker, rescueBudget, args);
+        const r = await syncTikTokLot(ctx, lot.targets, scKey, breaker, rescueBudget, args);
         releves = r.releves;
         breaker = r.breaker;
         rescueBudget = r.rescueBudget;
@@ -542,9 +546,9 @@ export const syncApifyLot = internalAction({
         releves = r.releves;
         snapBreaker = r.breaker;
       } else if (lot.plateforme === "Facebook") {
-        releves = await syncFacebookLot(ctx, lot.targets, apiToken, args);
+        releves = await syncFacebookLot(ctx, lot.targets, scKey, args);
       } else {
-        releves = await syncInstagramLot(ctx, lot, apiToken, args);
+        releves = await syncInstagramLot(ctx, lot, scKey, args);
       }
     } catch (e) {
       // L'imprévu (mutation en échec, réseau) : le lot compte en échec pour ce
@@ -602,13 +606,14 @@ export const syncApifyLot = internalAction({
 type LotLabel = { lotIndex: number; lotTotal: number };
 
 /**
- * Lot TikTok : pages publiques, puis secours Apify pour ce qu'elles n'ont pas
- * rendu. Rend les publications relevées et l'état à transmettre au lot suivant.
+ * Lot TikTok : pages publiques, puis secours ScrapeCreators pour ce qu'elles
+ * n'ont pas rendu. Rend les publications relevées et l'état à transmettre au
+ * lot suivant.
  */
 async function syncTikTokLot(
   ctx: ActionCtx,
   targets: readonly LotTarget[],
-  apiToken: string | undefined,
+  scKey: string | undefined,
   breakerIn: BreakerState,
   budgetIn: number,
   label: LotLabel,
@@ -628,11 +633,11 @@ async function syncTikTokLot(
     });
   }
 
-  const secours = await rescueWithApify(
+  const secours = await rescueWithScrapeCreators(
     ctx,
     interne.aSecourir,
     capturedAt,
-    apiToken,
+    scKey,
     budgetIn,
   );
   // Une vidéo d'un autre compte n'est PAS relevée : rien n'a été écrit.
@@ -641,7 +646,7 @@ async function syncTikTokLot(
   console.info(
     `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} TikTok — ` +
       `${releves.size}/${targets.length} relevée(s) : ${interne.releves.length} par la page ` +
-      `(${interne.pages} page(s)), ${secours.releves.length} par Apify (${secours.runs} run(s)), ` +
+      `(${interne.pages} page(s)), ${secours.releves.length} par ScrapeCreators (${secours.runs} crédit(s)), ` +
       `${interne.refused} refusée(s) par TikTok, ${secours.failed} perdue(s)` +
       (etrangers > 0 ? `, ${etrangers} lien(s) d'un autre compte non relevé(s)` : "") +
       `. ` +
@@ -682,13 +687,14 @@ async function syncSnapchatLot(
 }
 
 /**
- * Lot Facebook : un run de l'actor officiel (payé au post, borné en coût par
- * `maxTotalChargeUsd`). Un post non rendu est inscrit en échec avec son motif.
+ * Lot Facebook : ScrapeCreators, un crédit par post (le plafond de la nuit
+ * borne le nombre, cf `planFacebookBudget`). Un post non rendu est inscrit en
+ * échec avec son motif.
  */
 async function syncFacebookLot(
   ctx: ActionCtx,
   targets: readonly LotTarget[],
-  apiToken: string | undefined,
+  scKey: string | undefined,
   label: LotLabel,
 ): Promise<Set<string>> {
   const debut = Date.now();
@@ -696,13 +702,14 @@ async function syncFacebookLot(
   const releves = new Set<string>();
 
   let stats: Record<string, FacebookPostStat> = {};
-  let motif = "Apify n'a pas rendu le post Facebook (privé, supprimé, ou profil personnel)";
-  if (!apiToken) {
-    motif = "pas de relevé Facebook (APIFY_API_TOKEN absent)";
+  let motif =
+    "ScrapeCreators n'a pas rendu le post Facebook (privé, supprimé, photo sans vues, ou profil personnel)";
+  if (!scKey) {
+    motif = "pas de relevé Facebook (clé ScrapeCreators absente)";
   } else {
-    const r = await fetchFacebookViews(targets, apiToken);
+    const r = await fetchFacebookViewsSc(targets, scKey);
     stats = r.stats;
-    if (r.errors.length > 0) motif = apifyFailureReason(r.errors[0]);
+    if (r.errors.length > 0) motif = scFailureReason(r.errors[0]);
   }
 
   for (const t of targets) {
@@ -737,13 +744,15 @@ async function syncFacebookLot(
 }
 
 /**
- * Lot Instagram : un run Apify (= une unité de coût). Un post non rendu est
- * inscrit en échec avec son motif — Instagram n'a pas de lecture publique.
+ * Lot Instagram : ScrapeCreators, les reels de chaque compte (12 par crédit)
+ * puis le lien de ce qui n'y est pas (cf convex/scrapeCreatorsViews.ts). Un
+ * post non rendu est inscrit en échec avec son motif — Instagram n'a pas de
+ * lecture publique.
  */
 async function syncInstagramLot(
   ctx: ActionCtx,
   lot: { plateforme: LotPlateforme; source: LotSource; targets: LotTarget[] },
-  apiToken: string | undefined,
+  scKey: string | undefined,
   label: LotLabel,
 ): Promise<Set<string>> {
   const debut = Date.now();
@@ -751,24 +760,15 @@ async function syncInstagramLot(
   const capturedAt = Date.now();
 
   let stats: Record<string, ApifyPostStat> = {};
-  let motif = "Apify n'a pas rendu le post (aucun repli sur cette plateforme)";
-  if (!apiToken) {
-    motif = "pas de relevé Instagram (APIFY_API_TOKEN absent)";
+  let motif = "ScrapeCreators n'a pas rendu le post (privé, supprimé, ou photo sans vues)";
+  let credits = 0;
+  if (!scKey) {
+    motif = "pas de relevé Instagram (clé ScrapeCreators absente)";
   } else {
-    try {
-      const r = await fetchApifyViewsForPlatform(
-        "Instagram",
-        lot.targets.map((t) => t.url),
-        apiToken,
-      );
-      stats = r.stats;
-      if (r.errors.length > 0) motif = apifyFailureReason(r.errors[0]);
-    } catch (e) {
-      console.error(
-        `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} Instagram — Apify en échec :`,
-        e,
-      );
-    }
+    const r = await fetchInstagramViewsSc(lot.targets, scKey);
+    stats = r.stats;
+    credits = r.calls;
+    if (r.errors.length > 0) motif = scFailureReason(r.errors[0]);
   }
 
   // Les posts qui CONFIRMENT leur compte (propriétaire = le @) d'abord : leur
@@ -810,7 +810,7 @@ async function syncInstagramLot(
   }
   console.info(
     `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} Instagram — ` +
-      `${releves.size}/${lot.targets.length} relevée(s)` +
+      `${releves.size}/${lot.targets.length} relevée(s), ${credits} crédit(s)` +
       (etrangers > 0 ? `, ${etrangers} lien(s) d'un autre compte non relevé(s)` : "") +
       `, ${Date.now() - debut} ms.`,
   );

@@ -7,14 +7,11 @@ import {
   type TikTokPublicStats,
 } from "./tiktokPublicPage";
 import { ownerIsPubHandle } from "./postOwner";
-import {
-  apifyFailureReason,
-  fetchApifyViewsForPlatform,
-  type ApifyPostStat,
-} from "./apifyApi";
+import type { ApifyPostStat } from "./apifyApi";
+import { fetchTikTokViewsSc, scFailureReason } from "./scrapeCreatorsViews";
 
 /**
- * RELEVÉ TIKTOK MAISON — source PRINCIPALE, Apify en secours.
+ * RELEVÉ TIKTOK MAISON — source PRINCIPALE, ScrapeCreators en secours.
  *
  * ── Pourquoi ─────────────────────────────────────────────────────────────────
  * Le 2026-09-13, le crédit Apify gratuit (5 $/mois) était épuisé en trois nuits :
@@ -37,19 +34,20 @@ import {
  *   2. un COUPE-CIRCUIT — `BREAKER_THRESHOLD` pages illisibles D'AFFILÉE et on
  *      cesse de frapper pour la nuit : insister sur une IP qu'on vient de
  *      signaler est ce qui transforme un ralentissement en blocage durable ;
- *   3. un SECOURS Apify borné — les posts que la page n'a pas rendus partent
- *      chez Apify, dans la limite de `APIFY_RESCUE_BUDGET` posts par nuit, pour
- *      qu'un blocage ne se transforme pas en facture.
+ *   3. un SECOURS payant borné — les posts que la page n'a pas rendus partent
+ *      chez ScrapeCreators (Apify jusqu'au 09/11/2026), dans la limite de
+ *      `TIKTOK_RESCUE_BUDGET` posts par nuit, pour qu'un blocage ne se
+ *      transforme pas en facture.
  *
  * Un REFUS de TikTok (`statusCode` non nul : « visible par son autrice »,
  * `10231 cross_border_violation`, supprimé) n'est PAS un signe de blocage — la
- * page a été servie, avec son motif. Il ne part pas chez Apify non plus : ces
+ * page a été servie, avec son motif. Il ne part pas au secours non plus : ces
  * posts étaient justement ceux qu'Apify ne rendait pas.
  *
  * ── L'auteur de la vidéo ─────────────────────────────────────────────────────
  * TikTok sert une vidéo par son id et ignore le @ écrit dans l'URL : une vidéo
  * d'un autre compte collée par une créatrice se relève comme la sienne. Chaque
- * relevé passe donc l'auteur rendu (page : `author`, Apify : `authorMeta`) à
+ * relevé passe donc l'auteur rendu (page : `author`, secours : `author`) à
  * l'écriture, qui refuse le post PROUVÉ à un autre compte (cf
  * convex/postOwner.ts) — et le profil servi avec un post n'est écrit sur le
  * compte que si le post est à CE compte.
@@ -58,8 +56,8 @@ import {
 /** Pages illisibles consécutives qui coupent le relevé maison pour la nuit. */
 export const BREAKER_THRESHOLD = 5;
 
-/** Posts TikTok envoyés au secours Apify, au plus, sur une nuit. ~0,40 $. */
-export const APIFY_RESCUE_BUDGET = 100;
+/** Posts TikTok envoyés au secours, au plus, sur une nuit : 100 crédits, ~0,19 $. */
+export const TIKTOK_RESCUE_BUDGET = 100;
 
 /** Pause entre deux pages : 1,5 à 3 s, tirée au hasard. */
 export const PAGE_DELAY_MIN_MS = 1_500;
@@ -306,22 +304,22 @@ export type RescueOutcome = {
   foreign: number;
   /** Posts perdus (échec persisté avec son motif). */
   failed: number;
-  /** Runs Apify lancés — l'unité de coût. */
+  /** Requêtes ScrapeCreators envoyées — 1 crédit chacune, l'unité de coût. */
   runs: number;
   budgetRestant: number;
 };
 
 /**
- * Confie à Apify les posts que la page n'a pas rendus, dans la limite du
- * budget. Tout post qui n'en revient pas avec des compteurs est inscrit en
- * échec, avec la raison de la page ET celle d'Apify — jamais un « 0 vue ».
- * Ne lève JAMAIS.
+ * Confie à ScrapeCreators (un crédit par vidéo) les posts que la page n'a pas
+ * rendus, dans la limite du budget. Tout post qui n'en revient pas avec des
+ * compteurs est inscrit en échec, avec la raison de la page ET celle du
+ * secours — jamais un « 0 vue ». Ne lève JAMAIS.
  */
-export async function rescueWithApify(
+export async function rescueWithScrapeCreators(
   ctx: ActionCtx,
   targets: readonly RescueTarget[],
   capturedAt: number,
-  apiToken: string | undefined,
+  apiKey: string | undefined,
   budget: number,
   fetchImpl?: typeof fetch,
 ): Promise<RescueOutcome> {
@@ -334,27 +332,22 @@ export async function rescueWithApify(
   };
   if (targets.length === 0) return out;
 
-  const place = apiToken ? Math.max(0, budget) : 0;
+  const place = apiKey ? Math.max(0, budget) : 0;
   const tentes = targets.slice(0, place);
   const horsBudget = targets.slice(tentes.length);
   out.budgetRestant = budget - tentes.length;
 
   let stats: Record<string, ApifyPostStat> = {};
-  let motifApify = "Apify n'a pas rendu le post";
-  if (tentes.length > 0 && apiToken) {
-    try {
-      const r = await fetchApifyViewsForPlatform(
-        "TikTok",
-        tentes.map((t) => t.url),
-        apiToken,
-        fetchImpl,
-      );
-      stats = r.stats;
-      out.runs = r.runs;
-      if (r.errors.length > 0) motifApify = apifyFailureReason(r.errors[0]);
-    } catch (e) {
-      motifApify = `Apify en erreur (${String(e).slice(0, 60)})`;
-    }
+  let motifSecours = "ScrapeCreators n'a pas rendu le post";
+  if (tentes.length > 0 && apiKey) {
+    const r = await fetchTikTokViewsSc(
+      tentes.map((t) => t.url),
+      apiKey,
+      fetchImpl,
+    );
+    stats = r.stats;
+    out.runs = r.calls;
+    if (r.errors.length > 0) motifSecours = scFailureReason(r.errors[0]);
   }
 
   // Même ordre que la page : les vidéos qui confirment leur compte d'abord.
@@ -387,13 +380,13 @@ export async function rescueWithApify(
     await ctx.runMutation(internal.apifySync.recordCollectFailure, {
       publicationId: t.publicationId,
       at: capturedAt,
-      reason: `${t.reason} ; ${motifApify}`,
+      reason: `${t.reason} ; ${motifSecours}`,
     });
   }
 
-  const motifHorsBudget = apiToken
-    ? "secours Apify reporté (budget de la nuit épuisé)"
-    : "pas de secours Apify (APIFY_API_TOKEN absent)";
+  const motifHorsBudget = apiKey
+    ? "secours reporté (budget de la nuit épuisé)"
+    : "pas de secours (clé ScrapeCreators absente)";
   for (const t of horsBudget) {
     out.failed += 1;
     await ctx.runMutation(internal.apifySync.recordCollectFailure, {

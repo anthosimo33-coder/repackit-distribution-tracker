@@ -271,6 +271,7 @@ import type * as scenarioTournageBlush from "../scenarioTournageBlush.js";
 import type * as scenarioTournageRegles from "../scenarioTournageRegles.js";
 import type * as scenarios from "../scenarios.js";
 import type * as scrapeCreatorsApi from "../scrapeCreatorsApi.js";
+import type * as scrapeCreatorsViews from "../scrapeCreatorsViews.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
 import type * as scriptConversation from "../scriptConversation.js";
 import type * as scriptDecision from "../scriptDecision.js";
@@ -595,6 +596,7 @@ declare const fullApi: ApiFromModules<{
   scenarioTournageRegles: typeof scenarioTournageRegles;
   scenarios: typeof scenarios;
   scrapeCreatorsApi: typeof scrapeCreatorsApi;
+  scrapeCreatorsViews: typeof scrapeCreatorsViews;
   scriptAnalytics: typeof scriptAnalytics;
   scriptConversation: typeof scriptConversation;
   scriptDecision: typeof scriptDecision;

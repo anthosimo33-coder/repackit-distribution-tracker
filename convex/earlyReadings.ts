@@ -9,11 +9,8 @@ import { e2eMutation } from "./functions";
 import { internal } from "./_generated/api";
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import {
-  apifyFailureReason,
-  fetchApifyViewsForPlatform,
-  type ApifyPostStat,
-} from "./apifyApi";
+import type { ApifyPostStat } from "./apifyApi";
+import { fetchInstagramViewsSc, releveScKey, scFailureReason } from "./scrapeCreatorsViews";
 import { fetchTikTokPublicStats } from "./tiktokPublicPage";
 import { judgeAndLearnOwner } from "./postOwnerGuard";
 import { ownerIsPubHandle } from "./postOwner";
@@ -45,8 +42,9 @@ import {
  *   2. choisit les vidéos dues (moins de 36 h, dernier relevé ≥ 2 h) ;
  *   3. TikTok : page publique, une à la fois, 1,5 à 3 s entre deux pages,
  *      coupe-circuit à 5 pages illisibles d'affilée — et alors TikTok est
- *      suspendu 6 h. AUCUN secours Apify : ce relevé ne doit rien coûter ;
- *   4. Instagram : un run Apify par lot de 25 (facturé au résultat) ;
+ *      suspendu 6 h. AUCUN secours payant : ce relevé ne doit rien coûter ;
+ *   4. Instagram : ScrapeCreators, les reels de chaque compte (12 par crédit),
+ *      le lien de ce qui n'y est pas (cf convex/scrapeCreatorsViews.ts) ;
  *   5. écrit les relevés dans `earlyReadings`, la tentative de chaque post dans
  *      `earlyReadingAttempts` (c'est elle qui porte la cadence, échec compris),
  *      et le passage dans `earlyReadingRuns`.
@@ -433,34 +431,28 @@ async function collectInstagram(targets: readonly EarlyTarget[]): Promise<{
   if (targets.length === 0) {
     return { readings: [], attempts: [], read: 0, missing: 0, runs: 0 };
   }
-  const apiToken = process.env.APIFY_API_TOKEN;
-  if (!apiToken) {
-    // Aucune tentative inscrite : rien n'a été demandé à Apify, le post n'a pas
-    // à attendre 2 h de plus quand le jeton reviendra.
+  const scKey = releveScKey();
+  if (!scKey) {
+    // Aucune tentative inscrite : rien n'a été demandé, le post n'a pas à
+    // attendre 2 h de plus quand la clé reviendra.
     return {
       readings: [],
       attempts: [],
       read: 0,
       missing: targets.length,
       runs: 0,
-      error: "APIFY_API_TOKEN absent",
+      error: "clé ScrapeCreators absente",
     };
   }
-  let stats: Record<string, ApifyPostStat> = {};
-  let runs = 0;
-  let error: string | undefined;
-  try {
-    const r = await fetchApifyViewsForPlatform(
-      "Instagram",
-      targets.map((t) => t.url),
-      apiToken,
-    );
-    stats = r.stats;
-    runs = r.runs;
-    if (r.errors.length > 0) error = apifyFailureReason(r.errors[0]);
-  } catch (e) {
-    error = `Apify en échec (${String(e).slice(0, 80)})`;
-  }
+  // Le compte de la vidéo : toutes ses publications désignent le même post, la
+  // première suffit à trouver la page de reels où il est.
+  const r = await fetchInstagramViewsSc(
+    targets.map((t) => ({ key: t.key, url: t.url, compte: t.publications[0]?.compte ?? "" })),
+    scKey,
+  );
+  const stats: Record<string, ApifyPostStat> = r.stats;
+  const runs = r.calls;
+  const error = r.errors.length > 0 ? scFailureReason(r.errors[0]) : undefined;
   const capturedAt = Date.now();
   const readings: Reading[] = [];
   const attempts: Attempt[] = [];

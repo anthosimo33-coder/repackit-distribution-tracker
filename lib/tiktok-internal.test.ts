@@ -3,7 +3,7 @@ import type { ActionCtx } from "../convex/_generated/server";
 import type { Id } from "../convex/_generated/dataModel";
 import {
   collectTikTokInternally,
-  rescueWithApify,
+  rescueWithScrapeCreators,
   nextBreaker,
   pageDelayMs,
   BREAKER_CLOSED,
@@ -436,31 +436,46 @@ describe("collectTikTokInternally — l'auteur de la vidéo", () => {
   });
 });
 
-describe("rescueWithApify — le secours payant, borné", () => {
+describe("rescueWithScrapeCreators — le secours payant, borné", () => {
   const aSecourir = (id: string, reason = "HTTP 429"): RescueTarget => ({ ...cible(id), reason });
 
-  /** Réponse de l'actor clockworks : un item par post rendu. */
-  const apifyRend = (items: { id: string; playCount: number }[]) => {
-    const appels: string[][] = [];
-    const impl = (async (_u: string, init: { body: string }) => {
-      appels.push(JSON.parse(init.body).postURLs);
+  /**
+   * `/v2/tiktok/video?url=` : une vidéo par requête, `aweme_detail` comme sur un
+   * vrai appel du 09/11/2026 ; une vidéo inconnue répond 404.
+   */
+  const scRend = (videos: { id: string; playCount: number; author?: { unique_id: string; uid: string } }[]) => {
+    const appels: string[] = [];
+    const impl = (async (u: string) => {
+      const url = new URL(u).searchParams.get("url") ?? "";
+      appels.push(url);
+      const v = videos.find((x) => url.includes(x.id));
+      if (!v) return new Response(JSON.stringify({ success: false, message: "Video not found" }), { status: 404 });
       return new Response(
-        JSON.stringify(items.map((i) => ({ id: i.id, playCount: i.playCount, diggCount: 12, commentCount: 1 }))),
+        JSON.stringify({
+          success: true,
+          credits_charged: 1,
+          aweme_detail: {
+            aweme_id: v.id,
+            desc: "Heureusement que le site Snytch.co existe",
+            statistics: { play_count: v.playCount, digg_count: 12, comment_count: 1, collect_count: 3 },
+            ...(v.author ? { author: v.author } : {}),
+          },
+        }),
         { status: 200 },
       );
     }) as unknown as typeof fetch;
     return { impl, appels };
   };
 
-  it("écrit ce qu'Apify rend, inscrit le reste avec les DEUX motifs", async () => {
+  it("écrit ce que ScrapeCreators rend, inscrit le reste avec les DEUX motifs", async () => {
     const { ctx, snapshots, echecs } = fakeCtx();
-    const { impl } = apifyRend([{ id: "7675779059342642465", playCount: 40_112 }]);
+    const { impl } = scRend([{ id: "7675779059342642465", playCount: 40_112 }]);
 
-    const r = await rescueWithApify(
+    const r = await rescueWithScrapeCreators(
       ctx,
       [aSecourir("7675779059342642465"), aSecourir("7679420549268835616", "balise de réhydratation absente")],
       42,
-      "apify_api_xxx",
+      "sc_test_key",
       100,
       impl,
     );
@@ -468,50 +483,46 @@ describe("rescueWithApify — le secours payant, borné", () => {
     expect(r.releves).toEqual(["pub_7675779059342642465"]);
     expect(snapshots()[0].args).toMatchObject({
       vues: 40_112,
+      likes: 12,
+      saves: 3,
       source: "tiktok",
       differerBonus: true,
     });
     expect(r.failed).toBe(1);
     expect(echecs()[0].args.reason).toBe(
-      "balise de réhydratation absente ; Apify n'a pas rendu le post",
+      "balise de réhydratation absente ; ScrapeCreators en erreur (404) — Video not found",
     );
     expect(r.budgetRestant).toBe(98);
-    expect(r.runs).toBe(1);
+    // Un crédit par vidéo demandée.
+    expect(r.runs).toBe(2);
   });
 
-  it("au-delà du budget de la nuit, Apify n'est PAS appelé pour le surplus", async () => {
+  it("au-delà du budget de la nuit, le surplus n'est PAS demandé", async () => {
     const { ctx, echecs } = fakeCtx();
-    const { impl, appels } = apifyRend([]);
+    const { impl, appels } = scRend([]);
     const cibles = ["7675779059342642465", "7679420549268835616", "7685481325855395105"].map((id) => aSecourir(id));
 
-    const r = await rescueWithApify(ctx, cibles, 42, "apify_api_xxx", 2, impl);
+    const r = await rescueWithScrapeCreators(ctx, cibles, 42, "sc_test_key", 2, impl);
 
-    expect(appels).toHaveLength(1);
-    expect(appels[0]).toHaveLength(2);
+    expect(appels).toHaveLength(2);
     expect(r.budgetRestant).toBe(0);
     expect(r.failed).toBe(3);
-    expect(echecs()[2].args.reason).toBe(
-      "HTTP 429 ; secours Apify reporté (budget de la nuit épuisé)",
-    );
+    expect(echecs()[2].args.reason).toBe("HTTP 429 ; secours reporté (budget de la nuit épuisé)");
   });
 
-  it("passe l'auteur authorMeta, confirme d'abord, et ne compte pas un post étranger comme relevé", async () => {
+  it("passe l'auteur, confirme d'abord, et ne compte pas un post étranger comme relevé", async () => {
     const { ctx, snapshots } = fakeCtxVerdicts({
       pub_7676941579743005984: { action: "foreign_owner" },
     });
-    const impl = (async () =>
-      new Response(
-        JSON.stringify([
-          { id: "7676941579743005984", playCount: 1_317, authorMeta: { name: "sarahkl02", id: "7600000000000000002" } },
-          { id: "7675779059342642465", playCount: 39_000, authorMeta: { name: "marine.bn07", id: "7600000000000000001" } },
-        ]),
-        { status: 200 },
-      )) as unknown as typeof fetch;
-    const r = await rescueWithApify(
+    const { impl } = scRend([
+      { id: "7676941579743005984", playCount: 1_317, author: { unique_id: "sarahkl02", uid: "7600000000000000002" } },
+      { id: "7675779059342642465", playCount: 39_000, author: { unique_id: "marine.bn07", uid: "7600000000000000001" } },
+    ]);
+    const r = await rescueWithScrapeCreators(
       ctx,
       [aSecourir("7676941579743005984"), aSecourir("7675779059342642465")],
       42,
-      "apify_api_xxx",
+      "sc_test_key",
       100,
       impl,
     );
@@ -524,26 +535,34 @@ describe("rescueWithApify — le secours payant, borné", () => {
     expect(r.failed).toBe(0);
   });
 
-  it("sans jeton Apify : aucun appel, chaque post est inscrit avec la raison", async () => {
+  it("sans clé : aucun appel, chaque post est inscrit avec la raison", async () => {
     const { ctx, echecs } = fakeCtx();
-    const { impl, appels } = apifyRend([]);
-    const r = await rescueWithApify(ctx, [aSecourir("7675779059342642465")], 42, undefined, 100, impl);
+    const { impl, appels } = scRend([]);
+    const r = await rescueWithScrapeCreators(ctx, [aSecourir("7675779059342642465")], 42, undefined, 100, impl);
     expect(appels).toHaveLength(0);
     expect(r.budgetRestant).toBe(100);
-    expect(echecs()[0].args.reason).toBe(
-      "HTTP 429 ; pas de secours Apify (APIFY_API_TOKEN absent)",
-    );
+    expect(echecs()[0].args.reason).toBe("HTTP 429 ; pas de secours (clé ScrapeCreators absente)");
   });
 
-  it("crédit Apify épuisé (HTTP 402) : l'échec dit pourquoi", async () => {
+  it("crédit épuisé (HTTP 402) : l'échec dit pourquoi, et plus rien n'est demandé", async () => {
     const { ctx, echecs } = fakeCtx();
-    const impl = (async () =>
-      new Response(JSON.stringify({ error: { message: "Monthly usage hard limit exceeded" } }), {
-        status: 402,
-      })) as unknown as typeof fetch;
-    await rescueWithApify(ctx, [aSecourir("7675779059342642465")], 42, "apify_api_xxx", 100, impl);
-    expect(echecs()[0].args.reason).toBe(
-      "HTTP 429 ; crédit Apify épuisé (limite mensuelle du plan atteinte)",
+    let appels = 0;
+    const impl = (async () => {
+      appels += 1;
+      return new Response(JSON.stringify({ success: false, message: "Not enough credits" }), { status: 402 });
+    }) as unknown as typeof fetch;
+    await rescueWithScrapeCreators(
+      ctx,
+      [aSecourir("7675779059342642465"), aSecourir("7679420549268835616")],
+      42,
+      "sc_test_key",
+      100,
+      impl,
     );
+    expect(appels).toBe(1);
+    expect(echecs().map((e) => e.args.reason)).toEqual([
+      "HTTP 429 ; crédit ScrapeCreators épuisé",
+      "HTTP 429 ; crédit ScrapeCreators épuisé",
+    ]);
   });
 });
