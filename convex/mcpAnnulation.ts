@@ -149,6 +149,16 @@ export const annulationValidator = v.union(
     apres: v.boolean(),
     briques: v.array(v.object({ brickId: v.id("scriptBricks"), avant: v.boolean() })),
   }),
+  /**
+   * classer_campagne : l'étage du Pilote, avant et après (`null` = non classée,
+   * hors du pilote). Défaire remet l'avant si la campagne porte encore l'après.
+   */
+  v.object({
+    type: v.literal("etageCampagne"),
+    campaignId: v.id("scriptCampaigns"),
+    avant: v.union(v.literal("tofu"), v.literal("bofu"), v.null()),
+    apres: v.union(v.literal("tofu"), v.literal("bofu"), v.null()),
+  }),
   // ── Scénarios de conversation ─────────────────────────────────────────────
   /** creer_scenario : le scénario créé, et l'empreinte de sa bible à la création. */
   v.object({ type: v.literal("scenarioCree"), scenarioId: v.id("scenarios"), empreinte: v.string() }),

@@ -286,6 +286,16 @@ function pickCombosServer(
 
 // COMBO_FREEING_STATUSES : cf convex/comboFreeing.ts (partagé avec assignments.ts).
 
+/**
+ * Les combos tirables privés des HOOKS écartés pour cette créatrice (le Pilote :
+ * hooks ratés chez elle, cf convex/pilotePlan `hooksRates`). Retirés de l'offre
+ * et non ajoutés aux exclusions : un combo exclu compterait dans l'équilibre
+ * « least-used » (ses flux et légende passeraient pour plus servis).
+ */
+function sansHooks(combos: ServerCombo[], hooksExclus: ReadonlySet<string> | undefined): ServerCombo[] {
+  return hooksExclus && hooksExclus.size > 0 ? combos.filter((c) => !hooksExclus.has(c.hookBrickId)) : combos;
+}
+
 /** Notif figée d'une vidéo (cf schema assignments.scriptCombo). */
 export type NotifFields = { notifBrickId: Id<"scriptBricks">; notifText: string };
 
@@ -630,6 +640,49 @@ export async function projectAssignmentsForCooldown(
 }
 
 /**
+ * Les missions qu'un APERÇU de tirage lit, partagées entre plusieurs aperçus
+ * d'UNE même query : celles du projet (cooldown) une fois, celles de chaque
+ * créatrice (unicité à vie) une fois.
+ *
+ * Le Pilote prévisualise une campagne par créatrice ET par campagne dans une
+ * seule query. Relire les missions du projet à chaque aperçu le faisait passer
+ * la limite Convex des 32 000 documents par exécution (export prod du
+ * 2026-11-08 : 43 641 lectures pour 20 créatrices, dont 39 227 de missions —
+ * 1 239 relues une trentaine de fois). Ce sont les MÊMES lignes que l'aperçu
+ * lirait seul (mêmes index, même ordre) : le tirage ne change pas.
+ *
+ * ⚠️ Query seulement : une query lit un instantané, rien n'y change entre deux
+ * aperçus. Dans une mutation, chaque tirage crée des missions que le suivant
+ * doit voir (cf l'option `projectRows` de assignScriptCampaignCore).
+ */
+export type LecturesApercu = {
+  missionsDuProjet(): Promise<Doc<"assignments">[]>;
+  missionsDe(creatorId: Id<"creators">): Promise<Doc<"assignments">[]>;
+};
+
+export function lecturesApercu(ctx: ProjectQueryCtx): LecturesApercu {
+  let projet: Promise<Doc<"assignments">[]> | null = null;
+  const parCreatrice = new Map<string, Promise<Doc<"assignments">[]>>();
+  return {
+    missionsDuProjet() {
+      if (projet === null) projet = projectAssignmentsForCooldown(ctx, ctx.projectId);
+      return projet;
+    },
+    missionsDe(creatorId) {
+      let lues = parCreatrice.get(creatorId);
+      if (lues === undefined) {
+        lues = ctx.db
+          .query("assignments")
+          .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+          .collect();
+        parCreatrice.set(creatorId, lues);
+      }
+      return lues;
+    },
+  };
+}
+
+/**
  * Garde serveur d'unicité : rejette (ConvexError lisible) si `comboKey` est déjà
  * utilisé par un AUTRE assignment du même créateur sur l'une des `platforms`.
  * Lit via l'index by_creator_combo (créateur, comboKey).
@@ -788,10 +841,17 @@ export const previewCombosForAssignment = permissionQuery("scripts.manage")({
   handler: (ctx, args) => previewCombosCore(ctx, args),
 });
 
-/** Cœur de l'aperçu — l'écran (modale d'assignation) et la simulation MCP. */
+/**
+ * Cœur de l'aperçu — l'écran (modale d'assignation), la simulation MCP et le
+ * Pilote. `lu` : les lectures de missions d'une query qui enchaîne plusieurs
+ * aperçus (cf lecturesApercu) ; seul, l'aperçu lit les siennes.
+ */
 export async function previewCombosCore(
   ctx: ProjectQueryCtx,
   args: ObjectType<typeof previewCombosArgs>,
+  lu: LecturesApercu = lecturesApercu(ctx),
+  /** `hooksExclus` : hooks à ne pas tirer pour elle — le même ensemble qu'à la création. */
+  options: { hooksExclus?: ReadonlySet<string> } = {},
 ) {
   const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
@@ -822,19 +882,16 @@ export async function previewCombosCore(
       cooldownDays: await comboCooldownDaysFor(ctx, ctx.projectId),
     };
   }
-  const existing = await ctx.db
-    .query("assignments")
-    .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
-    .collect();
+  const existing = await lu.missionsDe(args.creatorId);
   const lifetimeKeys = usedComboKeysForPlatforms(
     existing,
     args.creatorId,
     args.targets.map((t) => t.platform),
   );
-  const projectRows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+  const projectRows = await lu.missionsDuProjet();
   const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
   const picked = pickForDates({
-    combos,
+    combos: sansHooks(combos, options.hooksExclus),
     lifetimeKeys,
     projectRows,
     postDates: args.postDates,
@@ -1630,7 +1687,13 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
 export async function assignScriptCampaignCore(
   ctx: ProjectMutationCtx,
   args: AssignScriptCampaignArgs,
-  options: { email?: boolean; notif?: NotifFields; projectRows?: Doc<"assignments">[] } = {},
+  options: {
+    email?: boolean;
+    notif?: NotifFields;
+    projectRows?: Doc<"assignments">[];
+    /** Hooks à ne pas tirer pour elle (le Pilote) — ceux que l'aperçu a écartés. */
+    hooksExclus?: ReadonlySet<string>;
+  } = {},
 ) {
   const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   if (campaign.status === "archived") {
@@ -1841,7 +1904,7 @@ export async function assignScriptCampaignCore(
     );
     const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
     picked = pickForDates({
-      combos,
+      combos: sansHooks(combos, options.hooksExclus),
       lifetimeKeys,
       projectRows,
       postDates: args.postDates,

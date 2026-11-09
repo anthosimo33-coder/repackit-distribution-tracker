@@ -426,6 +426,7 @@ type OutilEcriture =
   | "ajouter_hooks"
   | "activer_briques"
   | "graduer_hook"
+  | "classer_campagne"
   | "confirmer_publication"
   | "marquer_warmup"
   | "deplacer_posts"

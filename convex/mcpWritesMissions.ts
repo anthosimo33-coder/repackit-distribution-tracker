@@ -391,7 +391,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
   {
     name: "piloter_missions",
     title: "Piloter les missions de la semaine",
-    description: `MODIFIE les missions : propose puis assigne les prochains jours d'une ou plusieurs créatrices, comme l'écran Pilote. Chaque jour un PARLÉ à midi et un MUET (réaction + démo) le soir — un parlé et deux muets à 3 par jour. Chaque créneau rejoue à l'identique un GAGNANT (ses vidéos à ≥ ×1,5 sa médiane à 72 h d'abord, puis celles des autres créatrices à ≥ 10 000 vues, dans les campagnes qu'elle tourne), ou prend un nouveau script de la campagne (part d'exploration). Un script ne revient pas chez elle avant 7 jours ; un créneau déjà pris par une mission existante n'est pas touché ; seules les campagnes classées parlé ou muet (écran Pilote) entrent dans le plan. Simule d'abord (« simuler »), montre le plan, puis rappelle sans « simuler » — « retirer » écarte des créneaux. ENVOIE UN email par créatrice pour toute sa semaine (sauf comptes gérés par l'équipe) : dis-le avant.`,
+    description: `MODIFIE les missions : propose puis assigne les prochains jours d'une ou plusieurs créatrices, comme l'écran Pilote. Chaque jour un PARLÉ à midi et un MUET (réaction + démo) le soir — un parlé et deux muets à 3 par jour. Chaque créneau rejoue à l'identique un GAGNANT (ses vidéos à ≥ ×1,5 sa médiane à 72 h d'abord, puis celles des autres créatrices à ≥ 10 000 vues, dans les campagnes qu'elle tourne), ou prend un nouveau script de la campagne (part d'exploration). Un script ne revient pas chez elle avant 7 jours ; un créneau déjà pris par une mission existante n'est pas touché ; seules les campagnes classées parlé ou muet (\`classer_campagne\`, ou l'écran Pilote) entrent dans le plan ; un nouveau script ne reprend jamais un hook déjà raté chez elle (toutes ses publications mûres de ce hook sous sa médiane). Simule d'abord (« simuler »), montre le plan, puis rappelle sans « simuler » — « retirer » écarte des créneaux. ENVOIE UN email par créatrice pour toute sa semaine (sauf comptes gérés par l'équipe) : dis-le avant.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -1611,9 +1611,14 @@ function planLisible(cr: PlanMcp["createatrices"][number]) {
     bareme: cr.bareme,
     ...(cr.bloquee ? { bloquee: cr.bloquee === "sansCompte" ? "aucun compte disponible" : "aucun barème de paie" } : {}),
     ...(cr.nonClassees.length > 0
-      ? { campagnesNonClassees: `${cr.nonClassees.map((c) => c.nom).join(", ")} : hors du pilote tant qu'elles ne sont pas classées parlé ou muet (écran Pilote).` }
+      ? { campagnesNonClassees: `${cr.nonClassees.map((c) => c.nom).join(", ")} : hors du pilote tant qu'elles ne sont pas classées parlé ou muet (\`classer_campagne\`).` }
       : {}),
     ...(cr.dejaPrevus.length > 0 ? { dejaPrevus: cr.dejaPrevus.map((d) => `${jourTexte(d.jour)} : ${d.missions} mission(s)`) } : {}),
+    ...(cr.hooksEcartes.length > 0
+      ? {
+          hooksRates: `${cr.hooksEcartes.map((h) => `« ${h.libelle} » (${h.campagne})`).join(", ")} : tous ses posts mûrs sous sa médiane, écartés de ses nouveaux scripts et des gagnants des autres.`,
+        }
+      : {}),
     creneaux: cr.creneaux.map((c) => ({
       creneau: `${c.jour} ${c.plage === "apresmidi" ? "après-midi" : c.plage}`,
       etage: c.etage === "tofu" ? "parlé" : "muet",
