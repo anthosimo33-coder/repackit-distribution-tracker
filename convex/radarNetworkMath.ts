@@ -53,7 +53,8 @@ export type SeedApp = AppRule & {
  * - BLUSH (lire une conversation, souffler la réponse) : What Brandon Thinks,
  *   The Cringe, et les apps de textos vérifiées le 06/11/2026 (Rizz App : comptes
  *   « histoires de textos » jusqu'à 2,3 M vues ; Plug AI ; Rizz Master et Flert
- *   Now au Brésil).
+ *   Now au Brésil), et WRizz et Wing AI (décidé le 10/11/2026 : suivies à la
+ *   main depuis la veille, 61 et 6 comptes).
  * - Hors niche, même métier (armées de comptes dédiés) : celles du sourcing, et
  *   celles qu'une recherche du 06/11/2026 montre citées par plusieurs comptes ce
  *   mois-ci (Knowunity, Bible Chat, Cal AI, Glam AI, Finch), et Quittr, Umax et
@@ -92,7 +93,14 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "sunsay", name: "Sunsay", rivalOf: SNYTCH, strong: ["sunsay.app", "sunsayapp", "@sunsay"], weak: ["sunsay"], context: STALK_CONTEXT, searches: ["sunsay app", "sunsay"] },
   { slug: "whatbrandonthinks", name: "What Brandon Thinks", rivalOf: BLUSH, strong: ["whatbrandonthinks"], searches: ["whatbrandonthinks", "what brandon thinks whatsapp", "#whatbrandonthinks"] },
   { slug: "thecringe", name: "The Cringe", rivalOf: BLUSH, strong: ["thecringeapp"], weak: ["thecringe"], context: CHAT_CONTEXT, searches: ["thecringe", "the cringe app whatsapp", "#thecringe"] },
-  { slug: "rizzapp", name: "Rizz App", rivalOf: BLUSH, strong: ["rizz.app", "rizzapp"], searches: ["rizz app", "rizz.app", "#rizzapp"] },
+  // WRizz et Wing AI soufflent la réponse à un texto : ajoutées à la main le 09/11/2026, concurrentes de
+  // BLUSH depuis le 10/11. « wrizz » seul se lit dans « W rizz », « new rizz » et @shadowrizzler70 (43 des
+  // 311 vidéos qui le contenaient) : il faut l'arobase, le dièse ou le site. Placée AVANT Rizz App, dont
+  // les motifs sont dans « wrizz.app » et « #wrizzapp ».
+  { slug: "wrizz", name: "WRizz", rivalOf: BLUSH, strong: ["@wrizz", "#wrizz", "wrizzapp", "wrizz.app", "wrizzz.app"], searches: ["wrizz", "wrizz app", "#wrizz"] },
+  // Citée « @WingAI », « #wingai » ou « @wingai_app » ; « wingai » seul est dans « following AI ».
+  { slug: "wingaiapp", name: "Wing AI", rivalOf: BLUSH, strong: ["@wingai", "#wingai", "wingaiapp"], searches: ["wingai", "wing ai app", "#wingai"] },
+  { slug: "rizzapp", name: "Rizz App", rivalOf: BLUSH, strong: ["rizz.app", "rizzapp"], not: ["wrizz"], searches: ["rizz app", "rizz.app", "#rizzapp"] },
   { slug: "plugai", name: "Plug AI", rivalOf: BLUSH, strong: ["@plugai"], weak: ["plugai"], context: TEXT_CONTEXT, searches: ["plug ai rizz", "#plugai"] },
   { slug: "rizzmaster", name: "Rizz Master", rivalOf: BLUSH, strong: ["rizzmaster"], searches: ["rizz master app"] },
   { slug: "flertnow", name: "Flert Now", rivalOf: BLUSH, strong: ["flertnow"], searches: ["flert now"] },
@@ -158,6 +166,23 @@ export const PROMOTE_MIN_VIEWS = 10_000;
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+
+/**
+ * Ce que la synchronisation fait d'une app de départ (radarSignals.ensureSeedApps) :
+ *  - absente : créée ;
+ *  - déjà « de départ » : réalignée sur le code quand un champ a changé ;
+ *  - ajoutée À LA MAIN avant d'entrer dans cette liste (WRizz et Wing AI, le
+ *    10/11/2026) : ADOPTÉE — elle devient une app de départ et suit le code (nom,
+ *    concurrences, motifs, recherches) ; ses comptes et ses vidéos restent. Une
+ *    app créée depuis l'écran ne peut pas prendre le slug d'une app déjà là : une
+ *    app « à la main » qui porte le slug d'une app de départ la précède forcément.
+ */
+export type SeedSync = "create" | "adopt" | "align" | "keep";
+export function seedSync(existing: { source: "seed" | "manual" } | null, sameFields: boolean): SeedSync {
+  if (!existing) return "create";
+  if (existing.source !== "seed") return "adopt";
+  return sameFields ? "keep" : "align";
+}
 
 /** Minuscules ; `compact` sans espaces, tirets ni soulignés (« Recent Follow » → « recentfollow »). */
 export function normalize(text: string) {
@@ -225,7 +250,11 @@ export type AccountVerdict<T> = { kind: "keep" } | { kind: "move"; to: T; cited:
  *    d'entre eux (4,3 M vues en 7 jours) avaient été mis en pause comme « hors
  *    sujet » : ils citaient une app, pas la bonne. « Nettement » : un compte
  *    Flert Now qui met #rizzapp sous chaque vidéo cite Rizz App plus souvent
- *    que la sienne sans en faire partie (rejoué sur la prod : il reste) ;
+ *    que la sienne sans en faire partie (rejoué sur la prod : il reste). Entre
+ *    deux apps qui passent ce seuil, celle que le TEXTE des vidéos cite
+ *    l'emporte sur celle que seul le pseudo évoque : @rizz_master4 écrit
+ *    « using wrizz app » sous chaque vidéo, c'est un compte WRizz, pas Rizz
+ *    Master (10/11/2026) ;
  *  - sinon, aucune vidéo lue (9 au moins) ne cite la sienne → `offTopic` ;
  *  - sinon → `keep`.
  * Les comptes choisis à la main ou de la liste de départ ne sont jamais jugés.
@@ -241,15 +270,22 @@ export function accountVerdict<T extends AppRule>(
   if (matchedBy !== "caption") return { kind: "keep" };
   const read = videos.filter((v) => !v.platform && (v.caption !== undefined || v.hook !== undefined));
   let ownCount = 0;
-  const counts = new Map<T, number>();
+  // Par autre app : vidéos qui la citent (pseudo compris), dont celles dont le TEXTE la cite.
+  const counts = new Map<T, { cited: number; inText: number }>();
   for (const v of read) {
+    const text = normalize(`${v.caption ?? ""} ${v.hook ?? ""}`);
     const n = normalize(`${v.caption ?? ""} ${v.hook ?? ""} ${handle}`);
     if (citesNormalized(n, own)) ownCount++;
-    for (const a of others) if (citesNormalized(n, a)) counts.set(a, (counts.get(a) ?? 0) + 1);
+    for (const a of others) {
+      if (!citesNormalized(n, a)) continue;
+      const c = counts.get(a) ?? { cited: 0, inText: 0 };
+      counts.set(a, { cited: c.cited + 1, inText: c.inText + Number(citesNormalized(text, a)) });
+    }
   }
-  let best: { to: T; cited: number } | undefined;
-  for (const [to, cited] of counts) if (!best || cited > best.cited) best = { to, cited };
-  if (best && best.cited >= REASSIGN_MIN_VIDEOS && best.cited >= REASSIGN_DOMINANCE * Math.max(1, ownCount)) return { kind: "move", ...best };
+  const best = [...counts]
+    .sort((x, y) => y[1].inText - x[1].inText || y[1].cited - x[1].cited)
+    .find(([, c]) => c.cited >= REASSIGN_MIN_VIDEOS && c.cited >= REASSIGN_DOMINANCE * Math.max(1, ownCount));
+  if (best) return { kind: "move", to: best[0], cited: best[1].cited };
   if (read.length >= OFF_TOPIC_MIN_VIDEOS && ownCount === 0) return { kind: "offTopic" };
   return { kind: "keep" };
 }

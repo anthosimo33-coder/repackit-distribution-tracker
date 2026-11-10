@@ -20,6 +20,7 @@ import {
   OFF_TOPIC_MIN_VIDEOS,
   SECOND_LOOK_MS,
   accountVerdict,
+  seedSync,
   formatSuccess,
   isOffTopic,
   videoApp,
@@ -75,14 +76,14 @@ describe("rattachement d'un compte à une app", () => {
     expect(findApp("Voici toutes les applications qu'il faut installer", "arpegesauvage", SEED_APPS)).toBeUndefined();
   });
 
-  it("les apps de départ : 11 concurrentes de Snytch (FollowOtter à part, les jeux d'enquête déclassés), 6 de BLUSH, puis les autres", () => {
+  it("les apps de départ : 11 concurrentes de Snytch (FollowOtter à part, les jeux d'enquête déclassés), 8 de BLUSH (WRizz et Wing AI depuis le 10/11), puis les autres", () => {
     expect(SEED_APPS.filter((a) => a.rivalOf.includes("snytch")).map((a) => a.name)).toEqual([
       "The Ick", "CheatLove", "RecentFollow", "FollowSpy", "FollowOtter", "Lurk", "Katch", "Susly", "Snitch", "Crush Tracker", "Sunsay",
     ]);
     // Stalkie, Snitchy et Shady (jeux d'enquête) : toujours suivies, plus concurrentes (09/11/2026).
     for (const slug of ["stalkie", "snitchy", "shady"]) expect(app(slug).rivalOf).toEqual([]);
     expect(SEED_APPS.filter((a) => a.rivalOf.includes("blush")).map((a) => a.name)).toEqual([
-      "What Brandon Thinks", "The Cringe", "Rizz App", "Plug AI", "Rizz Master", "Flert Now",
+      "What Brandon Thinks", "The Cringe", "WRizz", "Wing AI", "Rizz App", "Plug AI", "Rizz Master", "Flert Now",
     ]);
     // Les concurrentes d'abord : `findApp` prend la première citée.
     const firstOther = SEED_APPS.findIndex((a) => a.rivalOf.length === 0);
@@ -92,6 +93,95 @@ describe("rattachement d'un compte à une app", () => {
     for (const a of SEED_APPS) {
       for (const w of a.weak ?? []) expect((a.context ?? []).filter((c) => w.includes(c.trim()))).toEqual([]);
     }
+  });
+});
+
+/** Légendes et pseudos relevés en prod le 09/11/2026 (comptes suivis, export du soir). */
+describe("WRizz et Wing AI, concurrentes de BLUSH (10/11/2026)", () => {
+  const wrizz = app("wrizz");
+  const wing = app("wingaiapp");
+  const rizzApp = app("rizzapp");
+
+  it("WRizz : l'arobase, le dièse ou le site — pas « W rizz », « new rizz » ni @shadowrizzler70", () => {
+    expect(citesApp("I used this app @WRizz #mentalists #Relationship #munipulation #thementalist #patrickjane", "rizzly.puff", wrizz)).toBe(true);
+    expect(citesApp("How to rizz on text 💕 #beautiful #girlfriend #text #wrizz #wrizzapp #explore", "x", wrizz)).toBe(true);
+    expect(citesApp("Shorting the best rizz that I have to my girlfriend using wrizz app. #reels #fyp", "rizz_master4", wrizz)).toBe(true);
+    // Ses propres comptes, par le pseudo.
+    for (const handle of ["wrizz_app", "wrizz.app", "wrizzz.app"]) expect(citesApp("Texting baddies on Instagram", handle, wrizz)).toBe(true);
+    // L'argot « W rizz » (une victoire), « new rizz », et un pseudo qui contient les lettres.
+    expect(citesApp("w rizz? #pledgetok #bamarush #viral #fyp #universityoforegon", "uoanthropologyclu", wrizz)).toBe(false);
+    expect(citesApp("W rizz?", "oliverkastell", wrizz)).toBe(false);
+    expect(citesApp("The new rizz line 🔥 @plug_ai #datingtips #plugai #textstory #rizz #aura", "kaihoun", wrizz)).toBe(false);
+    expect(citesApp("The ending was unexpected 😭 😂 @Plug AI #rizz #pickupline #fyp", "shadowrizzler70", wrizz)).toBe(false);
+  });
+
+  it("Wing AI : « @WingAI », « #wingai » ou « @wingai_app » — le motif d'avant (« wingaiapp ») en ratait 105 vidéos sur 156", () => {
+    expect(citesApp("@WingAIcame in CLUTCH with that line.💀😈#wingaicwj #texting #wingai #wingai #textstory", "textoinkk", wing)).toBe(true);
+    expect(citesApp("@WingAI came in CLUTCH with that line.😂🙏", "sigmatext97", wing)).toBe(true);
+    expect(citesApp("Finisce sempre nel... 😭 #messaggi #wingai #emotional", "messaggi.italia", wing)).toBe(true);
+    expect(citesApp("@wingai_app Tira e molla ogni volta... 💔 #messaggi #emotional", "lestorieita", wing)).toBe(true);
+    // Sans arobase ni dièse, « wingai » est dans « following AI ».
+    expect(citesApp("following AI trends so you don't have to", "x", wing)).toBe(false);
+    expect(citesApp("@Plug AI always come in clutch. 🙏😭 #plugaicwj #plugai #textstories", "textbulbb", wing)).toBe(false);
+  });
+
+  it("Rizz App ne lit plus les citations de WRizz (« wrizz.app » et « #wrizzapp » contiennent ses motifs)", () => {
+    expect(citesApp("How to rizz on text 💕 #beautiful #girlfriend #text #wrizz #wrizzapp #explore", "wrizz.app", rizzApp)).toBe(false);
+    expect(citesApp("Texting fine baddie on Instagram #rizz #rizzler #wrizzapp #textingstory", "wrizzz.app", rizzApp)).toBe(false);
+    expect(citesApp("Shorting the best rizz that I have to my girlfriend using wrizz app.", "x", rizzApp)).toBe(false);
+    // Les siennes tiennent, y compris à côté d'une citation de WRizz.
+    expect(citesApp("it's a cold world we live in 😤 @Plug AI #plugairizz #textstories #rizzapp", "x", rizzApp)).toBe(true);
+    expect(citesApp("get it on rizz.app", "x", rizzApp)).toBe(true);
+    expect(citesApp("How to rizz on text 💕 #wrizz #rizzapp #explore", "x", rizzApp)).toBe(true);
+    // Rangée sous la bonne app, dans l'ordre de la liste comme dans celui de la prod (Rizz App créée avant).
+    expect(findApp("#wrizz #wrizzapp", "wrizz.app", SEED_APPS)?.name).toBe("WRizz");
+    expect(findApp("#wrizz #wrizzapp", "wrizz.app", [rizzApp, wrizz])?.name).toBe("WRizz");
+  });
+
+  it("les comptes suivent : 3 de Plug AI vers Wing AI, 3 de Rizz App vers WRizz, 5 « W rizz » hors sujet", () => {
+    const sauf = (slug: string) => SEED_APPS.filter((a) => a.slug !== slug);
+    // @sigmatext97 : rangé sous Plug AI, ne cite plus que Wing AI.
+    const sigma = Array.from({ length: 9 }, () => ({ caption: "@WingAI came in CLUTCH with that line.😈💀#wingaicwj #textstories #wingai #wingai #texting" }));
+    const v = accountVerdict("caption", sigma, "sigmatext97", app("plugai"), sauf("plugai"));
+    expect(v.kind === "move" && v.to.name).toBe("Wing AI");
+    // @wrizz.app, rangé sous Rizz App sur son pseudo.
+    const sien = Array.from({ length: 10 }, () => ({ caption: "How to rizz on text 💕 #beautiful #girlfriend #text #wrizz #wrizzapp #explore" }));
+    const w = accountVerdict("caption", sien, "wrizz.app", rizzApp, sauf("rizzapp"));
+    expect(w.kind === "move" && w.to.name).toBe("WRizz");
+    // @uoanthropologyclu, entré chez WRizz sur « w rizz? » : aucune vidéo ne la cite.
+    const fac = [{ caption: "w rizz? #pledgetok #bamarush #viral #fyp #universityoforegon" }, ...Array.from({ length: 9 }, (_, i) => ({ caption: `my favorite ferd ${i} #pledgetok #bamarush #viral #fyp` }))];
+    expect(accountVerdict("caption", fac, "uoanthropologyclu", wrizz, sauf("wrizz"))).toEqual({ kind: "offTopic" });
+  });
+
+  it("le texte des vidéos prime sur le pseudo : @rizz_master4 écrit « using wrizz app », c'est un compte WRizz, pas Rizz Master", () => {
+    const sauf = SEED_APPS.filter((a) => a.slug !== "rizzapp");
+    const videos = [
+      ...Array.from({ length: 6 }, () => ({ caption: "Shorting the best rizz that I have to my girlfriend using wrizz app. #reels #fyp #rizz #edit #follow" })),
+      { caption: "Thank you. #milestone" },
+      ...Array.from({ length: 3 }, (_, i) => ({ caption: `rizz of the day ${i} #reels` })),
+    ];
+    // Son pseudo contient « rizzmaster » : Rizz Master est « citée » par les 10 vidéos, WRizz par 6.
+    expect(videos.filter((x) => citesApp(x.caption, "rizz_master4", app("rizzmaster")))).toHaveLength(10);
+    const v = accountVerdict("caption", videos, "rizz_master4", rizzApp, sauf);
+    expect(v).toMatchObject({ kind: "move", cited: 6 });
+    expect(v.kind === "move" && v.to.name).toBe("WRizz");
+    // Quand le texte ne cite rien, le pseudo décide toujours (« prénom.lurk » rangé ailleurs).
+    const muet = Array.from({ length: 9 }, (_, i) => ({ caption: `pov ${i} 😭 #fyp` }));
+    const l = accountVerdict("caption", muet, "ana.lurk", app("followspy"), SEED_APPS.filter((a) => a.slug !== "followspy"));
+    expect(l.kind === "move" && l.to.name).toBe("Lurk");
+    // Une app citée une seule fois dans un texte ne bloque pas celle du pseudo.
+    const uneFois = [{ caption: "saw this on followotter lol" }, ...muet];
+    const l2 = accountVerdict("caption", uneFois, "ana.lurk", app("followspy"), SEED_APPS.filter((a) => a.slug !== "followspy"));
+    expect(l2.kind === "move" && l2.to.name).toBe("Lurk");
+  });
+
+  it("une app ajoutée à la main qui entre dans la liste de départ est adoptée ; les autres cas ne changent pas", () => {
+    expect(seedSync(null, false)).toBe("create");
+    // WRizz et Wing AI en prod le 10/11 : source « manual », sans concurrence.
+    expect(seedSync({ source: "manual" }, false)).toBe("adopt");
+    expect(seedSync({ source: "manual" }, true)).toBe("adopt");
+    expect(seedSync({ source: "seed" }, false)).toBe("align");
+    expect(seedSync({ source: "seed" }, true)).toBe("keep");
   });
 });
 
