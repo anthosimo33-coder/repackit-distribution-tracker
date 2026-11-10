@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind } from "./radarDiscoveryQueries";
-import { SEED_APPS, canTrack, candidatesOf, findApp, rivalElsewhere, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, candidatesOf, canTrack, effectiveRivalOf, findApp, rivalElsewhere, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
 import { SEED_ACCOUNTS } from "./radarSeedAccounts";
 import {
@@ -193,23 +193,25 @@ async function mergeApp(ctx: MutationCtx, old: Doc<"radarApps">, into: Doc<"rada
 
 /** Aligne UNE app de départ sur le code : créée, adoptée (ajoutée à la main avant), réalignée ou laissée. */
 async function syncSeedApp(ctx: MutationCtx, s: SeedApp, now: number): Promise<{ app: Doc<"radarApps"> | null; sync: SeedSync }> {
-  const fields = {
+  let app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
+  // Les concurrences de la liste, corrigées par ce que les équipes ont décidé à la main.
+  const fieldsOf = (a: Doc<"radarApps"> | null) => ({
     name: s.name,
-    rivalOf: [...s.rivalOf],
+    rivalOf: effectiveRivalOf(s.rivalOf, a?.rivalByHand ?? []),
     strong: [...s.strong],
     weak: [...(s.weak ?? [])],
     context: [...(s.context ?? [])],
     searches: [...s.searches],
     ...(s.not ? { not: [...s.not] } : {}),
-  };
-  let app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
+  });
   // Ajoutée à la main sous un autre nom : elle prend le bon slug (et sera adoptée
   // plus bas), ou, si l'app existe déjà, c'est un doublon qu'on fond dedans.
   for (const former of s.formerSlugs ?? []) {
     const old = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", former)).first();
     if (!old) continue;
     // Les règles de la vraie app, sans ses recherches : un renvoi n'est jamais recherché.
-    const rules = { name: fields.name, rivalOf: fields.rivalOf, strong: fields.strong, weak: fields.weak, context: fields.context, ...(fields.not ? { not: fields.not } : {}) };
+    const f = fieldsOf(app);
+    const rules = { name: f.name, rivalOf: f.rivalOf, strong: f.strong, weak: f.weak, context: f.context, ...(f.not ? { not: f.not } : {}) };
     if (!app) {
       await ctx.db.patch(old._id, { slug: s.slug });
       app = { ...old, slug: s.slug };
@@ -220,6 +222,7 @@ async function syncSeedApp(ctx: MutationCtx, s: SeedApp, now: number): Promise<{
       await ctx.db.patch(old._id, rules);
     }
   }
+  const fields = fieldsOf(app);
   const same = app !== null && JSON.stringify(Object.keys(fields).map((k) => app[k as keyof typeof fields])) === JSON.stringify(Object.values(fields));
   const sync = seedSync(app, same);
   if (sync === "create") {

@@ -4261,6 +4261,9 @@ export default defineSchema({
     slug: v.string(),
     name: v.string(),
     rivalOf: v.array(v.string()), // slugs de projets
+    // Ce que l'équipe d'un projet a décidé à la main (« concurrente » ou non) : `rivalOf` en
+    // tient compte, et la liste de départ ne l'écrase pas (radarNetworkMath.effectiveRivalOf).
+    rivalByHand: v.optional(v.array(v.object({ project: v.string(), rival: v.boolean() }))),
     strong: v.array(v.string()),
     weak: v.array(v.string()),
     context: v.array(v.string()),
