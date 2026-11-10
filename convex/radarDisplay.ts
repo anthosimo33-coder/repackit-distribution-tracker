@@ -6,8 +6,9 @@
  *  - un seul score affiché : vues ÷ médiane du compte (« × sa normale ») quand
  *    on la connaît, sinon vues ÷ abonnés — c'est l'ordre du tri par défaut
  *    (radarSignalFilters, « mediane »), la carte ne contredit plus la liste ;
- *  - « à regarder » : les plus fortes des 7 derniers jours que l'équipe du projet
- *    n'a pas encore traitées, au plus 12 ;
+ *  - « à regarder » : au plus 12 vidéos des 7 derniers jours que l'équipe du projet
+ *    n'a pas encore traitées — les fraîches (moins de 48 h, déjà 10 fois leur
+ *    normale) d'abord, puis les plus fortes, une seule par compte ;
  *  - les pubs d'une même créa (même app, annonceur et texte) ne font qu'une
  *    ligne ; un texte de catalogue (« {{product.brand}} ») n'est pas un texte.
  */
@@ -56,9 +57,41 @@ export const TODAY_LIMIT = 12;
 export const TODAY_RIVAL_SLOTS = 6;
 
 /**
+ * Une vidéo « fraîche » : publiée il y a moins de 48 h et déjà à 10 fois la
+ * normale de son compte (le seuil d'« En train de partir »). Au plus la moitié
+ * de la file leur revient : le reste garde les plus fortes de la semaine.
+ */
+export const FRESH_WINDOW_MS = 48 * HOUR;
+export const FRESH_MULTIPLIER = 10;
+export const TODAY_FRESH_SLOTS = 6;
+
+export function isFresh(v: { publishedAt: number; multiplier?: number | null }, now: number): boolean {
+  return now - v.publishedAt < FRESH_WINDOW_MS && (v.multiplier ?? 0) >= FRESH_MULTIPLIER;
+}
+
+/** Une vidéo par compte : la première de la liste, les suivantes attendent qu'elle soit traitée. */
+export function onePerAccount<T extends { handle: string; platform: string }>(videos: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return videos.filter((v) => {
+    const key = `${v.platform}:${v.handle.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
  * La file « à regarder », PROPRE AU PROJET (décidé le 09/11/2026 : BLUSH et
  * Snytch avaient le même fil) : 7 derniers jours, jamais traitées par l'équipe
- * du projet, dans l'ordre du tri par défaut (× sa normale, puis × ses abonnés) ;
+ * du projet ;
+ *  - D'ABORD les vidéos fraîches (`isFresh` : moins de 48 h, déjà 10 fois la
+ *    normale du compte), 6 au plus, PUIS les plus fortes de la semaine dans
+ *    l'ordre du tri par défaut (× sa normale, puis × ses abonnés). Décidé le
+ *    10/11/2026 : classée au seul score, une vidéo de 4 jours passe toujours
+ *    devant celle d'hier, qui n'a pas fini de monter — la file de Snytch avait
+ *    99 h d'âge médian et 2 vidéos de moins de 48 h quand 5 fraîches attendaient ;
+ *  - UNE SEULE vidéo par compte (sa fraîche, sinon sa plus forte) : la suivante
+ *    du même compte arrive quand celle-ci est traitée ;
  *  - au plus 6 vidéos des concurrents DU projet ;
  *  - le reste : les autres apps et la découverte (ce qui marche partout) ;
  *  - jamais les concurrents d'un AUTRE projet (`elsewhere`, The Ick pour BLUSH),
@@ -68,21 +101,39 @@ export const TODAY_RIVAL_SLOTS = 6;
  * Une part trop courte est complétée par l'autre. Une vidéo traitée en sort ;
  * la suivante prend sa place.
  */
+export function todayGroups<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(
+  signals: readonly T[],
+  now: number,
+  limit = TODAY_LIMIT,
+  rivalSlots = TODAY_RIVAL_SLOTS,
+  freshSlots = TODAY_FRESH_SLOTS,
+): { fresh: T[]; strongest: T[] } {
+  const f = defaultFilters();
+  f.sel.statut = ["nouveau"];
+  const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network && !isTextOnShot(s));
+  const kept = new Set(onePerAccount([...ranked.filter((s) => isFresh(s, now)), ...ranked.filter((s) => !isFresh(s, now))]));
+  const byScore = ranked.filter((s) => kept.has(s));
+  const fresh = new Set(byScore.filter((s) => isFresh(s, now)).slice(0, freshSlots));
+  // L'ordre de la file : les fraîches, puis le reste au score (une fraîche en trop y garde son rang).
+  const order = [...fresh, ...byScore.filter((s) => !fresh.has(s))];
+  const rivals = order.filter((s) => s.competitor);
+  const others = order.filter((s) => !s.competitor);
+  const nRivals = Math.min(rivals.length, Math.max(rivalSlots, limit - others.length));
+  const picked = new Set([...rivals.slice(0, nRivals), ...others.slice(0, limit - nRivals)]);
+  const queue = order.filter((s) => picked.has(s));
+  return { fresh: queue.filter((s) => fresh.has(s)), strongest: queue.filter((s) => !fresh.has(s)) };
+}
+
+/** La file dans l'ordre où on la regarde : les fraîches, puis les plus fortes de la semaine. */
 export function todayQueue<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(
   signals: readonly T[],
   now: number,
   limit = TODAY_LIMIT,
   rivalSlots = TODAY_RIVAL_SLOTS,
+  freshSlots = TODAY_FRESH_SLOTS,
 ): T[] {
-  const f = defaultFilters();
-  f.sel.statut = ["nouveau"];
-  const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network && !isTextOnShot(s));
-  const rivals = ranked.filter((s) => s.competitor);
-  const others = ranked.filter((s) => !s.competitor);
-  const nRivals = Math.min(rivals.length, Math.max(rivalSlots, limit - others.length));
-  const picked = new Set([...rivals.slice(0, nRivals), ...others.slice(0, limit - nRivals)]);
-  // Dans l'ordre du score, pour que la carte et la liste se lisent pareil.
-  return ranked.filter((s) => picked.has(s));
+  const g = todayGroups(signals, now, limit, rivalSlots, freshSlots);
+  return [...g.fresh, ...g.strongest];
 }
 
 /** Vidéos traitées (gardée, à adapter, passée) aujourd'hui, jour de Paris. */
@@ -157,13 +208,13 @@ export function isEarlyHit(v: { publishedAt: number; views: number; multiplier?:
  * Les vidéos du projet qui partent tôt (radarNetworkMath.isEarlyHit : moins de 24 h,
  * 10× la normale, 10 000 vues), jamais traitées, sans les concurrents d'un autre
  * projet, ni ce qu'un compte publie sans citer d'app, ni les « texte sur plan »
- * de 12 secondes ou moins — les plus fortes d'abord.
+ * de 12 secondes ou moins — les plus fortes d'abord, une seule par compte.
  */
 export function earlyHits<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(signals: readonly T[], now: number, limit = 4): T[] {
-  return signals
+  const hits = signals
     .filter((s) => s.status === "nouveau" && !s.elsewhere && !s.network && !isTextOnShot(s) && isEarlyHit(s, now))
-    .sort((a, b) => (b.multiplier ?? 0) - (a.multiplier ?? 0))
-    .slice(0, limit);
+    .sort((a, b) => (b.multiplier ?? 0) - (a.multiplier ?? 0));
+  return onePerAccount(hits).slice(0, limit);
 }
 
 // ─── Formats ─────────────────────────────────────────────────────────────────

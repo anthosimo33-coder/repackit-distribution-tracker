@@ -14,7 +14,7 @@ import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-
 import { ACCENT_LINK, AccentTag, ScoreBadge, SignalCard, SignalThumb, signalTitle, useFormatLabel, useNow, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
 import { RadarAdaptations } from "@/components/admin/radar/RadarAdaptations";
-import { appWeek, earlyHits, handledToday, todayQueue } from "@/convex/radarDisplay";
+import { FRESH_MULTIPLIER, FRESH_WINDOW_MS, appWeek, earlyHits, handledToday, todayGroups } from "@/convex/radarDisplay";
 import { applyFilters, defaultFilters, listSince } from "@/convex/radarSignalFilters";
 
 type Format = FunctionReturnType<typeof api.radarNetworks.listFormats>[number];
@@ -23,12 +23,14 @@ export type RadarGo = (onglet: "explorer" | "concurrents", params?: Record<strin
 /** Formats montrés sur Aujourd'hui ; concurrents dans le tableau de la semaine. */
 const FORMATS_SHOWN = 4;
 const RIVALS_SHOWN = 6;
+const QUEUE_GRID = "grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]";
 
 /**
- * RADAR — AUJOURD'HUI : ce qu'il faut voir, sans rien régler. Les 12 vidéos les
- * plus fortes que l'équipe n'a pas encore traitées (radarDisplay.todayQueue), à
- * regarder une par une ; les formats qui circulent ; les concurrents de la
- * semaine. Le reste attend dans Explorer.
+ * RADAR — AUJOURD'HUI : ce qu'il faut voir, sans rien régler. Au plus 12 vidéos
+ * que l'équipe n'a pas encore traitées (radarDisplay.todayGroups) — celles de
+ * moins de 48 h déjà à 10 fois leur normale, puis les plus fortes de la semaine,
+ * une seule par compte —, à regarder une par une ; les formats qui circulent ;
+ * les concurrents de la semaine. Le reste attend dans Explorer.
  */
 export function RadarToday({ go }: { go: RadarGo }) {
   const tr = useTranslations("admin.ops.RadarToday");
@@ -57,7 +59,9 @@ export function RadarToday({ go }: { go: RadarGo }) {
   }
 
   const signals = data.signals;
-  const queue = todayQueue(signals, now);
+  // Les fraîches (moins de 48 h, déjà 10 fois leur normale) d'abord, puis les plus fortes de la semaine.
+  const groups = todayGroups(signals, now);
+  const queue = [...groups.fresh, ...groups.strongest];
   const early = earlyHits(signals, now);
   const week = applyFilters(signals, defaultFilters(), now);
   const handled = handledToday(signals, now);
@@ -124,10 +128,31 @@ export function RadarToday({ go }: { go: RadarGo }) {
             </h2>
             <p className="text-[13px] text-slate-500">{tr("legendeScore")}</p>
           </div>
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
-            {queue.map((s, i) => (
-              <SignalCard key={s.id} s={s} now={now} onOpen={() => open(i)} onStatus={(st) => void setStatus(s, st)} />
-            ))}
+          <div className="space-y-8">
+            {groups.fresh.length > 0 && (
+              <div className="space-y-3" data-testid="radar-fraiches">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <h3 className="text-sm font-semibold text-slate-900">{tr("fraiches", { h: FRESH_WINDOW_MS / 3_600_000 })}</h3>
+                  <p className="text-sm text-slate-500">{tr("fraichesAide", { n: FRESH_MULTIPLIER })}</p>
+                </div>
+                <div className={QUEUE_GRID}>
+                  {groups.fresh.map((s, i) => (
+                    <SignalCard key={s.id} s={s} now={now} onOpen={() => open(i)} onStatus={(st) => void setStatus(s, st)} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {groups.strongest.length > 0 && (
+              <div className="space-y-3" data-testid="radar-plus-fortes">
+                {/* Sans vidéo fraîche, la file n'a qu'un groupe : pas de sous-titre. */}
+                {groups.fresh.length > 0 && <h3 className="text-sm font-semibold text-slate-900">{tr("plusFortes")}</h3>}
+                <div className={QUEUE_GRID}>
+                  {groups.strongest.map((s, i) => (
+                    <SignalCard key={s.id} s={s} now={now} onOpen={() => open(groups.fresh.length + i)} onStatus={(st) => void setStatus(s, st)} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}
