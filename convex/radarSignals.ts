@@ -31,9 +31,9 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind } from "./radarDiscoveryQueries";
-import { SEED_APPS, candidatesOf, canTrack, effectiveRivalOf, findApp, rivalElsewhere, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, candidatesOf, canTrack, effectiveRivalOf, findApp, handPause, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
-import { SEED_ACCOUNTS } from "./radarSeedAccounts";
+import { OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
 import {
   BUDGET_VERSION,
   DISCOVERY_RUNS_PER_DAY,
@@ -144,6 +144,16 @@ export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
     if (r.sync === "create") created++;
     if (!r.app) continue;
     for (const handle of SEED_ACCOUNTS[s.slug] ?? []) await attachAccount(ctx, r.app, handle, 0, "seed", now, counter);
+  }
+  // Un compte retiré de la liste de départ n'est plus relevé, s'il y était entré par elle (radarNetworkMath.seedRemoval).
+  for (const handle of SEED_REMOVED) {
+    const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+    if (seedRemoval(t)) await ctx.db.patch(t!._id, { status: "paused" });
+  }
+  // Les comptes mis en pause à la main (gros généralistes, homonymes) : une fois, sans défaire une réactivation.
+  for (const handle of OFF_TOPIC_BY_HAND) {
+    const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+    if (handPause(t)) await ctx.db.patch(t!._id, { status: "paused", pausedReason: "offTopic" });
   }
   return created;
 }

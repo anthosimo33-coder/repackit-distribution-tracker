@@ -44,6 +44,7 @@ import {
   hookTemplate,
   igHandleFromBio,
   accountVerdict,
+  canRejudge,
   formatSuccess,
   nextReadAtFor,
   videoApp,
@@ -62,6 +63,7 @@ import {
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
+import { OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
@@ -481,7 +483,7 @@ async function rejudgePausedCore(ctx: MutationCtx): Promise<{ moved: number; res
   let resumed = 0;
   for (const t of paused) {
     const own = byId.get(t.appId);
-    if (t.pausedReason !== "offTopic" || !own) continue;
+    if (!canRejudge(t, OFF_TOPIC_BY_HAND) || !own) continue;
     const recent = await ctx.db
       .query("radarTrackedVideos")
       .withIndex("by_account_published", (q) => q.eq("accountId", t._id))

@@ -23,6 +23,9 @@ import {
   accountVerdict,
   effectiveRivalOf,
   withRivalChoice,
+  seedRemoval,
+  handPause,
+  canRejudge,
   seedSync,
   shadowingApp,
   suggestedAppName,
@@ -35,7 +38,7 @@ import {
   videoCitesApp,
 } from "../convex/radarNetworkMath";
 import { NETWORK_SEARCH_STALE_MS, networkSearchOutcome, networkSearchPhase } from "../convex/radarNetworkSearch";
-import { SEED_ACCOUNTS } from "../convex/radarSeedAccounts";
+import { OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "../convex/radarSeedAccounts";
 import { cleanText, mentionLabel, parseScVideo } from "../convex/radarSignalsMath";
 
 const app = (slug: string) => SEED_APPS.find((a) => a.slug === slug)!;
@@ -196,7 +199,9 @@ describe("Love8, app de couple suivie depuis le 10/11/2026", () => {
 
   it("suivie comme Loverzz, sans être une concurrente ; ses 4 comptes de départ la citent tous", () => {
     expect(love8).toMatchObject({ name: "Love8", rivalOf: [] });
-    expect(SEED_ACCOUNTS.love8).toEqual(["bontlelove8", "johan_love8", "saraf.love8", "lour.love8"]);
+    // Les 4 du premier relevé, en tête ; la recherche approfondie du 10/11/2026 en a ajouté 19.
+    expect(SEED_ACCOUNTS.love8.slice(0, 4)).toEqual(["bontlelove8", "johan_love8", "saraf.love8", "lour.love8"]);
+    expect(SEED_ACCOUNTS.love8).toHaveLength(23);
     // Chaque compte de départ, sur sa vraie vidéo : étiquetée Love8, donc visible dans la file.
     const vraies = [
       { handle: "bontlelove8", caption: "❤️😫! @Love8  . . . #love8 #foryoupage #trendingvideo #fyp #couple " },
@@ -205,7 +210,7 @@ describe("Love8, app de couple suivie depuis le 10/11/2026", () => {
       // Ni la légende ni l'écran ne la nomment : le pseudo « prénom.love8 » suffit.
       { handle: "lour.love8", caption: "Amor de lejos #fyp #parati #tiktok #Viral #amoradistancia", hook: "\"Pero el vive lejos\" y se siente más presente que cualquiera persona que esté a mi lado" },
     ];
-    expect(vraies.map((v) => v.handle)).toEqual([...SEED_ACCOUNTS.love8]);
+    expect(vraies.map((v) => v.handle)).toEqual(SEED_ACCOUNTS.love8.slice(0, 4));
     for (const v of vraies) expect(videoCitesApp(v, love8)).toBe(true);
     expect(findApp(vraies[0].caption, "bontlelove8", SEED_APPS)?.name).toBe("Love8");
   });
@@ -282,9 +287,10 @@ describe("Astra AI et Retain Cards, apps de révision suivies depuis le 10/11/20
     for (const v of retainVraies) expect(videoCitesApp(v, astra)).toBe(false);
   });
 
-  it("pages de hashtag déroulées en entier : 209 et 86 comptes, dans toutes les langues, sans recruteurs ni homonymes", () => {
-    expect(SEED_ACCOUNTS.astraai).toHaveLength(209);
-    expect(SEED_ACCOUNTS.retaincards).toHaveLength(86);
+  it("pages de hashtag déroulées en entier : toutes les langues, sans recruteurs ni homonymes", () => {
+    // 209 et 86 au premier relevé ; la recherche approfondie en a retiré 3 et 2, puis ajouté 59 et 16.
+    expect(SEED_ACCOUNTS.astraai).toHaveLength(265);
+    expect(SEED_ACCOUNTS.retaincards).toHaveLength(100);
     // Astra AI hors des langues du premier relevé : le mot d'étude est dans la légende, ou le pseudo est « learnwith… ».
     const astraAilleurs = [
       { handle: "belajarbarengbening", caption: "Gen Z kalau belajar sat set #astraai #tipskuliah #mahasiswa " },
@@ -301,7 +307,9 @@ describe("Astra AI et Retain Cards, apps de révision suivies depuis le 10/11/20
       { handle: "studywithsumeyyee", caption: "kesinlikle denenmesi gereken bi uygulama🤌🏻🫶🏻 #ders #studytok #yks #kpss #1501 reklam", hook: "ASTRA AI HAKKINDA  GERÇEKÇİ YORUMUM" },
     ];
     for (const v of astraAilleurs) {
-      expect(SEED_ACCOUNTS.astraai).toContain(v.handle);
+      // @nadegellg cite bien l'app, mais sur une seule vidéo d'un compte « lifestyle » : retirée le 10/11/2026.
+      if (v.handle === "nadegellg") expect(SEED_REMOVED).toContain(v.handle);
+      else expect(SEED_ACCOUNTS.astraai).toContain(v.handle);
       expect(videoApp(v, SEED_APPS)?.name).toBe("Astra AI");
     }
     expect(citesApp("astra-ai.de rettet euer Abi", "x", astra)).toBe(true);
@@ -310,7 +318,9 @@ describe("Astra AI et Retain Cards, apps de révision suivies depuis le 10/11/20
     // Relevés sous #astraai et laissés dehors : un homonyme, un autre compte d'IA, le recrutement.
     expect(videoCitesApp({ handle: "illuma.amulli", caption: "What a crazy timeline 😭😂 Anybody else find this kinda reassuring?! 😅 #AIsentience #OpenAI #chatGPT #AstraAI #whatatimetobealive " }, astra)).toBe(false);
     expect(videoCitesApp({ handle: "astraa_ai", caption: "PART 3 #aitiktok #aitrend #foryou #foryoupage" }, astra)).toBe(false);
-    for (const h of ["illuma.amulli", "astraa_ai", "lisa_aicreatorclub", "jcstudio50"]) expect(SEED_ACCOUNTS.astraai).not.toContain(h);
+    for (const h of ["illuma.amulli", "astraa_ai", "lisa_aicreatorclub"]) expect(SEED_ACCOUNTS.astraai).not.toContain(h);
+    // Écarté à tort au premier relevé (« #album #mundial2026 ») : sa bio dit « Cuenta dedicada al estudio ».
+    expect(SEED_ACCOUNTS.astraai).toContain("jcstudio50");
 
     const retainAilleurs = [
       { handle: "studyingwithlaura", caption: "Die App heißt übrigens RetainCards - mega zum Lernen!😳 #retaincards #studytips #studentproblems" },
@@ -327,8 +337,10 @@ describe("Astra AI et Retain Cards, apps de révision suivies depuis le 10/11/20
     // Sous #retaincards sans que la légende ni l'écran la nomment, ou avec « #retain » seul : pas pris.
     expect(citesApp("(Anzeige) Finde das so krass! #retain #karteikarten #studytok ", "laraemilyofficial", retain)).toBe(false);
     for (const h of ["study_byerinn", "study.with.amino", "laraemilyofficial"]) expect(SEED_ACCOUNTS.retaincards).not.toContain(h);
-    // Le recrutement de créateurs, les comptes généralistes et la marque partenaire ne sont pas des comptes de format.
-    for (const h of ["retaincards.criadores", "marine.talentscoutretain", "ugc.marou", "dunja.nfs", "minimum20.study"]) expect(SEED_ACCOUNTS.retaincards).not.toContain(h);
+    // Le recrutement de créateurs et les comptes généralistes (160 000 abonnés, beauté) ne sont pas des comptes de format.
+    for (const h of ["retaincards.criadores", "marine.talentscoutretain", "dunja.nfs"]) expect(SEED_ACCOUNTS.retaincards).not.toContain(h);
+    // Écartés à tort au premier relevé : leur bio nomme Retain Cards (« Révisions avec Retain Cards », « Lerntipps »).
+    for (const h of ["minimum20.study", "ugc.marou"]) expect(SEED_ACCOUNTS.retaincards).toContain(h);
     // Personne dans les deux réseaux.
     expect(SEED_ACCOUNTS.astraai.filter((h) => SEED_ACCOUNTS.retaincards.includes(h))).toEqual([]);
   });
@@ -654,6 +666,109 @@ describe("les apps ajoutées le 06/11/2026", () => {
       }
     }
     expect(seen.size).toBeGreaterThan(150);
+  });
+});
+
+/** Recherche approfondie du 10/11/2026 : 85 pages de hashtag, 2 331 comptes vus, une page vidéo lue par compte. */
+describe("comptes de départ après la recherche approfondie", () => {
+  const tous = Object.values(SEED_ACCOUNTS).flat();
+  const liste = (slug: string) => SEED_ACCOUNTS[slug] ?? [];
+
+  it("1 100 comptes sur 38 apps, chacun une seule fois", () => {
+    expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(38);
+    expect(tous).toHaveLength(1100);
+    expect(new Set(tous).size).toBe(1100);
+    expect(liste("fluencify")).toHaveLength(124);
+    expect(liste("stalkie")).toHaveLength(61);
+    expect(liste("theick")).toHaveLength(38);
+    // Des apps sans liste jusque-là.
+    expect(liste("wingaiapp")).toHaveLength(10);
+    expect(liste("plugai")).toHaveLength(21);
+  });
+
+  it("entrent : pseudo ou bio au nom de l'app, ou plusieurs vidéos d'un compte de la niche", () => {
+    // Bio « Ambasciatore Stalkie », pseudo « ali.airbuds », bio « Ambassadeur THEICKAPP ».
+    expect(liste("stalkie")).toContain("sofiat7f1sp");
+    expect(liste("airbuds")).toContain("ali.airbuds");
+    expect(liste("theick")).toContain("johansecretaccount");
+    // Bio « Daily New stories @Plug AI » : rangé sous Plug AI, pas sous l'app d'une légende de passage.
+    expect(liste("plugai")).toContain("momyrizzler");
+    expect(liste("calai")).not.toContain("momyrizzler");
+    // 303 000 abonnés, mais c'est un compte d'histoires de textos : la niche des apps de réponses.
+    expect(liste("wingaiapp")).toContain("historias.texteadas");
+  });
+
+  it("n'entrent pas : ceux qui ne citent plus l'app dans leurs dix dernières vidéos", () => {
+    // Vus deux à quatre fois sous le hashtag de l'app, sans son nom en pseudo ni en bio : 0 ou 1 citation récente.
+    for (const h of ["nullachat", "storiedichatfakee", "textingwayys", "skrtgrizzy", "fallon62mzyh", "valersp_", "mouthfullofjass"]) expect(tous).not.toContain(h);
+    // Même genre de compte, mais 9 de ses 9 dernières vidéos citent Wing AI : il reste.
+    expect(liste("wingaiapp")).toContain("historias.texteadas");
+    expect(liste("wingaiapp")).toContain("chaat.stories");
+  });
+
+  it("n'entrent pas : gros comptes généralistes, recrutement, marque", () => {
+    // Deux ou quatre vidéos sponsorisées sur des comptes de 136 000 à 23,8 millions d'abonnés.
+    for (const h of ["andreecuadros", "alim_kh0", "jeremydruaux", "55dakid"]) expect(tous).not.toContain(h);
+    // « FashionNova ambassador » n'est pas l'ambassadrice d'une app suivie.
+    expect(tous).not.toContain("4kmarieee");
+    for (const h of ["lauraretaintalentscout", "marine.talentscoutretain", "franzi.retain", "lisa_aicreatorclub", "retaincards.criadores"]) expect(tous).not.toContain(h);
+    expect(tous.filter((h) => /talent|scout|recrut|recruit|criadores|creatorclub|casting|hiring/.test(h.replace(/[._]/g, "")))).toEqual([]);
+    // Les comptes de marque trouvés ce jour-là ne sont pas ajoutés (ceux d'avant restent).
+    for (const h of ["vocaai_official", "biblechatofficial", "trycalai", "knowunity.de", "praktika.app", "sweatcoin"]) expect(tous).not.toContain(h);
+  });
+
+  it("un compte retiré de la liste est mis en pause, seulement s'il y était entré par elle", () => {
+    expect([...SEED_REMOVED]).toEqual(["nadegellg", "luca.lss", "chiara23091", "lauraretain", "mar.retainmx"]);
+    expect(tous.filter((h) => SEED_REMOVED.includes(h))).toEqual([]);
+    expect(seedRemoval({ matchedBy: "seed", status: "active" })).toBe(true);
+    // Déjà en pause : rien à réécrire, la synchro passe toutes les heures.
+    expect(seedRemoval({ matchedBy: "seed", status: "paused" })).toBe(false);
+    // Ajouté à la main, ou retrouvé par une légende : il est là pour une autre raison.
+    expect(seedRemoval({ matchedBy: "manual", status: "active" })).toBe(false);
+    expect(seedRemoval({ matchedBy: "caption", status: "active" })).toBe(false);
+    expect(seedRemoval(null)).toBe(false);
+  });
+});
+
+/** Décision du fondateur le 10/11/2026 : mettre en pause les comptes suivis clairement hors sujet. */
+describe("comptes mis en pause à la main", () => {
+  const tous = Object.values(SEED_ACCOUNTS).flat();
+
+  it("41 comptes, chacun une fois, aucun dans les listes de départ", () => {
+    expect(OFF_TOPIC_BY_HAND).toHaveLength(41);
+    expect(new Set(OFF_TOPIC_BY_HAND).size).toBe(41);
+    for (const h of OFF_TOPIC_BY_HAND) expect(h).toMatch(/^[a-z0-9._]+$/);
+    expect(OFF_TOPIC_BY_HAND.filter((h) => tous.includes(h) || SEED_REMOVED.includes(h))).toEqual([]);
+    // 1,5 M d'abonnés sous Bible Chat, 0 citation sur ses 10 dernières vidéos ; une boutique d'écouteurs sous Airbuds.
+    expect(OFF_TOPIC_BY_HAND).toContain("ntando_bash");
+    expect(OFF_TOPIC_BY_HAND).toContain("fawadmobile.ak");
+  });
+
+  it("n'y sont pas : ceux qui citent l'app dans la moitié de leurs vidéos, la marque, les cas non tranchés", () => {
+    // 13 sur 13, 11 sur 11, 10 sur 10 : de gros comptes, mais des comptes créateurs.
+    for (const h of ["angellingojourney", "sofiiilita", "shemoansmyname1", "zhong1993990", "zhong4044", "zhong41488", "geniapp09", "miree.asmr"]) expect(OFF_TOPIC_BY_HAND).not.toContain(h);
+    // « Flo is a period-tracking app… » : le compte de Flo pour les ados.
+    expect(OFF_TOPIC_BY_HAND).not.toContain("floteens");
+    // 2 à 4 citations sur 10, ou une bio qui renvoie vers une app de drague : pas tranché, on n'y touche pas.
+    for (const h of ["sharongambu", "david.doebele", "kenayx1", "keithcosmic", "sadeismother"]) expect(OFF_TOPIC_BY_HAND).not.toContain(h);
+  });
+
+  it("mis en pause une fois, jamais contre une réactivation faite à l'écran", () => {
+    expect(handPause({ status: "active" })).toBe(true);
+    expect(handPause({ status: "active", keptByHand: false })).toBe(true);
+    // Réactivé depuis l'écran après la pause : la synchro, qui passe toutes les heures, le laisse.
+    expect(handPause({ status: "active", keptByHand: true })).toBe(false);
+    expect(handPause({ status: "paused" })).toBe(false);
+    expect(handPause(null)).toBe(false);
+  });
+
+  it("le rejugement automatique ne relance pas un compte mis en pause à la main", () => {
+    const liste = ["ntando_bash"];
+    expect(canRejudge({ pausedReason: "offTopic", handle: "anacitesonapp" }, liste)).toBe(true);
+    // Une vidéo sponsorisée qui cite l'app le relancerait : c'est elle qui l'avait fait entrer.
+    expect(canRejudge({ pausedReason: "offTopic", handle: "ntando_bash" }, liste)).toBe(false);
+    // En pause sans motif (mis en pause à l'écran, ou retiré de la liste de départ) : jamais rejugé.
+    expect(canRejudge({ handle: "anacitesonapp" }, liste)).toBe(false);
   });
 });
 
