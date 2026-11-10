@@ -188,6 +188,46 @@ describe("WRizz et Wing AI, concurrentes de BLUSH (10/11/2026)", () => {
   });
 });
 
+/** Légendes et textes à l'écran relevés en prod le 10/11/2026 (vidéos de la découverte). */
+describe("Love8, app de couple suivie depuis le 10/11/2026", () => {
+  const love8 = app("love8");
+
+  it("suivie comme Loverzz, sans être une concurrente ; ses 4 comptes de départ la citent tous", () => {
+    expect(love8).toMatchObject({ name: "Love8", rivalOf: [] });
+    expect(SEED_ACCOUNTS.love8).toEqual(["bontlelove8", "johan_love8", "saraf.love8", "lour.love8"]);
+    // Chaque compte de départ, sur sa vraie vidéo : étiquetée Love8, donc visible dans la file.
+    const vraies = [
+      { handle: "bontlelove8", caption: "❤️😫! @Love8  . . . #love8 #foryoupage #trendingvideo #fyp #couple " },
+      { handle: "johan_love8", caption: "Pour vous amuser un peu à distance, testez ça ! 😝❤️ #love8app #relation #copine #couple", hook: "Les couples à distance cette astuce est pour vous · App : Love8" },
+      { handle: "saraf.love8", caption: "Vai me atender SIM 😅🤯 #relationship #love #namoro #casal #fyp", hook: "Escrevo na tela dele 😅 · Quando meu namorado não me atende, eu faço isso: · Love8 APP" },
+      // Ni la légende ni l'écran ne la nomment : le pseudo « prénom.love8 » suffit.
+      { handle: "lour.love8", caption: "Amor de lejos #fyp #parati #tiktok #Viral #amoradistancia", hook: "\"Pero el vive lejos\" y se siente más presente que cualquiera persona que esté a mi lado" },
+    ];
+    expect(vraies.map((v) => v.handle)).toEqual([...SEED_ACCOUNTS.love8]);
+    for (const v of vraies) expect(videoCitesApp(v, love8)).toBe(true);
+    expect(findApp(vraies[0].caption, "bontlelove8", SEED_APPS)?.name).toBe("Love8");
+  });
+
+  it("chaque façon de l'écrire, seule ; « love8 » sans arobase, dièse ni « app » ne suffit pas", () => {
+    expect(citesApp("❤️😫! @Love8", "x", love8)).toBe(true);
+    expect(citesApp("#love8 #couple", "x", love8)).toBe(true);
+    expect(citesApp("Quando meu namorado não me atende · Love8 APP", "x", love8)).toBe(true);
+    expect(citesApp("cette astuce est pour vous · App : Love8", "x", love8)).toBe(true);
+    // « I love 8… », collé par la lecture sans espaces, n'est pas l'app.
+    expect(citesApp("things I love 8 times more about my boyfriend #couple #ldr", "x", love8)).toBe(false);
+    // @magglove8 ne nomme jamais l'app (« grateful to have found this app ») et son pseudo n'a pas de séparateur.
+    expect(videoCitesApp({ handle: "magglove8", caption: "#trend #ilovemygf #couple #gf", hook: "grateful to have found this app · Luckiest boy on earth beacuse you are my girlfriend" }, love8)).toBe(false);
+  });
+
+  it("Loverzz reste Loverzz : même idée (écrire sur l'écran de l'autre), autre app", () => {
+    const cami = { handle: "loveby_cami", caption: "Soy tan tierna y así  App: Loverzz  #amor #parejas #novios #relacionadistancia #couplegoals", hook: "Yo bien tóxica escribiendo en su pantalla para que no se le acerquen 🥹🤍" };
+    expect(videoCitesApp(cami, love8)).toBe(false);
+    expect(videoCitesApp(cami, app("loverzz"))).toBe(true);
+    expect(videoApp(cami, SEED_APPS)?.name).toBe("Loverzz");
+    expect(citesApp("Cutest App ever #couple #loverzzapp #ldr #widget", "julie.vorin", love8)).toBe(false);
+  });
+});
+
 describe("médiane et multiplicateur", () => {
   it("pas de médiane avant 5 vidéos ; impaire ou paire", () => {
     expect(medianViews([1_204, 980, 55_310, 612])).toBeUndefined();

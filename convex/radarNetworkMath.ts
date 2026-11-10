@@ -62,6 +62,8 @@ export type SeedApp = AppRule & {
  *   « histoires de textos » jusqu'à 2,3 M vues ; Plug AI ; Rizz Master et Flert
  *   Now au Brésil), et WRizz et Wing AI (décidé le 10/11/2026 : suivies à la
  *   main depuis la veille, 61 et 6 comptes).
+ * - Apps de couple (Loverzz, Love8) : pas des concurrentes, suivies pour leurs
+ *   formats — c'est la niche que ramène la découverte (« app pour couple »).
  * - Hors niche, même métier (armées de comptes dédiés) : celles du sourcing, et
  *   celles qu'une recherche du 06/11/2026 montre citées par plusieurs comptes ce
  *   mois-ci (Knowunity, Bible Chat, Cal AI, Glam AI, Finch), et Quittr, Umax et
@@ -134,6 +136,11 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "kairo", name: "Kairo Alarme", rivalOf: [], strong: ["kairoalarme", "joinkairo", "kairoapp"], searches: ["kairo alarme"] },
   { slug: "safenow", name: "SafeNow", rivalOf: [], strong: ["safenow"], searches: ["safenow app"] },
   { slug: "loverzz", name: "Loverzz", rivalOf: [], strong: ["loverzz"], searches: ["loverzz"] },
+  // Love8, app de couple à distance comme Loverzz (écrire sur l'écran de l'autre), repérée le 10/11/2026
+  // dans les trouvailles : des comptes « prénom + love8 », jusqu'à 1,6 M vues, que le Radar ne proposait
+  // pas (ils l'écrivent à l'écran, « App : Love8 », au lieu de la mentionner). « love8 » seul se lit dans
+  // « I love 8… » : il faut l'arobase, le dièse, « app » à côté, ou le pseudo « prénom.love8 ».
+  { slug: "love8", name: "Love8", rivalOf: [], strong: ["@love8", "#love8", "love8app", "app:love8", ".love8"], searches: ["love8 app", "love8 couple", "#love8"] },
   { slug: "palima", name: "Palima", rivalOf: [], strong: ["palima"], searches: ["palima app"] },
   { slug: "quittr", name: "Quittr", rivalOf: [], strong: ["quittr"], searches: ["quittr", "#quittr"] },
   { slug: "umax", name: "Umax", rivalOf: [], strong: ["umaxapp", "@umax"], weak: ["umax"], context: LOOKS_CONTEXT, searches: ["umax app", "#umax"] },
