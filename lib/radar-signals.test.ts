@@ -14,7 +14,7 @@ import {
   parseScVideo,
   plannedUsd,
 } from "../convex/radarSignalsMath";
-import { DISCOVERY_QUERIES, DISCOVERY_ROTATION, discoveryRotation } from "../convex/radarDiscoveryQueries";
+import { DISCOVERY_QUERIES, DISCOVERY_ROTATION, discoveryRotation, isRelationFind } from "../convex/radarDiscoveryQueries";
 import {
   applyFilters,
   chips,
@@ -137,6 +137,21 @@ describe("tri à la découverte et courbe", () => {
     expect(next).toHaveLength(12);
     expect(next[0].views).toBe(1_001);
     expect(next[11].views).toBe(9_999);
+  });
+
+  it("une trouvaille « app pour couple » se reconnaît à la recherche qui l'a ramenée (10/11/2026)", () => {
+    // Les `foundBy` relevés en prod : la tournure, puis le marché.
+    expect(isRelationFind(["app for couples·us"])).toBe(true);
+    expect(isRelationFind(["this app·us", "app para parejas·mx"])).toBe(true);
+    expect(isRelationFind(["app pour couple·fr"])).toBe(true);
+    expect(isRelationFind(["app para casal·br"])).toBe(true);
+    // Les deux autres tournures « de niche » ne ramènent rien de la niche (0 vidéo sur 7) ; les recherches de réseau non plus.
+    expect(isRelationFind(["achei um app·br"])).toBe(false);
+    expect(isRelationFind(["app that tells you·us"])).toBe(false);
+    expect(isRelationFind(["réseau Rizz App"])).toBe(false);
+    expect(isRelationFind([])).toBe(false);
+    // Chaque tournure reconnue est bien une recherche qui tourne.
+    for (const q of ["app pour couple", "app para casal", "app para parejas", "app for couples"]) expect(DISCOVERY_QUERIES.some((d) => d.query === q)).toBe(true);
   });
 
   it("fait tourner les recherches sans en sauter ni en répéter", () => {

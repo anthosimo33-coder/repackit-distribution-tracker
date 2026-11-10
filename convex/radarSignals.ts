@@ -30,7 +30,7 @@ import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx 
 import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
-import { DISCOVERY_ROTATION } from "./radarDiscoveryQueries";
+import { DISCOVERY_ROTATION, isRelationFind } from "./radarDiscoveryQueries";
 import { SEED_APPS, canTrack, candidatesOf, findApp, rivalElsewhere, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
 import { SEED_ACCOUNTS } from "./radarSeedAccounts";
@@ -784,6 +784,8 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       // Radar de BLUSH. Explorer la montre ; Aujourd'hui la laisse aux autres.
       elsewhere: rivalElsewhere((shown ?? own)?.rivalOf ?? r.appRivalOf ?? (r.competitor ? ["snytch"] : []), slug),
       tracked: r.trackedAccountId !== undefined,
+      // Trouvée par une recherche « app pour couple » : la seule découverte qui entre dans Aujourd'hui.
+      niche: isRelationFind(r.foundBy),
       inCurve: r.nextCheckAt !== undefined,
       status: markOf.get(r._id)?.status ?? ("nouveau" as const),
       // Quand l'équipe l'a traitée : « N traitées aujourd'hui » (radarDisplay.handledToday).
@@ -918,6 +920,8 @@ export const e2eSeedSignals = e2eMutation({
         shares: v.optional(v.number()),
         // Durée : 12 secondes ou moins = « texte sur plan », hors d'Aujourd'hui.
         durationSec: v.optional(v.number()),
+        // Les recherches qui l'ont trouvée (« app for couples·us ») ; sinon « e2e ».
+        foundBy: v.optional(v.array(v.string())),
       }),
     ),
   },
@@ -958,7 +962,7 @@ export const e2eSeedSignals = e2eMutation({
           ...(s.durationSec !== undefined ? { durationSec: s.durationSec } : {}),
           ...(s.hook ? { hook: s.hook } : {}),
           ...(s.transcript ? { transcript: s.transcript, transcribedAt: now } : {}),
-          foundBy: ["e2e"],
+          foundBy: s.foundBy ?? ["e2e"],
           firstSeenAt: now,
           lastSeenAt: now,
         }),

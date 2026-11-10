@@ -29,8 +29,9 @@ const QUEUE_GRID = "grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(25
  * RADAR — AUJOURD'HUI : ce qu'il faut voir, sans rien régler. Au plus 12 vidéos
  * que l'équipe n'a pas encore traitées (radarDisplay.todayGroups) — celles de
  * moins de 48 h déjà à 10 fois leur normale, puis les plus fortes de la semaine,
- * une seule par compte —, à regarder une par une ; les formats qui circulent ;
- * les concurrents de la semaine. Le reste attend dans Explorer.
+ * une seule par compte —, et jusqu'à 2 trouvailles hors des comptes suivis, à
+ * regarder une par une ; les formats qui circulent ; les concurrents de la
+ * semaine. Le reste attend dans Explorer.
  */
 export function RadarToday({ go }: { go: RadarGo }) {
   const tr = useTranslations("admin.ops.RadarToday");
@@ -61,7 +62,7 @@ export function RadarToday({ go }: { go: RadarGo }) {
   const signals = data.signals;
   // Les fraîches (moins de 48 h, déjà 10 fois leur normale) d'abord, puis les plus fortes de la semaine.
   const groups = todayGroups(signals, now);
-  const queue = [...groups.fresh, ...groups.strongest];
+  const queue = [...groups.fresh, ...groups.strongest, ...groups.finds];
   const early = earlyHits(signals, now);
   const week = applyFilters(signals, defaultFilters(), now);
   const handled = handledToday(signals, now);
@@ -144,11 +145,30 @@ export function RadarToday({ go }: { go: RadarGo }) {
             )}
             {groups.strongest.length > 0 && (
               <div className="space-y-3" data-testid="radar-plus-fortes">
-                {/* Sans vidéo fraîche, la file n'a qu'un groupe : pas de sous-titre. */}
-                {groups.fresh.length > 0 && <h3 className="text-sm font-semibold text-slate-900">{tr("plusFortes")}</h3>}
+                {/* Seul groupe de la file : pas de sous-titre. */}
+                {(groups.fresh.length > 0 || groups.finds.length > 0) && <h3 className="text-sm font-semibold text-slate-900">{tr("plusFortes")}</h3>}
                 <div className={QUEUE_GRID}>
                   {groups.strongest.map((s, i) => (
                     <SignalCard key={s.id} s={s} now={now} onOpen={() => open(groups.fresh.length + i)} onStatus={(st) => void setStatus(s, st)} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {groups.finds.length > 0 && (
+              <div className="space-y-3" data-testid="radar-trouvailles">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <h3 className="text-sm font-semibold text-slate-900">{tr("trouvailles")}</h3>
+                  <p className="text-sm text-slate-500">{tr("trouvaillesAide")}</p>
+                </div>
+                <div className={QUEUE_GRID}>
+                  {groups.finds.map((s, i) => (
+                    <SignalCard
+                      key={s.id}
+                      s={s}
+                      now={now}
+                      onOpen={() => open(groups.fresh.length + groups.strongest.length + i)}
+                      onStatus={(st) => void setStatus(s, st)}
+                    />
                   ))}
                 </div>
               </div>

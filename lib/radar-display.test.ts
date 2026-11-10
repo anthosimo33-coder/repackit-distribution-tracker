@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  TODAY_FIND_SLOTS,
   TODAY_FRESH_SLOTS,
   TODAY_LIMIT,
   TODAY_RIVAL_SLOTS,
@@ -7,6 +8,7 @@ import {
   curveOf,
   earlyHits,
   isEarlyHit,
+  isFind,
   isFresh,
   isTextOnShot,
   onePerAccount,
@@ -30,7 +32,7 @@ const DAY = 24 * HOUR;
 // 9 novembre 2026, 15 h à Paris (14 h UTC).
 const NOW = Date.UTC(2026, 10, 9, 14, 0);
 
-type S = FilterableSignal & { id: string; markedAt: number | null; elsewhere?: boolean; network?: string | null; durationSec?: number | null };
+type S = FilterableSignal & { id: string; markedAt: number | null; elsewhere?: boolean; network?: string | null; durationSec?: number | null; tracked?: boolean; niche?: boolean };
 const sig = (id: string, o: Partial<S> = {}): S => ({
   id,
   handle: id,
@@ -140,7 +142,7 @@ describe("à regarder aujourd'hui", () => {
     // La file se regarde dans cet ordre : une vidéo d'hier à 17× passe devant celle de 4 jours à 55×.
     expect(todayQueue(signals, NOW).map((s) => s.id)).toEqual(["keganengland.lpc", "studywithgio1", "rizzly.puff", "leocvntt_", "glamai01"]);
     // Sans vidéo fraîche, la file est celle du score.
-    expect(todayGroups(signals.slice(0, 2), NOW)).toEqual({ fresh: [], strongest: [signals[0], signals[1]] });
+    expect(todayGroups(signals.slice(0, 2), NOW)).toEqual({ fresh: [], strongest: [signals[0], signals[1]], finds: [] });
   });
 
   it("au plus 6 fraîches : la moitié de la file reste aux plus fortes de la semaine", () => {
@@ -183,6 +185,65 @@ describe("à regarder aujourd'hui", () => {
     // 6 concurrents (2 fraîches + 4), 6 autres (4 fraîches + 2), chaque part au score.
     expect(g.strongest.map((s) => s.id)).toEqual(["as0", "as1", "cs0", "cs1", "cs2", "cs3"]);
     expect([...g.fresh, ...g.strongest].filter((s) => s.competitor)).toHaveLength(TODAY_RIVAL_SLOTS);
+  });
+
+  it("trouvaille : un compte pas encore suivi, qui cite une app suivie ou sort d'une recherche « app pour couple »", () => {
+    // @lxgan__b (Hinge), trouvée par « app for couples » ; @textsrampage cite Rizz App.
+    expect(isFind({ tracked: false, multiplier: null, niche: true, app: null })).toBe(true);
+    expect(isFind({ tracked: false, multiplier: null, niche: false, app: "Rizz App" })).toBe(true);
+    // @chronikkie, 2 869 fois ses abonnés, trouvée par « this app » : le reste de la découverte n'en est pas.
+    expect(isFind({ tracked: false, multiplier: null, niche: false, app: null })).toBe(false);
+    // Un compte suivi, ou une normale connue : la vidéo est jugée avec les autres.
+    expect(isFind({ tracked: true, multiplier: null, niche: true, app: "Loverzz" })).toBe(false);
+    expect(isFind({ tracked: false, multiplier: 12, niche: true, app: null })).toBe(false);
+  });
+
+  it("jusqu'à 2 trouvailles EN PLUS des 12, aux vues par abonné — chiffres de la file de BLUSH du 10/11/2026", () => {
+    const connues = Array.from({ length: 20 }, (_, i) => sig(`c${i}`, { multiplier: 400 - i, tracked: true }));
+    const decouverte = [
+      sig("chronikkie", { ratio: 2_869 }), // « this app » : hors sujet
+      sig("lxgan__b", { ratio: 1_651, niche: true }),
+      sig("textsrampage", { ratio: 918, app: "Rizz App", competitor: "Rizz App" }),
+      sig("lour.love8", { ratio: 617, niche: true }),
+    ];
+    const sans = todayGroups(connues, NOW);
+    const g = todayGroups([...connues, ...decouverte], NOW);
+    expect(g.finds.map((s) => s.id)).toEqual(["lxgan__b", "textsrampage"]);
+    expect(g.finds).toHaveLength(TODAY_FIND_SLOTS);
+    // Les 12 ne bougent pas : prises sur elles, deux places sortaient de la file de BLUSH sa vidéo la plus forte.
+    expect([g.fresh, g.strongest]).toEqual([sans.fresh, sans.strongest]);
+    expect(g.strongest).toHaveLength(TODAY_LIMIT);
+    // On les regarde en dernier.
+    expect(todayQueue([...connues, ...decouverte], NOW).slice(-2).map((s) => s.id)).toEqual(["lxgan__b", "textsrampage"]);
+    expect(todayQueue([...connues, ...decouverte], NOW)).toHaveLength(TODAY_LIMIT + TODAY_FIND_SLOTS);
+  });
+
+  it("une trouvaille par compte, jamais un « texte sur plan » ni la concurrente d'un autre projet ; traitée, la suivante arrive", () => {
+    const connues = Array.from({ length: 12 }, (_, i) => sig(`c${i}`, { multiplier: 400 - i, tracked: true }));
+    const decouverte = [
+      // @magglove8 : trois vidéos de 7 secondes (« grateful to have found this app »).
+      sig("magglove8", { ratio: 1_369, niche: true, durationSec: 7.6 }),
+      sig("ailleurs", { ratio: 5_000, app: "The Ick", elsewhere: true }),
+      sig("love8a", { handle: "lour.love8", ratio: 617, niche: true }),
+      sig("love8b", { handle: "lour.love8", ratio: 600, niche: true }),
+      sig("saraf", { ratio: 43, niche: true }),
+      sig("altera", { ratio: 17, niche: true }),
+    ];
+    const all = [...connues, ...decouverte];
+    expect(todayGroups(all, NOW).finds.map((s) => s.id)).toEqual(["love8a", "saraf"]);
+    const traite = all.map((s) => (s.id === "love8a" ? { ...s, status: "ignore" as const } : s));
+    expect(todayGroups(traite, NOW).finds.map((s) => s.id)).toEqual(["love8b", "saraf"]);
+  });
+
+  it("file pas pleine : le reste de la découverte la complète comme avant, sans doubler une trouvaille", () => {
+    const signals = [
+      sig("forte", { multiplier: 286, tracked: true }),
+      sig("horsSujet", { ratio: 5_000 }),
+      sig("trouvaille", { ratio: 900, niche: true }),
+    ];
+    const g = todayGroups(signals, NOW);
+    expect(g.strongest.map((s) => s.id)).toEqual(["forte", "horsSujet"]);
+    expect(g.finds.map((s) => s.id)).toEqual(["trouvaille"]);
   });
 
   it("traitées aujourd'hui : le jour de Paris, pas les dernières 24 heures", () => {

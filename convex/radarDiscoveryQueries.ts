@@ -30,6 +30,21 @@ export const DISCOVERY_QUERIES: readonly DiscoveryQuery[] = [
 const NICHE: readonly string[] = ["app pour couple", "app para casal", "app para parejas", "app for couples", "achei um app", "app that tells you"];
 const isNiche = (d: DiscoveryQuery) => NICHE.includes(d.query);
 
+/**
+ * Les tournures « app pour couple », dans chaque marché : les seules dont les
+ * trouvailles entrent dans la file Aujourd'hui (radarDisplay.todayGroups). Lu le
+ * 10/11/2026 sur les 130 vidéos de la découverte de la semaine : celles-ci
+ * montrent toutes une app de couple ou de rencontre (Love8, amora, Hinge…) ;
+ * les autres tournures ramènent du foot, des fonds d'écran et des tutoriels de
+ * code — « achei um app » et « app that tells you » compris (0 sur 7).
+ */
+const RELATION: readonly string[] = ["app pour couple", "app para casal", "app para parejas", "app for couples"];
+
+/** La vidéo a-t-elle été trouvée par une recherche « app pour couple » ? (`foundBy` : « app for couples·us »). */
+export function isRelationFind(foundBy: readonly string[]): boolean {
+  return foundBy.some((f) => RELATION.includes(f.split("·")[0]));
+}
+
 /** Tournures hors niche passées entre deux tours des tournures de niche. */
 export const ROTATION_OTHERS_PER_ROUND = 13;
 
