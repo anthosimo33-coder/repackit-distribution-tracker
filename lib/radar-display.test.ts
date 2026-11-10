@@ -15,6 +15,7 @@ import {
   sharesWell,
   groupAds,
   handledToday,
+  hiddenToday,
   isTemplateText,
   lastGrowth,
   originalSoundOf,
@@ -32,7 +33,7 @@ const DAY = 24 * HOUR;
 // 9 novembre 2026, 15 h à Paris (14 h UTC).
 const NOW = Date.UTC(2026, 10, 9, 14, 0);
 
-type S = FilterableSignal & { id: string; markedAt: number | null; elsewhere?: boolean; network?: string | null; durationSec?: number | null; tracked?: boolean; niche?: boolean };
+type S = FilterableSignal & { id: string; markedAt: number | null; elsewhere?: boolean; network?: string | null; durationSec?: number | null; tracked?: boolean; niche?: boolean; unavailable?: { reason: string; at: number } | null };
 const sig = (id: string, o: Partial<S> = {}): S => ({
   id,
   handle: id,
@@ -255,6 +256,57 @@ describe("à regarder aujourd'hui", () => {
       sig("nouvelle"),
     ];
     expect(handledToday(signals, NOW)).toBe(2);
+  });
+});
+
+/** 10/11/2026 : « Video currently unavailable » dans le lecteur, le compte @gigi.girlytea était passé en privé. */
+describe("vidéos devenues invisibles sur TikTok", () => {
+  const privee = { reason: "private", at: NOW - HOUR };
+
+  it("hors de la file : la suivante prend sa place, dans chaque groupe", () => {
+    const signals = [
+      sig("gigi", { multiplier: 286, competitor: "FollowOtter", unavailable: privee }),
+      sig("visible", { multiplier: 40, competitor: "The Ick" }),
+      sig("fraiche-privee", { multiplier: 90, publishedAt: NOW - 20 * HOUR, unavailable: privee }),
+      sig("fraiche", { multiplier: 30, publishedAt: NOW - 20 * HOUR }),
+      sig("trouvaille-supprimee", { app: "Love8", ratio: 400, unavailable: { reason: "removed", at: NOW } }),
+      sig("trouvaille", { app: "Love8", ratio: 90 }),
+    ];
+    const g = todayGroups(signals, NOW);
+    expect(g.fresh.map((s) => s.id)).toEqual(["fraiche"]);
+    expect(g.strongest.map((s) => s.id)).toEqual(["visible"]);
+    expect(g.finds.map((s) => s.id)).toEqual(["trouvaille"]);
+    expect(todayQueue(signals, NOW).map((s) => s.id)).not.toContain("gigi");
+    // Sans le constat, c'est elle qui ouvrait la file.
+    expect(todayQueue([sig("gigi", { multiplier: 286, competitor: "FollowOtter" }), signals[1]], NOW).map((s) => s.id)).toEqual(["gigi", "visible"]);
+  });
+
+  it("ni dans « en train de partir »", () => {
+    const hit = { multiplier: 50, views: 80_000, publishedAt: NOW - 6 * HOUR };
+    expect(earlyHits([sig("part", hit), sig("part-privee", { ...hit, unavailable: privee })], NOW).map((s) => s.id)).toEqual(["part"]);
+  });
+
+  it("le compte des écartées : mêmes règles que la file, pour le dire à l'équipe", () => {
+    const signals = [
+      sig("a", { unavailable: privee }),
+      sig("b", { unavailable: { reason: "region", at: NOW } }),
+      sig("visible"),
+      // Déjà traitée, d'un autre projet, hors de la semaine : la file ne l'aurait pas montrée de toute façon.
+      sig("traitee", { unavailable: privee, status: "ignore" }),
+      sig("ailleurs", { unavailable: privee, elsewhere: true }),
+      sig("vieille", { unavailable: privee, publishedAt: NOW - 9 * DAY }),
+    ];
+    expect(hiddenToday(signals, NOW).map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  it("la semaine d'un concurrent : elle compte, mais passe après celles qu'on peut regarder", () => {
+    const signals = [sig("privee", { app: "FollowOtter", multiplier: 286, unavailable: privee }), sig("visible", { app: "FollowOtter", multiplier: 6 }), sig("texte", { app: "FollowOtter", multiplier: 90, durationSec: 8 })];
+    // « Sa meilleure » est la première : la visible, pas la privée au plus haut score.
+    expect(appWeek("FollowOtter", signals, [], NOW).hits.map((s) => s.id)).toEqual(["visible", "texte", "privee"]);
+  });
+
+  it("Explorer la garde : les filtres ne la cachent pas", () => {
+    expect(applyFilters([sig("a", { unavailable: privee })], defaultFilters(), NOW)).toHaveLength(1);
   });
 });
 

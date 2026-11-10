@@ -97,6 +97,8 @@ type QueueSignal = FilterableSignal & {
   tracked?: boolean;
   /** Trouvée par une recherche « app pour couple » (radarDiscoveryQueries.isRelationFind). */
   niche?: boolean;
+  /** Devenue invisible sur TikTok (convex/radarAvailability) : hors de la file. */
+  unavailable?: unknown;
 };
 
 /**
@@ -131,7 +133,9 @@ export function isFind(s: { tracked?: boolean; multiplier?: number | null; niche
  *  - jamais les concurrents d'un AUTRE projet (`elsewhere`, The Ick pour BLUSH),
  *    ni ce qu'un compte suivi publie sans citer d'app (`network` : « TURN OFF
  *    THESE ROKU SETTINGS » d'un compte du réseau Finch), ni les « texte sur plan »
- *    de 12 secondes ou moins (`isTextOnShot`) : ils restent dans Explorer.
+ *    de 12 secondes ou moins (`isTextOnShot`) : ils restent dans Explorer ;
+ *  - jamais une vidéo devenue invisible sur TikTok (`unavailable` : compte passé
+ *    en privé, vidéo supprimée…) : on ne peut plus la regarder (10/11/2026).
  * Une part trop courte est complétée par l'autre. Une vidéo traitée en sort ;
  * la suivante prend sa place.
  */
@@ -145,7 +149,7 @@ export function todayGroups<T extends QueueSignal>(
 ): { fresh: T[]; strongest: T[]; finds: T[] } {
   const f = defaultFilters();
   f.sel.statut = ["nouveau"];
-  const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network && !isTextOnShot(s));
+  const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network && !isTextOnShot(s) && !s.unavailable);
   // Les trouvailles sont servies à part : classées au score, elles passaient derrière
   // toute vidéo à normale connue et n'entraient jamais (la 1re au rang 76 chez Snytch).
   const finds = onePerAccount(ranked.filter(isFind)).slice(0, findSlots);
@@ -162,6 +166,17 @@ export function todayGroups<T extends QueueSignal>(
   const picked = new Set([...rivals.slice(0, nRivals), ...others.slice(0, limit - nRivals)]);
   const queue = order.filter((s) => picked.has(s));
   return { fresh: queue.filter((s) => fresh.has(s)), strongest: queue.filter((s) => !fresh.has(s)), finds };
+}
+
+/**
+ * Les vidéos qu'Aujourd'hui aurait pu montrer et qui ne sont plus visibles sur
+ * TikTok : mêmes règles que la file (semaine, jamais traitées, du projet), pour
+ * dire à l'équipe combien ont été écartées et pourquoi.
+ */
+export function hiddenToday<T extends QueueSignal>(signals: readonly T[], now: number): T[] {
+  const f = defaultFilters();
+  f.sel.statut = ["nouveau"];
+  return applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network && !isTextOnShot(s) && !!s.unavailable);
 }
 
 /** La file dans l'ordre où on la regarde : les fraîches, les plus fortes de la semaine, puis les trouvailles. */
@@ -251,9 +266,9 @@ export function isEarlyHit(v: { publishedAt: number; views: number; multiplier?:
  * projet, ni ce qu'un compte publie sans citer d'app, ni les « texte sur plan »
  * de 12 secondes ou moins — les plus fortes d'abord, une seule par compte.
  */
-export function earlyHits<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(signals: readonly T[], now: number, limit = 4): T[] {
+export function earlyHits<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null; unavailable?: unknown }>(signals: readonly T[], now: number, limit = 4): T[] {
   const hits = signals
-    .filter((s) => s.status === "nouveau" && !s.elsewhere && !s.network && !isTextOnShot(s) && isEarlyHit(s, now))
+    .filter((s) => s.status === "nouveau" && !s.elsewhere && !s.network && !isTextOnShot(s) && !s.unavailable && isEarlyHit(s, now))
     .sort((a, b) => (b.multiplier ?? 0) - (a.multiplier ?? 0));
   return onePerAccount(hits).slice(0, limit);
 }
@@ -342,7 +357,7 @@ export function groupAds<A extends AdLike>(ads: readonly A[]): AdGroup<A>[] { //
  * Ce qu'une app a fait cette semaine : ses vidéos qui sortent du lot (7 jours,
  * hors passées) et ses pubs actives (une créa comptée une fois).
  */
-export function appWeek<S extends FilterableSignal & { durationSec?: number | null }>(
+export function appWeek<S extends FilterableSignal & { durationSec?: number | null; unavailable?: unknown }>(
   appName: string,
   signals: readonly S[],
   ads: readonly AdLike[],
@@ -353,8 +368,11 @@ export function appWeek<S extends FilterableSignal & { durationSec?: number | nu
   // Les « texte sur plan » de 12 secondes ou moins APRÈS les autres : on ne les
   // propose pas à regarder, mais la fiche d'un concurrent dit tout ce qu'il fait
   // (09/11/2026 : 46 des 50 vidéos de concurrents de Snytch en sont).
+  // Et les vidéos devenues invisibles sur TikTok tout à la fin : elles ont compté, mais « sa meilleure » doit
+  // pouvoir se regarder (10/11/2026).
   const ranked = applyFilters(signals, f, now);
-  const hits = [...ranked.filter((s) => !isTextOnShot(s)), ...ranked.filter((s) => isTextOnShot(s))];
+  const seen = ranked.filter((s) => !s.unavailable);
+  const hits = [...seen.filter((s) => !isTextOnShot(s)), ...seen.filter((s) => isTextOnShot(s)), ...ranked.filter((s) => !!s.unavailable)];
   const activeAds = groupAds(ads.filter((a) => a.app === appName)).filter((g) => g.activeCount > 0).length;
   return { hits, activeAds };
 }

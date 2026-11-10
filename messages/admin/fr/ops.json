@@ -649,7 +649,8 @@
     "sonOriginalDe": "Son original de @{handle}",
     "compteSuiviPour": "compte suivi pour {app}",
     "compteSuiviPourAide": "Son compte est suivi pour {app}, mais cette vidéo ne cite pas l'app : elle n'est pas comptée comme une vidéo de {app}.",
-    "sePartage": "Se partage"
+    "sePartage": "Se partage",
+    "plusVisible": "Plus visible"
   },
   "RadarViewer": {
     "titre": "Regarder une par une",
@@ -695,7 +696,18 @@
     "ajoutImpossible": "Ajout aux inspirations impossible.",
     "dansLesInspirations": "Dans les inspirations",
     "ajouterAuxInspirations": "Ajouter aux inspirations",
-    "partagee": "Se partage : {pct} des vues partagées"
+    "partagee": "Se partage : {pct} des vues partagées",
+    "plusVisibleTitre": "Plus visible sur TikTok",
+    "plusVisible": {
+      "private": "Le compte @{handle} est passé en privé.",
+      "region": "TikTok ne la montre pas dans notre région.",
+      "removed": "Elle a été supprimée.",
+      "review": "TikTok la vérifie, ou l'a retirée.",
+      "restricted": "Son auteur la réserve à ses amis, ou à lui seul.",
+      "other": "TikTok ne la sert plus, sans dire pourquoi."
+    },
+    "constate": "Constaté {age}",
+    "constateALInstant": "Constaté à l'instant"
   },
   "RadarToday": {
     "aRegarder": "{n, plural, one {# vidéo} other {# vidéos}} à regarder aujourd'hui",
@@ -738,7 +750,8 @@
     "vuesEnHeures": "vues en {n} h",
     "reussite": "{wins} reprises sur {n} réussissent",
     "medianeReprises": "médiane {x}",
-    "pasAssezReprises": "Moins de 3 reprises mesurées"
+    "pasAssezReprises": "Moins de 3 reprises mesurées",
+    "invisibles": "{n, plural, one {# vidéo écartée : elle n'est plus visible} other {# vidéos écartées : elles ne sont plus visibles}} sur TikTok{prive, plural, =0 {} one {, dont # d'un compte passé en privé} other {, dont # de comptes passés en privé}}."
   },
   "RadarExplorer": {
     "ceQuOnExplore": "Ce qu'on explore",
