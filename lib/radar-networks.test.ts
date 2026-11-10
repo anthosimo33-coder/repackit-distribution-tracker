@@ -21,6 +21,8 @@ import {
   OFF_TOPIC_MIN_VIDEOS,
   SECOND_LOOK_MS,
   accountVerdict,
+  effectiveRivalOf,
+  withRivalChoice,
   seedSync,
   shadowingApp,
   suggestedAppName,
@@ -689,5 +691,35 @@ describe("textes coupés sans moitié d'emoji (bug de prod du 07/11/2026)", () =
     expect(cleanText("ok \ud83d fin")).toBe("ok \ufffd fin");
     expect(cleanText("😭😭", 3)).toBe("😭");
     expect(cleanText("sans coupe")).toBe("sans coupe");
+  });
+});
+
+describe("classer une app à la main (10/11/2026)", () => {
+  it("la décision d'une équipe l'emporte sur la liste de départ, pour son projet seulement", () => {
+    // WRizz avant le 10/11 : concurrente de personne dans la liste ; BLUSH la classe concurrente.
+    expect(effectiveRivalOf([], [{ project: "blush", rival: true }])).toEqual(["blush"]);
+    // Snitchy : la liste la disait concurrente de Snytch ; Snytch la retire, BLUSH n'a rien décidé.
+    expect(effectiveRivalOf(["snytch"], [{ project: "snytch", rival: false }])).toEqual([]);
+    // Une app concurrente de Snytch que BLUSH classe aussi : les deux, la liste d'abord.
+    expect(effectiveRivalOf(["snytch"], [{ project: "blush", rival: true }])).toEqual(["snytch", "blush"]);
+    // Une décision qui dit comme la liste ne change rien, et ne double rien.
+    expect(effectiveRivalOf(["blush"], [{ project: "blush", rival: true }])).toEqual(["blush"]);
+    expect(effectiveRivalOf([], [{ project: "blush", rival: false }])).toEqual([]);
+    expect(effectiveRivalOf(["snytch", "blush"], [])).toEqual(["snytch", "blush"]);
+    // Rejouée sur son propre résultat (la mutation part de `rivalOf`, la synchronisation de la liste) : même chose.
+    const choix = [{ project: "blush", rival: true }, { project: "snytch", rival: false }];
+    expect(effectiveRivalOf(effectiveRivalOf(["snytch"], choix), choix)).toEqual(effectiveRivalOf(["snytch"], choix));
+    expect(effectiveRivalOf(["snytch"], choix)).toEqual(["blush"]);
+  });
+
+  it("la dernière décision d'un projet remplace la précédente ; celles des autres restent", () => {
+    const un = withRivalChoice([], { project: "blush", rival: true });
+    expect(un).toEqual([{ project: "blush", rival: true }]);
+    const deux = withRivalChoice(un, { project: "snytch", rival: false });
+    const trois = withRivalChoice(deux, { project: "blush", rival: false });
+    expect(trois).toEqual([{ project: "snytch", rival: false }, { project: "blush", rival: false }]);
+    expect(effectiveRivalOf(["snytch", "blush"], trois)).toEqual([]);
+    // Elle ne modifie pas la liste qu'on lui donne.
+    expect(un).toEqual([{ project: "blush", rival: true }]);
   });
 });

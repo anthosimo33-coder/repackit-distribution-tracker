@@ -8,6 +8,7 @@ import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
+import { useProject } from "@/components/project/ProjectProvider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
@@ -182,10 +183,24 @@ export function NetworkSearchBlock({ app, now }: { app: AppRow; now: number }) {
 function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open: boolean; onToggle: () => void }) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const loc = useIntlLocale();
+  const { project } = useProject();
+  const showError = useConvexError();
   const setStatus = useProjectMutation(api.radarNetworks.setAppStatus);
+  const setRival = useProjectMutation(api.radarNetworks.setAppRival);
   const paused = app.status === "paused";
+  const rival = app.group === "rival";
   const ns = app.networkSearch;
   const { phase, running, search } = useNetworkSearch(app, now);
+
+  // Concurrente de CE projet ou non : la carte change de groupe aussitôt.
+  async function classify() {
+    try {
+      const isRival = await setRival({ appId: app.id, rival: !rival });
+      toast.success(tr(isRival ? "classeeConcurrente" : "plusConcurrente", { app: app.name, projet: project.name }));
+    } catch (err) {
+      toast.error(showError(err, tr("classementImpossible")));
+    }
+  }
 
   return (
     <li
@@ -228,6 +243,10 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
             className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
           >
             {paused ? tr("reprendre") : tr("mettreEnPause")}
+          </button>
+          {/* Geste rare : en lien, pour ne pas peser autant que les deux boutons. */}
+          <button type="button" onClick={() => void classify()} className="min-h-10 px-2 text-sm font-medium text-slate-600 underline underline-offset-4 hover:text-slate-900">
+            {rival ? tr("retirerDesConcurrentes") : tr("classerConcurrente")}
           </button>
         </div>
       </div>

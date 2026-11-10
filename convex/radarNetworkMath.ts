@@ -202,6 +202,32 @@ export function seedSync(existing: { source: "seed" | "manual" } | null, sameFie
   return sameFields ? "keep" : "align";
 }
 
+/** Une décision prise à la main, depuis l'écran d'un projet : cette app est (ou n'est pas) sa concurrente. */
+export type RivalChoice = { project: string; rival: boolean };
+
+/**
+ * Les projets dont une app est concurrente : ce que dit la liste de départ (ou
+ * sa création), corrigé par ce que chaque équipe a décidé à la main — sa
+ * décision l'emporte, pour son projet seulement. Le 10/11/2026, reclasser
+ * WRizz, fondre un doublon ou suivre Love8 a demandé trois modifications du
+ * code : l'équipe ne pouvait rien changer après la création d'une app, et la
+ * synchronisation horaire aurait de toute façon rétabli la liste.
+ */
+export function effectiveRivalOf(base: readonly string[], byHand: readonly RivalChoice[]): string[] {
+  const out = [...base];
+  for (const c of byHand) {
+    const i = out.indexOf(c.project);
+    if (c.rival && i < 0) out.push(c.project);
+    if (!c.rival && i >= 0) out.splice(i, 1);
+  }
+  return out;
+}
+
+/** La décision d'un projet remplace sa précédente ; celles des autres projets restent. */
+export function withRivalChoice(byHand: readonly RivalChoice[], choice: RivalChoice): RivalChoice[] {
+  return [...byHand.filter((c) => c.project !== choice.project), choice];
+}
+
 /** Minuscules ; `compact` sans espaces, tirets ni soulignés (« Recent Follow » → « recentfollow »). */
 export function normalize(text: string) {
   const lower = text.toLowerCase();

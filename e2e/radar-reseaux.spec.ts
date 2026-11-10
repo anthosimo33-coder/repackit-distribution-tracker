@@ -270,6 +270,51 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
     }
   });
 
+  test("classer une app concurrente à la main, et la retirer ; la liste de départ ne revient pas dessus", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const r = reseau(ts);
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, { secret: E2E_SECRET, ...r.seed });
+    try {
+      const dans = (groupe: string, app: string) => page.getByRole("region", { name: groupe }).getByTestId("radar-app").filter({ hasText: app });
+      const carte = (nom: string) => page.getByTestId("radar-app").filter({ hasText: nom });
+      // La liste de départ, telle que le code la tient pour chacune des trois apps semées.
+      const liste = (lettre: string, name: string, rivalOf: string[]) => ({ slug: `${r.prefixe}${lettre}`, name, rivalOf, strong: [`${r.prefixe}${lettre}`], searches: [`${r.prefixe}${lettre}`] });
+      const sync = (seed: ReturnType<typeof liste>) => admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed });
+      await page.goto(adminPath("/radar?onglet=comptes"));
+
+      // ── Concurrente de personne : on la classe concurrente de ce projet ──
+      await expect(dans("Autres apps", r.autre)).toHaveCount(1);
+      await carte(r.autre).getByRole("button", { name: "Classer concurrente" }).click();
+      await expect(page.getByText(`${r.autre} est maintenant une concurrente de E2E Test.`)).toBeVisible();
+      await expect(dans("Concurrents de ce projet", r.autre)).toHaveCount(1);
+      await expect(dans("Autres apps", r.autre)).toHaveCount(0);
+      // La liste de départ la dit concurrente de personne : synchronisée deux fois, la décision tient.
+      expect(await sync(liste("c", r.autre, []))).toMatchObject({ sync: "adopt", source: "seed", rivalOf: [E2E_PROJECT_SLUG] });
+      expect(await sync(liste("c", r.autre, []))).toMatchObject({ sync: "keep", rivalOf: [E2E_PROJECT_SLUG] });
+      await expect(dans("Concurrents de ce projet", r.autre)).toHaveCount(1);
+
+      // ── Concurrente d'un autre projet : la classer ici ne la retire pas à l'autre ──
+      await carte(r.ailleurs).getByRole("button", { name: "Classer concurrente" }).click();
+      await expect(dans("Concurrents de ce projet", r.ailleurs)).toHaveCount(1);
+      expect((await sync(liste("b", r.ailleurs, ["snytch"]))).rivalOf).toEqual(["snytch", E2E_PROJECT_SLUG]);
+      // La retirer : elle redevient la concurrente de l'autre projet seulement.
+      await carte(r.ailleurs).getByRole("button", { name: "Retirer des concurrentes" }).click();
+      await expect(page.getByText(`${r.ailleurs} n'est plus une concurrente de E2E Test.`)).toBeVisible();
+      await expect(dans("Concurrents d'un autre projet", r.ailleurs)).toHaveCount(1);
+      expect((await sync(liste("b", r.ailleurs, ["snytch"]))).rivalOf).toEqual(["snytch"]);
+
+      // ── Concurrente d'après la liste : retirée à la main, elle le reste après une synchronisation ──
+      await carte(r.rival).getByRole("button", { name: "Retirer des concurrentes" }).click();
+      await expect(dans("Autres apps", r.rival)).toHaveCount(1);
+      expect((await sync(liste("a", r.rival, [E2E_PROJECT_SLUG]))).rivalOf).toEqual([]);
+      await expect(dans("Autres apps", r.rival)).toHaveCount(1);
+      await expect(dans("Concurrents de ce projet", r.rival)).toHaveCount(0);
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
+    }
+  });
+
   test("outil MCP reseaux, et le filtre App des signaux à l'écran comme dans `signaux`", async ({ page }) => {
     test.setTimeout(120_000);
     const ts = Date.now();

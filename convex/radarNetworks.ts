@@ -56,6 +56,8 @@ import {
   normalize,
   patternsOfCandidate,
   shadowingApp,
+  effectiveRivalOf,
+  withRivalChoice,
   suggestedAppName,
   searchKind,
   shouldPromote,
@@ -963,6 +965,8 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
     slug,
     name: clean,
     rivalOf: rivalOf.filter((r) => /^[a-z0-9-]+$/.test(r)),
+    // Cochée « concurrente » à la création : une décision à la main, qui tiendra si l'app entre un jour dans la liste de départ.
+    rivalByHand: rivalOf.filter((r) => /^[a-z0-9-]+$/.test(r)).map((project) => ({ project, rival: true })),
     strong,
     weak: [],
     context: [],
@@ -1018,6 +1022,31 @@ export const setAppStatus = permissionMutation("radar.use")({
     if ((await ctx.db.get(appId))?.mergedInto !== undefined) return "paused" as const;
     await ctx.db.patch(appId, { status });
     return status;
+  },
+});
+
+/**
+ * Classe une app concurrente du projet, ou la retire de ses concurrentes, à la
+ * main. La décision vaut pour CE projet seulement (une app peut être
+ * concurrente de plusieurs) et tient contre la liste de départ, qui est
+ * resynchronisée toutes les heures (radarNetworkMath.effectiveRivalOf). Tout
+ * le reste suit `rivalOf`, lu en direct : la file du jour, les alertes, la
+ * fréquence de recherche de son réseau, la vue d'ensemble des concurrents.
+ */
+export const setAppRival = permissionMutation("radar.use")({
+  args: { appId: v.id("radarApps"), rival: v.boolean() },
+  handler: async (ctx, { appId, rival }): Promise<boolean> => {
+    const app = await ctx.db.get(appId);
+    if (!app || app.mergedInto !== undefined) throw err(ERR.RADAR_APP_NOT_FOUND, "App introuvable.");
+    const project = await projectSlugOf(ctx);
+    const rivalByHand = withRivalChoice(app.rivalByHand ?? [], { project, rival });
+    const rivalOf = effectiveRivalOf(app.rivalOf, rivalByHand);
+    await ctx.db.patch(appId, { rivalByHand, rivalOf });
+    // Un doublon fondu dans cette app se lit sous elle : il suit tout de suite.
+    for (const a of await ctx.db.query("radarApps").collect()) {
+      if (a.mergedInto === appId) await ctx.db.patch(a._id, { rivalOf });
+    }
+    return rivalOf.includes(project);
   },
 });
 
