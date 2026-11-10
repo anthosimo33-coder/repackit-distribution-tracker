@@ -14,7 +14,7 @@ import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-
 import { ACCENT_LINK, AccentTag, ScoreBadge, SignalCard, SignalThumb, signalTitle, useFormatLabel, useNow, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
 import { RadarAdaptations } from "@/components/admin/radar/RadarAdaptations";
-import { FRESH_MULTIPLIER, FRESH_WINDOW_MS, appWeek, earlyHits, handledToday, todayGroups } from "@/convex/radarDisplay";
+import { FRESH_MULTIPLIER, FRESH_WINDOW_MS, appWeek, earlyHits, handledToday, todayGroups, hiddenToday } from "@/convex/radarDisplay";
 import { applyFilters, defaultFilters, listSince } from "@/convex/radarSignalFilters";
 
 type Format = FunctionReturnType<typeof api.radarNetworks.listFormats>[number];
@@ -66,6 +66,9 @@ export function RadarToday({ go }: { go: RadarGo }) {
   const early = earlyHits(signals, now);
   const week = applyFilters(signals, defaultFilters(), now);
   const handled = handledToday(signals, now);
+  // Écartées de la file : elles ne sont plus visibles sur TikTok (compte passé en privé, vidéo supprimée…).
+  const hidden = hiddenToday(signals, now);
+  const hiddenPrivate = hidden.filter((x) => x.unavailable?.reason === "private").length;
   const open = (index: number) => setViewer({ ids: queue.map((s) => s.id), index });
 
   // Les formats du projet : ceux de ses concurrents d'abord, jamais ceux repris seulement chez les concurrents d'un autre projet.
@@ -107,6 +110,11 @@ export function RadarToday({ go }: { go: RadarGo }) {
               : tr("toutEstVuAide")}
             {handled > 0 && <span className="font-medium text-slate-900"> {tr("traiteesAujourdhui", { n: handled })}</span>}
           </p>
+          {hidden.length > 0 && (
+            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500" data-testid="radar-invisibles">
+              {tr("invisibles", { n: hidden.length, prive: hiddenPrivate })}
+            </p>
+          )}
         </div>
         {queue.length > 0 ? (
           <button type="button" onClick={() => open(0)} className="inline-flex min-h-12 items-center gap-2.5 rounded-xl bg-slate-900 px-5 text-[15px] font-semibold text-white">

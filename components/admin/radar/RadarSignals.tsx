@@ -366,6 +366,11 @@ function SignalRow({ s, now, onOpen, onStatus }: { s: RadarSignal; now: number; 
             {tu("sePartage")}
           </span>
         )}
+        {s.unavailable && (
+          <span className="text-xs font-medium text-slate-500" data-testid="radar-plus-visible">
+            {tu("plusVisible")}
+          </span>
+        )}
         {s.status !== "nouveau" && (
           <span className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs text-slate-700" data-testid="radar-statut">
             {tr(k(`statutCourt.${s.status}`))}

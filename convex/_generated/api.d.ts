@@ -244,6 +244,8 @@ import type * as radar from "../radar.js";
 import type * as radarAdaptMath from "../radarAdaptMath.js";
 import type * as radarAdaptations from "../radarAdaptations.js";
 import type * as radarApi from "../radarApi.js";
+import type * as radarAvailability from "../radarAvailability.js";
+import type * as radarAvailabilityMath from "../radarAvailabilityMath.js";
 import type * as radarDiscoveryQueries from "../radarDiscoveryQueries.js";
 import type * as radarDisplay from "../radarDisplay.js";
 import type * as radarFamilies from "../radarFamilies.js";
@@ -580,6 +582,8 @@ declare const fullApi: ApiFromModules<{
   radarAdaptMath: typeof radarAdaptMath;
   radarAdaptations: typeof radarAdaptations;
   radarApi: typeof radarApi;
+  radarAvailability: typeof radarAvailability;
+  radarAvailabilityMath: typeof radarAvailabilityMath;
   radarDiscoveryQueries: typeof radarDiscoveryQueries;
   radarDisplay: typeof radarDisplay;
   radarFamilies: typeof radarFamilies;

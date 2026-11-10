@@ -877,6 +877,9 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       // Trouvée par une recherche « app pour couple » : la seule découverte qui entre dans Aujourd'hui.
       niche: isRelationFind(r.foundBy),
       inCurve: r.nextCheckAt !== undefined,
+      // Plus visible sur TikTok (convex/radarAvailability) : hors d'Aujourd'hui, et le lecteur le dit.
+      unavailable: r.unavailable ?? null,
+      checkedAt: r.checkedAt ?? null,
       status: markOf.get(r._id)?.status ?? ("nouveau" as const),
       // Quand l'équipe l'a traitée : « N traitées aujourd'hui » (radarDisplay.handledToday).
       markedAt: markOf.get(r._id)?.updatedAt ?? null,
@@ -1012,6 +1015,8 @@ export const e2eSeedSignals = e2eMutation({
         durationSec: v.optional(v.number()),
         // Les recherches qui l'ont trouvée (« app for couples·us ») ; sinon « e2e ».
         foundBy: v.optional(v.array(v.string())),
+        // Devenue invisible sur TikTok, avec son motif (convex/radarAvailability).
+        unavailable: v.optional(v.union(v.literal("private"), v.literal("region"), v.literal("removed"), v.literal("review"), v.literal("restricted"), v.literal("other"))),
       }),
     ),
   },
@@ -1055,6 +1060,7 @@ export const e2eSeedSignals = e2eMutation({
           foundBy: s.foundBy ?? ["e2e"],
           firstSeenAt: now,
           lastSeenAt: now,
+          ...(s.unavailable ? { unavailable: { reason: s.unavailable, at: now }, checkedAt: now } : {}),
         }),
       );
     }

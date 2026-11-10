@@ -649,7 +649,8 @@
     "sonOriginalDe": "Original sound by @{handle}",
     "compteSuiviPour": "account followed for {app}",
     "compteSuiviPourAide": "Its account is followed for {app}, but this video does not mention the app: it does not count as a {app} video.",
-    "sePartage": "Gets shared"
+    "sePartage": "Gets shared",
+    "plusVisible": "No longer visible"
   },
   "RadarViewer": {
     "titre": "Watch one by one",
@@ -695,7 +696,18 @@
     "ajoutImpossible": "Could not add to inspirations.",
     "dansLesInspirations": "In inspirations",
     "ajouterAuxInspirations": "Add to inspirations",
-    "partagee": "Gets shared: {pct} of views shared"
+    "partagee": "Gets shared: {pct} of views shared",
+    "plusVisibleTitre": "No longer visible on TikTok",
+    "plusVisible": {
+      "private": "The account @{handle} went private.",
+      "region": "TikTok does not show it in our region.",
+      "removed": "It was deleted.",
+      "review": "TikTok is reviewing it, or took it down.",
+      "restricted": "Its author keeps it for friends, or for themselves.",
+      "other": "TikTok no longer serves it, without saying why."
+    },
+    "constate": "Noticed {age}",
+    "constateALInstant": "Noticed just now"
   },
   "RadarToday": {
     "aRegarder": "{n, plural, one {# video} other {# videos}} to watch today",
@@ -738,7 +750,8 @@
     "vuesEnHeures": "views in {n} h",
     "reussite": "{wins} of {n} reuses succeed",
     "medianeReprises": "median {x}",
-    "pasAssezReprises": "Fewer than 3 measured reuses"
+    "pasAssezReprises": "Fewer than 3 measured reuses",
+    "invisibles": "{n, plural, one {# video set aside: it is no longer visible} other {# videos set aside: they are no longer visible}} on TikTok{prive, plural, =0 {} one {, # of them from an account that went private} other {, # of them from accounts that went private}}."
   },
   "RadarExplorer": {
     "ceQuOnExplore": "What to explore",

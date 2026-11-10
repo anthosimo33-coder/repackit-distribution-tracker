@@ -100,6 +100,8 @@ crons.interval("radar-insights", { hours: 6 }, internal.radarInsights.refreshIns
 crons.interval("radar-rejudge-paused", { hours: 6 }, internal.radarNetworks.rejudgePaused, {});
 // Familles de hooks d'une langue à l'autre (Claude Haiku, poste « Analyse IA » du budget ; rien sans ANTHROPIC_API_KEY).
 crons.interval("radar-families", { hours: 6 }, internal.radarFamilies.runFamilies, {});
+// Vidéos devenues invisibles (convex/radarAvailability) : 40 pages publiques toutes les 2 heures, aucun crédit.
+crons.interval("radar-visibility", { hours: 2 }, internal.radarAvailability.runChecks, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

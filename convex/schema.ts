@@ -4209,10 +4209,23 @@ export default defineSchema({
     foundBy: v.array(v.string()), // recherches qui l'ont remontée (« cette app·fr »)
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
+    // Devenue invisible sur TikTok (convex/radarAvailability) : le motif, et la date du
+    // premier constat. Absent : visible, ou jamais contrôlée.
+    unavailable: v.optional(
+      v.object({
+        reason: v.union(v.literal("private"), v.literal("region"), v.literal("removed"), v.literal("review"), v.literal("restricted"), v.literal("other")),
+        at: v.number(),
+      }),
+    ),
+    // Dernier contrôle de visibilité, quel qu'en soit le résultat.
+    checkedAt: v.optional(v.number()),
   })
     .index("by_video", ["platform", "videoId"])
     .index("by_published", ["publishedAt"])
-    .index("by_next_check", ["nextCheckAt"]),
+    .index("by_next_check", ["nextCheckAt"])
+    // Contrôle de visibilité : les vidéos d'un compte (le privé vaut pour toutes), et celles déjà invisibles.
+    .index("by_author", ["authorHandle"])
+    .index("by_unavailable", ["unavailable.reason"]),
 
   // Statut posé par une équipe sur un signal. Absent = « nouvelle ».
   radarSignalMarks: defineTable({
@@ -4280,6 +4293,10 @@ export default defineSchema({
     // Doublon fondu dans une autre app (radarNetworkMath.SeedApp.formerSlugs) : ses comptes
     // l'ont rejointe, elle n'est plus listée ; elle reste pour ce qui la désigne encore.
     mergedInto: v.optional(v.id("radarApps")),
+    // Réseau passé en privé (radarAvailabilityMath.darkStep) : comptes privés annoncés à la dernière alerte,
+    // et comptés au passage précédent (on ne prévient que d'un nombre stable).
+    darkAlerted: v.optional(v.number()),
+    darkSeen: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])

@@ -243,6 +243,11 @@ export function SignalCard({
                 {tr("sePartage")}
               </span>
             )}
+            {s.unavailable && (
+              <span className="rounded-md bg-black/70 px-2 py-0.5 text-xs font-semibold text-white" data-testid="radar-plus-visible">
+                {tr("plusVisible")}
+              </span>
+            )}
           </span>
           <span className="relative line-clamp-5 text-[15px] font-semibold leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">{signalTitle(s)}</span>
         </SignalThumb>

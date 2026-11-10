@@ -266,6 +266,149 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
     }
   });
 
+  test("une vidéo devenue invisible sur TikTok sort d'Aujourd'hui ; Explorer la garde et le lecteur le dit", async ({ page }) => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const p = `e2erxi${ts}`;
+    const m = `e2einv${ts}`;
+    const rival = `E2E Rival inv ${ts}`;
+    const now = Date.now();
+    const hook = (n: number) => `Elle a tout vu sur son compte ${n} ${ts}`;
+    const s = (n: number, multiplier: number, unavailable?: "private" | "removed") => ({
+      videoId: `${m}${n}`,
+      handle: `rxinv${n}_${ts}`,
+      fans: 1_000 + n,
+      views: 900_000 + n,
+      lang: "fr",
+      caption: `${hook(n)} ${m} avec ${p}a`,
+      publishedAt: now - 60 * HOUR,
+      multiplier,
+      hook: hook(n),
+      app: rival,
+      durationSec: 24,
+      ...(unavailable ? { unavailable } : {}),
+    });
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}a`, name: rival, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] }],
+      accounts: [1, 2, 3].map((n) => ({ handle: `rxinv${n}_${ts}`, appSlug: `${p}a`, fans: 1_000 + n, medianViews: 100, posts7d: 2 })),
+    });
+    // La 1 (le plus haut score) : son compte est passé en privé. La 3 : supprimée. La 2 se regarde encore.
+    await admin.mutation(api.radarSignals.e2eSeedSignals, { secret: E2E_SECRET, rivalProject: E2E_PROJECT_SLUG, signals: [s(1, 99_990, "private"), s(2, 99_980), s(3, 99_970, "removed")] });
+    try {
+      const carte = (n: number) => page.getByTestId("radar-signal").filter({ hasText: hook(n) });
+
+      // ── Aujourd'hui : seule celle qu'on peut regarder est dans la file, et l'écran dit ce qu'il a écarté ──
+      await page.goto(adminPath("/radar"));
+      await expect(carte(2)).toHaveCount(1);
+      await expect(carte(1)).toHaveCount(0);
+      await expect(carte(3)).toHaveCount(0);
+      await expect(page.getByTestId("radar-invisibles")).toHaveText(/^\d+ vidéos écartées : elles ne sont plus visibles sur TikTok, dont \d+ d(e comptes passés|'un compte passé) en privé\.$/);
+
+      // ── Explorer les garde, marquées ; le lecteur dit pourquoi au lieu de montrer celui de TikTok ──
+      await page.goto(adminPath(`/radar?onglet=explorer&q=${m}`));
+      const ligne = (n: number) => page.getByTestId("radar-signal").filter({ hasText: `@rxinv${n}_${ts}` });
+      await expect(ligne(1).getByTestId("radar-plus-visible")).toHaveText("Plus visible");
+      await expect(ligne(3).getByTestId("radar-plus-visible")).toHaveText("Plus visible");
+      await expect(ligne(2).getByTestId("radar-plus-visible")).toHaveCount(0);
+
+      await ligne(1).getByRole("button", { name: `Regarder la vidéo de @rxinv1_${ts}` }).click();
+      const viewer = page.getByTestId("radar-viewer");
+      await expect(viewer.getByTestId("radar-viewer-invisible")).toHaveText("Plus visible sur TikTok");
+      await expect(viewer).toContainText(`Le compte @rxinv1_${ts} est passé en privé.`);
+      await expect(viewer).toContainText(/Constaté /);
+      await expect(viewer.locator("iframe")).toHaveCount(0);
+      // Ce que le Radar en avait relevé reste lisible, et le lien vers TikTok aussi.
+      await expect(viewer).toContainText(hook(1));
+      await expect(viewer.getByRole("link", { name: "Ouvrir sur TikTok" })).toBeVisible();
+      await page.keyboard.press("Escape");
+
+      await ligne(3).getByRole("button", { name: `Regarder la vidéo de @rxinv3_${ts}` }).click();
+      await expect(viewer.getByTestId("radar-viewer-invisible")).toBeVisible();
+      await expect(viewer).toContainText("Elle a été supprimée.");
+      await page.keyboard.press("Escape");
+
+      // Une vidéo visible garde le lecteur de TikTok.
+      await ligne(2).getByRole("button", { name: `Regarder la vidéo de @rxinv2_${ts}` }).click();
+      await expect(viewer.locator("iframe")).toHaveCount(1);
+      await expect(viewer.getByTestId("radar-viewer-invisible")).toHaveCount(0);
+    } finally {
+      await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
+
+  test("le constat d'un contrôle : un compte privé vaut pour toutes ses vidéos, cinq comptes préviennent une fois", async () => {
+    test.setTimeout(60_000);
+    const ts = Date.now();
+    const p = `e2erxk${ts}`;
+    const m = `e2echk${ts}`;
+    const rival = `E2E Rival chk ${ts}`;
+    const now = Date.now();
+    // Le compte 1 a deux vidéos signalées (a et b), les comptes 2 à 5 une chacun.
+    const s = (id: string, compte: number) => ({
+      videoId: `${m}${id}`,
+      handle: `rxchk${compte}_${ts}`,
+      fans: 2_000,
+      views: 50_000,
+      lang: "en",
+      caption: `Checking his following ${m} avec ${p}a`,
+      publishedAt: now - 60 * HOUR,
+      multiplier: 20,
+      app: rival,
+      durationSec: 24,
+    });
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}a`, name: rival, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] }],
+      accounts: [1, 2, 3, 4, 5].map((n) => ({ handle: `rxchk${n}_${ts}`, appSlug: `${p}a`, fans: 2_000, medianViews: 2_500, posts7d: 2 })),
+    });
+    await admin.mutation(api.radarSignals.e2eSeedSignals, { secret: E2E_SECRET, rivalProject: E2E_PROJECT_SLUG, signals: [s("1a", 1), s("1b", 1), s("2", 2), s("3", 3), s("4", 4), s("5", 5)] });
+    const check = (id: string, outcome: { kind: "visible" } | { kind: "unknown" } | { kind: "unavailable"; reason: "private" | "removed" }, note = false) =>
+      admin.mutation(api.radarAvailability.e2eApplyCheck, { secret: E2E_SECRET, videoId: `${m}${id}`, outcome, prefix: m, appSlug: `${p}a`, note });
+    const privee = { kind: "unavailable" as const, reason: "private" as const };
+    const motifs = (r: { videos: { videoId: string; reason: string | null }[] }) => Object.fromEntries(r.videos.map((v) => [v.videoId.slice(m.length), v.reason]));
+    try {
+      // Le compte 1 est passé en privé : constaté sur UNE vidéo, vrai pour les deux. Les autres comptes ne bougent pas.
+      let r = await check("1a", privee, true);
+      expect(motifs(r)).toEqual({ "1a": "private", "1b": "private", "2": null, "3": null, "4": null, "5": null });
+      // Un seul compte privé : pas de quoi prévenir.
+      expect(r.alerts).toBe(0);
+      expect(r.darkAlerted).toBeNull();
+
+      // Quatre comptes, toujours rien. Au cinquième, on attend encore : la vague est en train d'être comptée.
+      for (const id of ["2", "3", "4"]) r = await check(id, privee, true);
+      expect(r.alerts).toBe(0);
+      r = await check("5", privee, true);
+      expect(r.alerts).toBe(0);
+      expect(r.darkAlerted).toBeNull();
+      // Au passage suivant le nombre n'a pas bougé : l'alerte part, une fois, avec les cinq comptes.
+      r = await check("5", privee, true);
+      expect(r.alerts).toBe(1);
+      expect(r.darkAlerted).toBe(5);
+      r = await check("5", privee, true);
+      expect(r.alerts).toBe(0);
+      expect(r.darkAlerted).toBe(5);
+
+      // Une page illisible ne change rien à ce qu'on savait.
+      r = await check("2", { kind: "unknown" });
+      expect(motifs(r)["2"]).toBe("private");
+
+      // Le compte 1 redevient public : ses deux vidéos sont libérées ; sous 5 comptes, l'alerte est oubliée.
+      r = await check("1b", { kind: "visible" }, true);
+      expect(motifs(r)).toMatchObject({ "1a": null, "1b": null, "2": "private" });
+      expect(r.darkAlerted).toBeNull();
+
+      // Une vidéo supprimée ne dit rien des autres vidéos de son compte.
+      r = await check("1a", { kind: "unavailable", reason: "removed" });
+      expect(motifs(r)).toMatchObject({ "1a": "removed", "1b": null });
+      expect(r.videos.every((v) => v.videoId.endsWith("1b") || v.checked)).toBe(true);
+    } finally {
+      await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
+
   test("Concurrents s'ouvre sur ce qui sort du lot : par langue, par concurrent, par façon de faire", async ({ page }) => {
     const ts = Date.now();
     const p = `e2erxi${ts}`;

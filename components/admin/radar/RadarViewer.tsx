@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { ArrowLeftIcon, ArrowRightIcon, BookmarkIcon, ExternalLinkIcon, PenLineIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, ArrowRightIcon, BookmarkIcon, ExternalLinkIcon, EyeOffIcon, PenLineIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
@@ -51,6 +51,17 @@ export function RadarViewer({
   const index = queue?.index ?? 0;
   const done = queue !== null && index >= n;
   const s = queue && !done ? (byId.get(queue.ids[index]) ?? null) : null;
+
+  // Une vidéo ouverte ici est contrôlée tout de suite (si elle ne l'a pas été dans l'heure) : le lecteur de
+  // TikTok, lui, n'avoue rien — il remplit son cadre d'une vidéo suggérée (convex/radarAvailability).
+  const requestCheck = useProjectMutation(api.radarAvailability.requestCheck);
+  const asked = useRef<string | null>(null);
+  const openId = s?.platform === "tiktok" ? s.id : null;
+  useEffect(() => {
+    if (!openId || asked.current === openId) return;
+    asked.current = openId;
+    void requestCheck({ signalId: openId }).catch(() => undefined);
+  }, [openId, requestCheck]);
 
   const go = (i: number) => queue && onChange({ ...queue, index: Math.max(0, Math.min(n, i)) });
   async function act(st: SignalStatus) {
@@ -118,7 +129,7 @@ export function RadarViewer({
           </div>
         ) : (
           <div className="flex flex-wrap items-start gap-6">
-            <Player s={s} />
+            <Player s={s} now={now} />
             <Details s={s} now={now} />
             {next.length > 0 && (
               <aside aria-labelledby="radar-ensuite" className="hidden w-[220px] shrink-0 flex-col gap-2 xl:flex">
@@ -172,11 +183,25 @@ export function RadarViewer({
   );
 }
 
-function Player({ s }: { s: RadarSignal }) {
+function Player({ s, now }: { s: RadarSignal; now: number }) {
   const tr = useTranslations("admin.ops.RadarViewer");
+  const age = useAge();
   return (
     <div className="flex w-full max-w-[340px] shrink-0 flex-col gap-2">
-      {s.platform === "instagram" ? (
+      {s.unavailable ? (
+        // TikTok ne la sert plus : on le dit, au lieu de son lecteur qui montre une autre vidéo.
+        <SignalThumb s={s} className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-3 rounded-2xl px-6 text-center sm:aspect-[9/16]">
+          <span className="absolute inset-0 bg-stone-950/70" aria-hidden />
+          <EyeOffIcon className="relative size-7 text-white/80" aria-hidden />
+          <span className="relative text-lg font-semibold leading-snug" data-testid="radar-viewer-invisible">
+            {tr("plusVisibleTitre")}
+          </span>
+          <span className="relative text-sm leading-relaxed text-white/85">{tr(`plusVisible.${s.unavailable.reason}` as Parameters<typeof tr>[0], { handle: s.handle })}</span>
+          <span className="relative text-xs text-white/60">
+            {now - s.unavailable.at < 3_600_000 ? tr("constateALInstant") : tr("constate", { age: age(s.unavailable.at, now) })}
+          </span>
+        </SignalThumb>
+      ) : s.platform === "instagram" ? (
         // Pas de lecteur Instagram intégrable sans compte : la miniature et le lien.
         <SignalThumb s={s} className="flex aspect-[9/16] w-full flex-col justify-end rounded-2xl p-4">
           <span className="relative text-base font-semibold leading-snug">{signalTitle(s)}</span>
