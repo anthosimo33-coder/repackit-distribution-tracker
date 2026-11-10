@@ -30,9 +30,10 @@ function semis(ts: number) {
   const hook = (n: number) => `Quand ton mec like en secret ${n} ${ts}`;
   // `cite` : la légende cite l'app (son motif). Sinon, c'est une vidéo d'un compte
   // du réseau qui parle d'autre chose (09/11 : un extrait Disney sous The Ick).
-  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`, shares?: number, durationSec?: number) => ({
+  // `compte` : le compte qui publie, quand ce n'est pas celui de la vidéo n (deux vidéos du même compte).
+  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`, shares?: number, durationSec?: number, compte = n) => ({
     videoId: `${m}${n}`,
-    handle: `rxauj${n}_${ts}`,
+    handle: `rxauj${compte}_${ts}`,
     fans: 1_000 + n,
     views: snaps[snaps.length - 1][1],
     lang: "fr",
@@ -91,6 +92,10 @@ function semis(ts: number) {
       s(8, 9_950, 6, [[5, 995_000]], true, rival, `${p}a`, undefined, 9),
       // Un compte du réseau du concurrent, une vidéo qui cite une AUTRE app suivie : rangée sous celle-là.
       s(9, 9_400, 70, [[24, 940_000]], true, rival, `${p}c`),
+      // Fraîche (26 h, 9 650×) : elle passe devant la 3 (9 700×, publiée il y a 50 h).
+      s(12, 9_650, 26, [[24, 965_000]], true, rival, `${p}c`),
+      // Le plus haut score des anciennes, mais du même compte que la 1 : elle attend que la 1 soit traitée.
+      s(13, 9_990, 55, [[24, 999_000]], true, rival, `${p}c`, undefined, undefined, 1),
     ],
     ads: [
       // La même créa, deux annonces actives : une seule ligne, une seule pub active.
@@ -117,12 +122,20 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       const carte = (n: number) => page.getByTestId("radar-signal").filter({ hasText: z.hook(n) });
       const message = (n: number) => page.locator("[data-sonner-toast]").filter({ hasText: `@rxauj${n}_${ts}` });
 
-      // ── Aujourd'hui : les plus fortes jamais traitées, dans l'ordre du score ──
+      // ── Aujourd'hui : les fraîches d'abord, puis les plus fortes jamais traitées ──
       await page.goto(adminPath("/radar"));
       await expect(page.getByRole("link", { name: /^Aujourd'hui/ })).toHaveAttribute("aria-current", "page");
       await expect(page.getByTestId("radar-a-regarder")).toHaveText(/^\d+ vidéos? à regarder aujourd'hui$/);
-      const cartes = page.getByTestId("radar-signal");
-      for (const [i, n] of [1, 2, 3, 4].entries()) await expect(cartes.nth(i)).toContainText(z.hook(n));
+      // Moins de 48 h et déjà 10 fois leur normale : la 12 (9 650×, hier) passe devant la 3 (9 700×, il y a 50 h).
+      const fraiches = page.getByTestId("radar-fraiches");
+      await expect(fraiches.getByRole("heading", { name: "Sorties depuis moins de 48 h" })).toBeVisible();
+      await expect(fraiches).toContainText("déjà 10 fois la normale de leur compte");
+      for (const [i, n] of [1, 2, 12].entries()) await expect(fraiches.getByTestId("radar-signal").nth(i)).toContainText(z.hook(n));
+      const fortes = page.getByTestId("radar-plus-fortes");
+      await expect(fortes.getByRole("heading", { name: "Les plus fortes de la semaine" })).toBeVisible();
+      for (const [i, n] of [3, 4].entries()) await expect(fortes.getByTestId("radar-signal").nth(i)).toContainText(z.hook(n));
+      // Une seule vidéo par compte : la 13 est du compte de la 1, elle n'est pas (encore) dans la file.
+      await expect(carte(13)).toHaveCount(0);
       await expect(carte(1).getByTestId("radar-score")).toHaveText("9900×");
       await expect(carte(1)).toContainText(`${z.rival} · concurrent`);
       // Ce qui se partage, et ce qui part tôt, en tête.
@@ -166,22 +179,24 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       await expect(message(1)).toContainText("passée");
       await expect(position).toHaveText(/^2 sur \d+$/);
       await expect(viewer).toContainText(z.hook(2));
-      // G : gardée. A : à adapter pour le projet.
+      // G : gardée. La fraîche suivante arrive avant les plus fortes. A : à adapter pour le projet.
       await viewer.press("g");
       await expect(message(2)).toContainText("gardée");
-      await expect(viewer).toContainText(z.hook(3));
+      await expect(viewer).toContainText(z.hook(12));
       await viewer.press("a");
-      await expect(message(3)).toContainText("à adapter");
-      await expect(viewer).toContainText(z.hook(4));
+      await expect(message(12)).toContainText("à adapter");
+      await expect(position).toHaveText(/^4 sur \d+$/);
       // Flèche gauche : on revient sur la précédente sans rien changer.
       await viewer.press("ArrowLeft");
-      await expect(viewer).toContainText(z.hook(3));
+      await expect(viewer).toContainText(z.hook(12));
       await page.keyboard.press("Escape");
       await expect(viewer).toHaveCount(0);
 
-      // Traitées : elles quittent Aujourd'hui, la 4e reste.
-      for (const n of [1, 2, 3]) await expect(carte(n)).toHaveCount(0);
-      await expect(carte(4)).toHaveCount(1);
+      // Traitées : elles quittent Aujourd'hui, la 3e et la 4e restent.
+      for (const n of [1, 2, 12]) await expect(carte(n)).toHaveCount(0);
+      for (const n of [3, 4]) await expect(carte(n)).toHaveCount(1);
+      // La 1 traitée, la vidéo suivante de son compte arrive : en tête des plus fortes (9 990×).
+      await expect(fortes.getByTestId("radar-signal").first()).toContainText(z.hook(13));
       await expect(page.getByText(/\d+ traitées? aujourd'hui\./)).toBeVisible();
 
       // Dans Explorer, chacune porte son statut (les passées seulement si on les demande).
@@ -189,8 +204,8 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       const statut = (n: number) => page.getByTestId("radar-signal").filter({ hasText: `@rxauj${n}_${ts}` }).getByTestId("radar-statut");
       await expect(statut(1)).toHaveText("Passée");
       await expect(statut(2)).toHaveText("Gardée");
-      await expect(statut(3)).toHaveText("À adapter");
-      await expect(statut(4)).toHaveCount(0);
+      await expect(statut(12)).toHaveText("À adapter");
+      for (const n of [3, 4]) await expect(statut(n)).toHaveCount(0);
       // Dans Explorer, elles sont là : la 5e sans étiquette (« compte suivi pour »), la 6e sous son app, sans « concurrent ».
       const ligne = (n: number) => page.getByTestId("radar-signal").filter({ hasText: `@rxauj${n}_${ts}` });
       await expect(ligne(5).getByTestId("radar-reseau-seul")).toHaveText(`compte suivi pour ${z.rival}`);

@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  TODAY_FRESH_SLOTS,
   TODAY_LIMIT,
   TODAY_RIVAL_SLOTS,
   appWeek,
   curveOf,
   earlyHits,
   isEarlyHit,
+  isFresh,
   isTextOnShot,
+  onePerAccount,
   sharesWell,
   groupAds,
   handledToday,
@@ -15,6 +18,7 @@ import {
   originalSoundOf,
   scoreOf,
   sparklinePoints,
+  todayGroups,
   todayQueue,
   usualViews,
   type AdLike,
@@ -33,7 +37,8 @@ const sig = (id: string, o: Partial<S> = {}): S => ({
   fans: 2_000,
   caption: "",
   lang: "en",
-  publishedAt: NOW - 2 * DAY,
+  // 3 jours : dans la fenêtre de 7 jours, mais plus « fraîche » (moins de 48 h).
+  publishedAt: NOW - 3 * DAY,
   views: 100_000,
   ratio: 50,
   competitor: null,
@@ -108,6 +113,76 @@ describe("à regarder aujourd'hui", () => {
     expect(todayQueue(signals, NOW).map((s) => s.id)).not.toContain("v12");
     signals[0] = { ...signals[0], status: "ignore" };
     expect(todayQueue(signals, NOW).map((s) => s.id)).toContain("v12");
+  });
+
+  it("fraîche : moins de 48 h ET déjà 10 fois la normale de son compte", () => {
+    expect(isFresh({ publishedAt: NOW - 17 * HOUR, multiplier: 16.9 }, NOW)).toBe(true); // @studywithgio1 (Knowunity), 10/11
+    expect(isFresh({ publishedAt: NOW - 47 * HOUR, multiplier: 10 }, NOW)).toBe(true);
+    expect(isFresh({ publishedAt: NOW - 48 * HOUR, multiplier: 900 }, NOW)).toBe(false);
+    expect(isFresh({ publishedAt: NOW - 45 * HOUR, multiplier: 8.3 }, NOW)).toBe(false); // @glamai01, 396 000 vues mais 8× seulement
+    // Sans normale connue (découverte), on ne sait pas si elle part : jamais fraîche.
+    expect(isFresh({ publishedAt: NOW - 5 * HOUR, multiplier: null }, NOW)).toBe(false);
+    expect(isFresh({ publishedAt: NOW - 5 * HOUR }, NOW)).toBe(false);
+  });
+
+  it("les fraîches d'abord, puis les plus fortes de la semaine — chiffres de la file de Snytch du 10/11/2026", () => {
+    const signals = [
+      sig("rizzly.puff", { multiplier: 55.3, publishedAt: NOW - 107 * HOUR }),
+      sig("leocvntt_", { multiplier: 31.4, publishedAt: NOW - 90 * HOUR }),
+      sig("keganengland.lpc", { multiplier: 26.6, publishedAt: NOW - 17 * HOUR }),
+      sig("studywithgio1", { multiplier: 16.9, publishedAt: NOW - 17 * HOUR }),
+      // Moins de 48 h mais 8× sa normale : elle garde son rang au score.
+      sig("glamai01", { multiplier: 8.3, publishedAt: NOW - 45 * HOUR }),
+    ];
+    const g = todayGroups(signals, NOW);
+    expect(g.fresh.map((s) => s.id)).toEqual(["keganengland.lpc", "studywithgio1"]);
+    expect(g.strongest.map((s) => s.id)).toEqual(["rizzly.puff", "leocvntt_", "glamai01"]);
+    // La file se regarde dans cet ordre : une vidéo d'hier à 17× passe devant celle de 4 jours à 55×.
+    expect(todayQueue(signals, NOW).map((s) => s.id)).toEqual(["keganengland.lpc", "studywithgio1", "rizzly.puff", "leocvntt_", "glamai01"]);
+    // Sans vidéo fraîche, la file est celle du score.
+    expect(todayGroups(signals.slice(0, 2), NOW)).toEqual({ fresh: [], strongest: [signals[0], signals[1]] });
+  });
+
+  it("au plus 6 fraîches : la moitié de la file reste aux plus fortes de la semaine", () => {
+    const fraiches = Array.from({ length: 9 }, (_, i) => sig(`f${i}`, { multiplier: 30 - i, publishedAt: NOW - 20 * HOUR }));
+    const fortes = Array.from({ length: 9 }, (_, i) => sig(`s${i}`, { multiplier: 400 - i }));
+    const g = todayGroups([...fortes, ...fraiches], NOW);
+    expect(g.fresh.map((s) => s.id)).toEqual(["f0", "f1", "f2", "f3", "f4", "f5"]);
+    expect(g.fresh).toHaveLength(TODAY_FRESH_SLOTS);
+    // Les fraîches en trop (f6…f8, 24× à 22×) repassent au score : derrière les 400×, donc hors des 12.
+    expect(g.strongest.map((s) => s.id)).toEqual(["s0", "s1", "s2", "s3", "s4", "s5"]);
+    // Peu de fortes : une fraîche en trop prend la place libre, à son rang au score.
+    expect(todayGroups([...fortes.slice(0, 2), ...fraiches], NOW).strongest.map((s) => s.id)).toEqual(["s0", "s1", "f6", "f7", "f8"]);
+  });
+
+  it("une seule vidéo par compte : sa fraîche, sinon sa plus forte ; la suivante arrive quand elle est traitée", () => {
+    // @ludivine.stalk (CheatLove) tenait 2 des 12 places de Snytch le 10/11 : 21× et 20×.
+    const signals = [
+      sig("ludivine1", { handle: "ludivine.stalk", multiplier: 21.1, competitor: "CheatLove", app: "CheatLove" }),
+      sig("ludivine2", { handle: "Ludivine.Stalk", multiplier: 20, competitor: "CheatLove", app: "CheatLove" }),
+      // @multilingualtat (Airlearn) : 31× il y a 4 jours, 13× hier — la fraîche la représente.
+      sig("tatVieille", { handle: "multilingualtat", multiplier: 31.5, publishedAt: NOW - 105 * HOUR }),
+      sig("tatFraiche", { handle: "multilingualtat", multiplier: 12.7, publishedAt: NOW - 36 * HOUR }),
+      // Le même pseudo sur Instagram est un autre compte.
+      sig("tatInsta", { handle: "multilingualtat", platform: "instagram", multiplier: 15 }),
+    ];
+    expect(todayQueue(signals, NOW).map((s) => s.id)).toEqual(["tatFraiche", "ludivine1", "tatInsta"]);
+    const traite = (id: string) => signals.map((s) => (s.id === id ? { ...s, status: "ignore" as const } : s));
+    expect(todayQueue(traite("ludivine1"), NOW).map((s) => s.id)).toEqual(["tatFraiche", "ludivine2", "tatInsta"]);
+    expect(todayQueue(traite("tatFraiche"), NOW).map((s) => s.id)).toEqual(["tatVieille", "ludivine1", "tatInsta"]);
+    expect(onePerAccount([{ handle: "A", platform: "tiktok" }, { handle: "a", platform: "tiktok" }, { handle: "a", platform: "instagram" }])).toHaveLength(2);
+  });
+
+  it("les places des concurrents tiennent, fraîches comprises", () => {
+    const concFraiches = Array.from({ length: 2 }, (_, i) => sig(`cf${i}`, { competitor: "Plug AI", app: "Plug AI", multiplier: 25 - i, publishedAt: NOW - 14 * HOUR }));
+    const concFortes = Array.from({ length: 8 }, (_, i) => sig(`cs${i}`, { competitor: "Rizz App", app: "Rizz App", multiplier: 60 - i }));
+    const autresFraiches = Array.from({ length: 4 }, (_, i) => sig(`af${i}`, { app: "Knowunity", multiplier: 20 - i, publishedAt: NOW - 30 * HOUR }));
+    const autresFortes = Array.from({ length: 8 }, (_, i) => sig(`as${i}`, { app: "Voca AI", multiplier: 300 - i }));
+    const g = todayGroups([...concFraiches, ...concFortes, ...autresFraiches, ...autresFortes], NOW);
+    expect(g.fresh.map((s) => s.id)).toEqual(["cf0", "cf1", "af0", "af1", "af2", "af3"]);
+    // 6 concurrents (2 fraîches + 4), 6 autres (4 fraîches + 2), chaque part au score.
+    expect(g.strongest.map((s) => s.id)).toEqual(["as0", "as1", "cs0", "cs1", "cs2", "cs3"]);
+    expect([...g.fresh, ...g.strongest].filter((s) => s.competitor)).toHaveLength(TODAY_RIVAL_SLOTS);
   });
 
   it("traitées aujourd'hui : le jour de Paris, pas les dernières 24 heures", () => {
@@ -253,6 +328,9 @@ describe("repérer les gagnants (09/11/2026)", () => {
       sig("vieille", { publishedAt: NOW - 3 * DAY, views: 900_000, multiplier: 200 }),
     ];
     expect(earlyHits(signals, NOW).map((s) => s.id)).toEqual(["jeune", "plusJeuneMoinsFort"]);
+    // Un compte qui publie trois fois par jour (@storymaker.21) n'y tient qu'une ligne : sa plus forte.
+    const memeCompte = [...signals, sig("jeuneBis", { handle: "jeune", publishedAt: NOW - 3 * HOUR, views: 40_000, multiplier: 25 })];
+    expect(earlyHits(memeCompte, NOW).map((s) => s.id)).toEqual(["jeune", "plusJeuneMoinsFort"]);
   });
 
   it("trier par partages : partages ÷ vues", () => {
