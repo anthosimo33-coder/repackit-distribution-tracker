@@ -421,6 +421,8 @@ export const ERR = {
   RADAR_APP_INVALID: "ERR_RADAR_APP_INVALID",
   /** Radar, ajouter une app : une app de ce nom est déjà suivie (paramètre `name`). */
   RADAR_APP_ALREADY_FOLLOWED: "ERR_RADAR_APP_ALREADY_FOLLOWED",
+  /** Radar, ajouter une app : un motif est contenu dans ceux d'une app déjà suivie (paramètres `pattern`, `name`). */
+  RADAR_APP_PATTERN_TAKEN: "ERR_RADAR_APP_PATTERN_TAKEN",
   RADAR_APP_NOT_FOUND: "ERR_RADAR_APP_NOT_FOUND",
   /** Radar : le plafond de comptes suivis est atteint (paramètre `max`). */
   RADAR_TRACKED_FULL: "ERR_RADAR_TRACKED_FULL",

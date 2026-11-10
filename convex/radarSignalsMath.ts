@@ -181,6 +181,23 @@ export function parseScVideo(raw: unknown, fallbackLang?: string): SignalInput |
 }
 
 /**
+ * Le libellé d'une mention, lu dans la légende aux positions que donne TikTok.
+ * TikTok compte en CARACTÈRES, JavaScript en unités UTF-16 : un emoji vaut 1
+ * pour l'un, 2 pour l'autre. Lue en UTF-16, « Nossa 🫪 @Voca AI » (positions 8
+ * à 16) donnait « @Voca A » : l'app déjà suivie n'était pas reconnue et le
+ * Radar la proposait comme une app nouvelle — « Voca A » et « What Brandon
+ * Think » ont été suivies ainsi le 09/11/2026 ; avec deux emojis, la mention
+ * était perdue. On lit en caractères ; si ce n'est pas une mention, en UTF-16.
+ */
+export function mentionLabel(caption: string, start: number, end: number): string | null {
+  for (const cut of [Array.from(caption).slice(start, end).join(""), caption.slice(start, end)]) {
+    const label = cleanText(cut).trim();
+    if (label.startsWith("@")) return label;
+  }
+  return null;
+}
+
+/**
  * Hook, son et mentions d'une vidéo non allégée. Le hook = les textes incrustés
  * (autocollants de type 18) ; une mention = `text_extra` de type 0, son libellé
  * lu dans la légende à ses positions (`@Voca AI`).
@@ -202,8 +219,8 @@ function readExtras(v: Record<string, unknown>, caption: string, authorUid: stri
     const e = obj(t);
     const id = str(e?.user_id);
     if (e?.type !== 0 || !id || id === authorUid || mentions.some((m) => m.id === id)) continue;
-    const label = cleanText(caption.slice(num(e.start), num(e.end))).trim();
-    if (label.startsWith("@") && label.length >= 3) mentions.push({ id, label: cleanText(label, 60) });
+    const label = mentionLabel(caption, num(e.start), num(e.end));
+    if (label && label.length >= 3) mentions.push({ id, label: cleanText(label, 60) });
   }
   return {
     ...(hook ? { hook } : {}),

@@ -148,6 +148,49 @@ export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
   return created;
 }
 
+/** Comptes d'un doublon déplacés par passage (la suite au passage suivant, toutes les heures). */
+const MERGE_BATCH = 25;
+
+/**
+ * Change un compte de réseau (radarNetworkMath.accountVerdict, ou la fusion d'un
+ * doublon) : lui, ses vidéos lues récentes (les formats et la vue d'ensemble les
+ * rangent par app) et le compteur de comptes des deux apps.
+ */
+export async function moveAccount(
+  ctx: MutationCtx,
+  acc: Doc<"radarTracked">,
+  from: Doc<"radarApps">,
+  to: Doc<"radarApps">,
+  recent: readonly Doc<"radarTrackedVideos">[],
+): Promise<void> {
+  await ctx.db.patch(acc._id, { appId: to._id });
+  for (const vid of recent) if (vid.appId !== to._id) await ctx.db.patch(vid._id, { appId: to._id });
+  // Relus : plusieurs comptes peuvent changer de réseau dans la même mutation.
+  const f = await ctx.db.get(from._id);
+  const t = await ctx.db.get(to._id);
+  if (f?.trackedCount !== undefined) await ctx.db.patch(f._id, { trackedCount: Math.max(0, f.trackedCount - 1) });
+  if (t?.trackedCount !== undefined) await ctx.db.patch(t._id, { trackedCount: t.trackedCount + 1 });
+}
+
+/**
+ * Fond un doublon dans la vraie app : ses comptes la rejoignent, relevés dans
+ * l'heure — donc jugés sur ses vrais motifs (un compte qui ne la cite jamais est
+ * mis en pause, comme les autres). Vidé, le doublon devient un RENVOI : en pause,
+ * hors des listes (`mergedInto`), au nom et aux motifs de la vraie app pour que
+ * les vidéos et les formats qui le désignent encore se lisent sous elle. Rien
+ * n'est supprimé.
+ */
+async function mergeApp(ctx: MutationCtx, old: Doc<"radarApps">, into: Doc<"radarApps">, rules: Partial<Doc<"radarApps">>, now: number): Promise<void> {
+  const accounts = await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", old._id)).take(MERGE_BATCH + 1);
+  for (const acc of accounts.slice(0, MERGE_BATCH)) {
+    const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc._id)).order("desc").take(100);
+    await moveAccount(ctx, acc, old, into, recent);
+    if (acc.status === "active") await ctx.db.patch(acc._id, { nextReadAt: now });
+  }
+  if (accounts.length > MERGE_BATCH) return;
+  await ctx.db.patch(old._id, { ...rules, searches: [], status: "paused", mergedInto: into._id });
+}
+
 /** Aligne UNE app de départ sur le code : créée, adoptée (ajoutée à la main avant), réalignée ou laissée. */
 async function syncSeedApp(ctx: MutationCtx, s: SeedApp, now: number): Promise<{ app: Doc<"radarApps"> | null; sync: SeedSync }> {
   const fields = {
@@ -159,7 +202,24 @@ async function syncSeedApp(ctx: MutationCtx, s: SeedApp, now: number): Promise<{
     searches: [...s.searches],
     ...(s.not ? { not: [...s.not] } : {}),
   };
-  const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
+  let app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
+  // Ajoutée à la main sous un autre nom : elle prend le bon slug (et sera adoptée
+  // plus bas), ou, si l'app existe déjà, c'est un doublon qu'on fond dedans.
+  for (const former of s.formerSlugs ?? []) {
+    const old = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", former)).first();
+    if (!old) continue;
+    // Les règles de la vraie app, sans ses recherches : un renvoi n'est jamais recherché.
+    const rules = { name: fields.name, rivalOf: fields.rivalOf, strong: fields.strong, weak: fields.weak, context: fields.context, ...(fields.not ? { not: fields.not } : {}) };
+    if (!app) {
+      await ctx.db.patch(old._id, { slug: s.slug });
+      app = { ...old, slug: s.slug };
+    } else if (old.mergedInto === undefined) {
+      await mergeApp(ctx, old, app, rules, now);
+    } else if (JSON.stringify(Object.keys(rules).map((k) => old[k as keyof typeof rules])) !== JSON.stringify(Object.values(rules))) {
+      // Déjà un renvoi : il suit les motifs de la vraie app.
+      await ctx.db.patch(old._id, rules);
+    }
+  }
   const same = app !== null && JSON.stringify(Object.keys(fields).map((k) => app[k as keyof typeof fields])) === JSON.stringify(Object.values(fields));
   const sync = seedSync(app, same);
   if (sync === "create") {
@@ -175,12 +235,29 @@ async function syncSeedApp(ctx: MutationCtx, s: SeedApp, now: number): Promise<{
 
 /** e2e : aligne une app sur une entrée de la liste de départ donnée ici (la vraie liste n'est pas semée en e2e). */
 export const e2eSyncSeedApp = e2eMutation({
-  args: { seed: v.object({ slug: v.string(), name: v.string(), rivalOf: v.array(v.string()), strong: v.array(v.string()), searches: v.array(v.string()) }) },
+  args: {
+    seed: v.object({
+      slug: v.string(),
+      name: v.string(),
+      rivalOf: v.array(v.string()),
+      strong: v.array(v.string()),
+      searches: v.array(v.string()),
+      formerSlugs: v.optional(v.array(v.string())),
+    }),
+  },
   handler: async (ctx, { seed }) => {
     const { sync } = await syncSeedApp(ctx, seed, Date.now());
     // Relue en base : c'est ce qui est écrit qu'on vérifie, pas ce que la fonction renvoie.
     const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", seed.slug)).first();
-    return { sync, source: app?.source ?? null, name: app?.name ?? null, rivalOf: app?.rivalOf ?? [], strong: app?.strong ?? [] };
+    // Ce que sont devenus ses anciens slugs : un doublon fondu reste, en pause et sans compte.
+    const former: { slug: string; name: string; status: "active" | "paused"; merged: boolean; accounts: number }[] = [];
+    for (const slug of seed.formerSlugs ?? []) {
+      const old = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+      if (!old) continue;
+      const accounts = await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", old._id)).collect();
+      former.push({ slug, name: old.name, status: old.status, merged: old.mergedInto === app?._id, accounts: accounts.length });
+    }
+    return { sync, source: app?.source ?? null, name: app?.name ?? null, rivalOf: app?.rivalOf ?? [], strong: app?.strong ?? [], former };
   },
 });
 

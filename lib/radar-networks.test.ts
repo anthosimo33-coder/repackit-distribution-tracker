@@ -6,6 +6,7 @@ import {
   MEDIAN_FLOOR,
   SEED_APPS,
   canTrack,
+  candidateName,
   candidatesOf,
   citesApp,
   domainsIn,
@@ -21,6 +22,8 @@ import {
   SECOND_LOOK_MS,
   accountVerdict,
   seedSync,
+  shadowingApp,
+  suggestedAppName,
   formatSuccess,
   isOffTopic,
   videoApp,
@@ -31,7 +34,7 @@ import {
 } from "../convex/radarNetworkMath";
 import { NETWORK_SEARCH_STALE_MS, networkSearchOutcome, networkSearchPhase } from "../convex/radarNetworkSearch";
 import { SEED_ACCOUNTS } from "../convex/radarSeedAccounts";
-import { cleanText, parseScVideo } from "../convex/radarSignalsMath";
+import { cleanText, mentionLabel, parseScVideo } from "../convex/radarSignalsMath";
 
 const app = (slug: string) => SEED_APPS.find((a) => a.slug === slug)!;
 const DAY = 86_400_000;
@@ -518,6 +521,23 @@ describe("lecture d'une réponse non allégée", () => {
     expect(v.mentions).toEqual([{ id: "7504863753483240490", label: "@Voca AI" }]);
     expect(v.musicOwner).toBe("soundcentral21");
   });
+  it("une mention après un emoji : TikTok compte en caractères, pas en unités UTF-16 (« @Voca A », 09/11/2026)", () => {
+    // La légende réelle de @daiana.vocaai : « @ » est le 9e caractère, la 10e unité UTF-16.
+    const unEmoji = { ...VOCA_2, desc: "Nossa 🫪 @Voca AI #aprenderingles #vocaai", text_extra: [{ start: 8, end: 16, type: 0, user_id: "7504863753483240490" }] };
+    expect(parseScVideo(unEmoji)!.mentions).toEqual([{ id: "7504863753483240490", label: "@Voca AI" }]);
+    // Lue en UTF-16, c'était « @Voca A » : le nom proposé comme une app nouvelle.
+    expect(unEmoji.desc.slice(8, 16).trim()).toBe("@Voca A");
+    // Deux emojis avant : la mention était perdue (la coupe commençait au milieu d'un emoji).
+    const deux = { ...VOCA_2, desc: "DIOS MÍO 😱😱 @What Brandon Thinks #whatsapp", text_extra: [{ start: 12, end: 32, type: 0, user_id: "7647235265945928726" }] };
+    expect(parseScVideo(deux)!.mentions).toEqual([{ id: "7647235265945928726", label: "@What Brandon Thinks" }]);
+    // Collée à l'emoji, sans espace (@WRizz).
+    expect(mentionLabel("POV: you only get one shot 🎯@WRizz #rizz", 28, 34)).toBe("@WRizz");
+    // Des positions en UTF-16 restent lues ; ce qui n'est pas une mention ne l'est pas.
+    expect(mentionLabel("Nossa 🫪 @Voca AI", 9, 17)).toBe("@Voca AI");
+    expect(mentionLabel("Nossa 🫪 Voca AI", 0, 5)).toBeNull();
+    expect(mentionLabel("", 3, 9)).toBeNull();
+  });
+
   it("une réponse allégée n'a ni hook, ni son, ni mention", () => {
     const trimmed: Record<string, unknown> = { ...VOCA_1 };
     for (const k of ["interaction_stickers", "music", "text_extra"]) delete trimmed[k];
@@ -554,6 +574,58 @@ describe("formats et apps repérées", () => {
     ]);
     expect(patternsOfCandidate({ kind: "domain", label: "stalkie.io" })).toEqual(["stalkie.io", "stalkie"]);
     expect(patternsOfCandidate({ kind: "mention", label: "@RIZZ APP" })).toEqual(["rizzapp"]);
+  });
+
+  it("le nom et le motif d'une app repérée s'arrêtent au slogan du pseudo (« Serializd | TV tracking app », 09/11/2026)", () => {
+    expect(candidateName("@Serializd | TV tracking app")).toBe("Serializd");
+    expect(candidateName("@Leaked DMs || Detective game")).toBe("Leaked DMs");
+    expect(candidateName("@Finch: Self Care Pet")).toBe("Finch");
+    expect(candidateName("@Fit AI")).toBe("Fit AI");
+    expect(candidateName("@wingai_app")).toBe("wingai_app");
+    expect(candidateName("@L’Oréal Paris")).toBe("L’Oréal Paris");
+    // Un tiret dans un nom n'est pas un slogan ; un nom trop court reste entier.
+    expect(candidateName("@Coca-Cola")).toBe("Coca-Cola");
+    expect(candidateName("@AI | app")).toBe("AI | app");
+    // Le motif d'avant, « serializd|tvtrackingapp », n'était écrit par personne.
+    expect(patternsOfCandidate({ kind: "mention", label: "@Serializd | TV tracking app" })).toEqual(["serializd"]);
+    expect(patternsOfCandidate({ kind: "mention", label: "@Leaked DMs || Detective game" })).toEqual(["leakeddms"]);
+    // Le nom proposé à l'écran : le pseudo sans slogan, ou le domaine sans extension.
+    expect(suggestedAppName({ kind: "mention", label: "@Serializd | TV tracking app" })).toBe("Serializd");
+    expect(suggestedAppName({ kind: "domain", label: "stalkie.io" })).toBe("Stalkie");
+  });
+
+  it("un motif contenu dans celui d'une app suivie est un doublon ; l'inverse est une autre app", () => {
+    expect(shadowingApp("vocaa", SEED_APPS)?.name).toBe("Voca AI");
+    expect(shadowingApp("whatbrandonthink", SEED_APPS)?.name).toBe("What Brandon Thinks");
+    // Le même motif, avec ou sans arobase.
+    expect(shadowingApp("plugai", SEED_APPS)?.name).toBe("Plug AI");
+    expect(shadowingApp("#followspy", SEED_APPS)?.name).toBe("FollowSpy");
+    // Un motif plus long que celui d'une app suivie n'est pas pris : WRizz contre Rizz App.
+    expect(shadowingApp("wrizzapp", [app("rizzapp")])).toBeUndefined();
+    expect(shadowingApp("letterboxd", SEED_APPS)).toBeUndefined();
+    expect(shadowingApp("fitai", SEED_APPS)).toBeUndefined();
+  });
+
+  it("les doublons et les noms à slogan du 09/11/2026 sont repris par la liste de départ", () => {
+    expect(app("vocaai").formerSlugs).toEqual(["vocaa"]);
+    expect(app("whatbrandonthinks").formerSlugs).toEqual(["whatbrandonthink"]);
+    expect(app("serializd")).toMatchObject({ name: "Serializd", rivalOf: [], strong: ["serializd"], formerSlugs: ["serializdtvtrackingapp"] });
+    expect(app("leakeddms")).toMatchObject({ name: "Leaked DMs", rivalOf: [], strong: ["leakeddms"], formerSlugs: ["leakeddmsdetectivegame"] });
+    // Un ancien slug n'est celui d'aucune app de la liste, et n'est repris qu'une fois.
+    const former = SEED_APPS.flatMap((a) => a.formerSlugs ?? []);
+    expect(new Set(former).size).toBe(former.length);
+    expect(former.filter((f) => SEED_APPS.some((a) => a.slug === f))).toEqual([]);
+    // Serializd et Leaked DMs, telles que les comptes les citent.
+    expect(citesApp("My latest obsession!!! It’s like Letterboxd but for TV shows! @Serializd | TV tracking app", "christinetannn", app("serializd"))).toBe(true);
+    expect(citesApp("#currentrotation #letterboxd #serializd #filmtok", "sonderspacee", app("serializd"))).toBe(true);
+    expect(citesApp("Definitivamente Leaked é o melhor jogo de investigação 😍 @Leaked DMs || Detective game", "sara.detective", app("leakeddms"))).toBe(true);
+    // « Leaked » seul, chez un compte de Stalkie : il reste à Stalkie.
+    const lu = { caption: "se llama Leaked! #StalkieSecretSpy #app #juegos #detective #chismecito", handle: "lustalkerrr" };
+    expect(videoCitesApp(lu, app("leakeddms"))).toBe(false);
+    expect(videoCitesApp(lu, app("stalkie"))).toBe(true);
+    // Le compte entré chez « Voca A » sur #vocaa (un lycée mexicain) ne cite pas Voca AI.
+    expect(citesApp("Me proyecto #voca5 #vocaa #voca #cecyt5 #cecyt", "ovn1ch_6767", app("vocaai"))).toBe(false);
+    expect(citesApp("Desisto de aprender inglês depois dessa 😂 @Voca AI #inglesparatodos", "daiana.vocaai", app("vocaai"))).toBe(true);
   });
 });
 

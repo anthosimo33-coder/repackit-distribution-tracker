@@ -4274,6 +4274,9 @@ export default defineSchema({
     networkSearch: v.optional(networkSearchValidator),
     adsSearchedAt: v.optional(v.number()), // bibliothèques de pubs TikTok et Meta
     trackedCount: v.optional(v.number()), // comptes de son réseau (cf radarSignals.attachAccount)
+    // Doublon fondu dans une autre app (radarNetworkMath.SeedApp.formerSlugs) : ses comptes
+    // l'ont rejointe, elle n'est plus listée ; elle reste pour ce qui la désigne encore.
+    mergedInto: v.optional(v.id("radarApps")),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])

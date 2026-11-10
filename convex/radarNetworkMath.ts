@@ -34,6 +34,13 @@ export type SeedApp = AppRule & {
   rivalOf: readonly string[];
   /** Recherches de son réseau : mots-clés, et « #hashtag » pour une recherche de hashtag. */
   searches: readonly string[];
+  /**
+   * Slugs sous lesquels l'app a été ajoutée à la main par erreur : un doublon
+   * (« Voca A » pour Voca AI, le nom de la mention coupé d'une lettre) ou un nom
+   * à slogan (« Serializd | TV tracking app »). L'app prend le bon slug, ou le
+   * doublon est fondu dans l'app (radarSignals.syncSeedApp).
+   */
+  formerSlugs?: readonly string[];
 };
 
 /**
@@ -91,7 +98,7 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "crushtracker", name: "Crush Tracker", rivalOf: SNYTCH, strong: ["crushtracker"], searches: ["crush tracker app"] },
   // « Sunsay » est aussi un chanteur et une marque d'énergie : seul, il lui faut un mot de contexte.
   { slug: "sunsay", name: "Sunsay", rivalOf: SNYTCH, strong: ["sunsay.app", "sunsayapp", "@sunsay"], weak: ["sunsay"], context: STALK_CONTEXT, searches: ["sunsay app", "sunsay"] },
-  { slug: "whatbrandonthinks", name: "What Brandon Thinks", rivalOf: BLUSH, strong: ["whatbrandonthinks"], searches: ["whatbrandonthinks", "what brandon thinks whatsapp", "#whatbrandonthinks"] },
+  { slug: "whatbrandonthinks", name: "What Brandon Thinks", rivalOf: BLUSH, strong: ["whatbrandonthinks"], searches: ["whatbrandonthinks", "what brandon thinks whatsapp", "#whatbrandonthinks"], formerSlugs: ["whatbrandonthink"] },
   { slug: "thecringe", name: "The Cringe", rivalOf: BLUSH, strong: ["thecringeapp"], weak: ["thecringe"], context: CHAT_CONTEXT, searches: ["thecringe", "the cringe app whatsapp", "#thecringe"] },
   // WRizz et Wing AI soufflent la réponse à un texto : ajoutées à la main le 09/11/2026, concurrentes de
   // BLUSH depuis le 10/11. « wrizz » seul se lit dans « W rizz », « new rizz » et @shadowrizzler70 (43 des
@@ -108,7 +115,10 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "stalkie", name: "Stalkie", rivalOf: [], strong: ["stalkie"], searches: ["stalkie", "stalkie app", "#stalkie"] },
   { slug: "snitchy", name: "Snitchy", rivalOf: [], strong: ["snitchy"], searches: ["snitchy", "#snitchy"] },
   { slug: "shady", name: "Shady", rivalOf: [], strong: ["shadyapp", "usoshady", "usashady", "conshady", "shadysabe"], weak: ["shady", "shody"], context: STALK_CONTEXT, searches: ["shady app stalk", "shady instagram"] },
-  { slug: "vocaai", name: "Voca AI", rivalOf: [], strong: ["vocaai"], searches: ["voca ai", "#vocaai"] },
+  // Le jeu d'enquête que poussent les comptes de Stalkie ; « leaked » seul est un mot courant.
+  { slug: "leakeddms", name: "Leaked DMs", rivalOf: [], strong: ["leakeddms"], searches: ["leaked dms detective game", "#leakeddms"], formerSlugs: ["leakeddmsdetectivegame"] },
+  // « Voca A » (09/11/2026) : 12 de ses 14 comptes citaient #vocaa (un lycée mexicain), « invoca a… », un cosplay.
+  { slug: "vocaai", name: "Voca AI", rivalOf: [], strong: ["vocaai"], searches: ["voca ai", "#vocaai"], formerSlugs: ["vocaa"] },
   { slug: "praktika", name: "Praktika", rivalOf: [], strong: ["praktika"], searches: ["praktika", "#praktika"] },
   { slug: "fluencify", name: "Fluencify", rivalOf: [], strong: ["fluencify"], searches: ["fluencify"] },
   { slug: "airlearn", name: "Airlearn", rivalOf: [], strong: ["airlearn"], searches: ["airlearn"] },
@@ -118,6 +128,7 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "glamai", name: "Glam AI", rivalOf: [], strong: ["glamai"], searches: ["glam ai app"] },
   { slug: "finch", name: "Finch", rivalOf: [], strong: ["finchapp", "finchcare", "finchselfcare"], searches: ["finch app self care"] },
   { slug: "airbuds", name: "Airbuds", rivalOf: [], strong: ["airbuds"], searches: ["airbuds", "#airbuds"] },
+  { slug: "serializd", name: "Serializd", rivalOf: [], strong: ["serializd"], searches: ["serializd", "#serializd"], formerSlugs: ["serializdtvtrackingapp"] },
   { slug: "flo", name: "Flo", rivalOf: [], strong: ["floapp", "embaixadoraflo", "flohealth", "flo.health"], searches: ["#floapp", "#embaixadoraflo"] },
   { slug: "sweatcoin", name: "Sweatcoin", rivalOf: [], strong: ["sweatcoin"], searches: ["sweatcoin"] },
   { slug: "kairo", name: "Kairo Alarme", rivalOf: [], strong: ["kairoalarme", "joinkairo", "kairoapp"], searches: ["kairo alarme"] },
@@ -507,9 +518,43 @@ export function candidatesOf(s: { caption: string; authorId: string; mentions?: 
   return [...out.values()];
 }
 
+/**
+ * Le nom d'une app repérée par une mention : le pseudo affiché, sans l'arobase
+ * ni le slogan qui le suit (« @Serializd | TV tracking app » → « Serializd »,
+ * « @Leaked DMs || Detective game » → « Leaked DMs »). Pris entier, il donnait
+ * le 09/11/2026 le motif « serializd|tvtrackingapp », que personne n'écrit.
+ */
+export function candidateName(label: string): string {
+  const whole = label.replace(/^@/, "").trim();
+  const name = whole.split(/\s*(?:\|+|·|•|—|–|:)\s*|\s+-\s+/)[0].trim();
+  return name.length >= 3 ? name : whole;
+}
+
+/** Le nom proposé pour suivre une app repérée : le pseudo sans slogan, ou le domaine sans extension (« stalkie.io » → « Stalkie »). */
+export function suggestedAppName(c: Pick<Candidate, "kind" | "label">): string {
+  if (c.kind === "mention") return candidateName(c.label);
+  const base = c.label.replace(/\.[a-z]+$/, "");
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
 /** Motifs d'une app créée depuis une app repérée : le domaine, et son nom sans extension. */
 export function patternsOfCandidate(c: Pick<Candidate, "kind" | "label">): string[] {
-  const base = normalize(c.label.replace(/^@/, "")).compact;
-  if (c.kind === "domain") return [base, base.replace(/\.[a-z]+$/, "")].filter((p, i, a) => p.length >= 3 && a.indexOf(p) === i);
+  if (c.kind === "domain") {
+    const base = normalize(c.label).compact;
+    return [base, base.replace(/\.[a-z]+$/, "")].filter((p, i, a) => p.length >= 3 && a.indexOf(p) === i);
+  }
+  const base = normalize(candidateName(c.label)).compact;
   return base.length >= 3 ? [base] : [];
+}
+
+/**
+ * L'app déjà suivie dont un motif CONTIENT celui-ci : toute vidéo qui la cite
+ * citerait aussi la nouvelle. « vocaa » est dans « vocaai » (Voca AI),
+ * « whatbrandonthink » dans « whatbrandonthinks » — les deux doublons du
+ * 09/11/2026. L'inverse est permis : « wrizzapp » contient « rizzapp » et
+ * c'est une autre app.
+ */
+export function shadowingApp<T extends Pick<AppRule, "strong">>(pattern: string, apps: readonly T[]): T | undefined {
+  const p = pattern.replace(/^[@#]/, "");
+  return apps.find((a) => a.strong.some((s) => s.replace(/^[@#]/, "").includes(p)));
 }
