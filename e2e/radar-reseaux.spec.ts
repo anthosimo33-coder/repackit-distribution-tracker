@@ -188,6 +188,39 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
     }
   });
 
+  test("une app ajoutée à la main qui entre dans la liste de départ est adoptée : elle suit le code, ses comptes restent", async ({ page }) => {
+    const ts = Date.now();
+    const r = reseau(ts);
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, { secret: E2E_SECRET, ...r.seed });
+    try {
+      const groupe = (nom: string) => page.getByRole("region", { name: nom });
+      await page.goto(adminPath("/radar?onglet=comptes"));
+      // Ajoutée à la main, concurrente d'un autre projet, un compte.
+      await expect(groupe("Concurrents d'un autre projet").getByTestId("radar-app").filter({ hasText: r.ailleurs })).toContainText("1 compte (1 relevé)");
+
+      // Elle entre dans la liste de départ sous son vrai nom, concurrente de CE projet (WRizz et Wing AI, 10/11/2026).
+      const adoptee = `E2E Adoptée ${ts}`;
+      const seed = { slug: `${r.prefixe}b`, name: adoptee, rivalOf: [E2E_PROJECT_SLUG], strong: [`@${r.prefixe}b`], searches: [`${r.prefixe}b`] };
+      expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed })).toEqual({
+        sync: "adopt",
+        source: "seed",
+        name: adoptee,
+        rivalOf: [E2E_PROJECT_SLUG],
+        strong: [`@${r.prefixe}b`],
+      });
+      // À l'écran : sous son nouveau nom, chez les concurrents du projet, son compte toujours là.
+      await expect(groupe("Concurrents de ce projet").getByTestId("radar-app").filter({ hasText: adoptee })).toContainText("1 compte (1 relevé)");
+      await expect(page.getByTestId("radar-app").filter({ hasText: r.ailleurs })).toHaveCount(0);
+
+      // Déjà alignée : rien ne bouge. Le code change ensuite : elle le suit.
+      expect((await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed })).sync).toBe("keep");
+      expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed: { ...seed, rivalOf: [] } })).toMatchObject({ sync: "align", source: "seed", rivalOf: [] });
+      await expect(groupe("Autres apps").getByTestId("radar-app").filter({ hasText: adoptee })).toHaveCount(1);
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
+    }
+  });
+
   test("outil MCP reseaux, et le filtre App des signaux à l'écran comme dans `signaux`", async ({ page }) => {
     test.setTimeout(120_000);
     const ts = Date.now();

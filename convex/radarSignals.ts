@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION } from "./radarDiscoveryQueries";
-import { SEED_APPS, canTrack, candidatesOf, findApp, rivalElsewhere, videoApp, videoCitesApp } from "./radarNetworkMath";
+import { SEED_APPS, canTrack, candidatesOf, findApp, rivalElsewhere, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
 import { SEED_ACCOUNTS } from "./radarSeedAccounts";
 import {
@@ -131,37 +131,58 @@ export const appRef = (a: Doc<"radarApps">): AppRef => ({ id: a._id, name: a.nam
 
 /**
  * Les apps de départ et leurs comptes de départ (idempotent). Une app de départ
- * suit le code : ses motifs, recherches et concurrences y sont recopiés ; une app
- * ajoutée à la main n'est jamais touchée.
+ * suit le code : ses motifs, recherches et concurrences y sont recopiés. Une app
+ * ajoutée à la main n'est jamais touchée — sauf quand elle entre dans la liste
+ * des apps de départ : elle est alors adoptée (radarNetworkMath.seedSync).
  */
 export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
   let created = 0;
   const now = Date.now();
   const counter: TrackedCounter = {};
   for (const s of SEED_APPS) {
-    const fields = {
-      name: s.name,
-      rivalOf: [...s.rivalOf],
-      strong: [...s.strong],
-      weak: [...(s.weak ?? [])],
-      context: [...(s.context ?? [])],
-      searches: [...s.searches],
-      ...(s.not ? { not: [...s.not] } : {}),
-    };
-    let app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
-    if (!app) {
-      const id = await ctx.db.insert("radarApps", { slug: s.slug, ...fields, status: "active", source: "seed", createdAt: now });
-      app = await ctx.db.get(id);
-      created++;
-    } else if (app.source === "seed" && JSON.stringify(Object.keys(fields).map((k) => app![k as keyof typeof fields])) !== JSON.stringify(Object.values(fields))) {
-      await ctx.db.patch(app._id, fields);
-      app = { ...app, ...fields };
-    }
-    if (!app) continue;
-    for (const handle of SEED_ACCOUNTS[s.slug] ?? []) await attachAccount(ctx, app, handle, 0, "seed", now, counter);
+    const r = await syncSeedApp(ctx, s, now);
+    if (r.sync === "create") created++;
+    if (!r.app) continue;
+    for (const handle of SEED_ACCOUNTS[s.slug] ?? []) await attachAccount(ctx, r.app, handle, 0, "seed", now, counter);
   }
   return created;
 }
+
+/** Aligne UNE app de départ sur le code : créée, adoptée (ajoutée à la main avant), réalignée ou laissée. */
+async function syncSeedApp(ctx: MutationCtx, s: SeedApp, now: number): Promise<{ app: Doc<"radarApps"> | null; sync: SeedSync }> {
+  const fields = {
+    name: s.name,
+    rivalOf: [...s.rivalOf],
+    strong: [...s.strong],
+    weak: [...(s.weak ?? [])],
+    context: [...(s.context ?? [])],
+    searches: [...s.searches],
+    ...(s.not ? { not: [...s.not] } : {}),
+  };
+  const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
+  const same = app !== null && JSON.stringify(Object.keys(fields).map((k) => app[k as keyof typeof fields])) === JSON.stringify(Object.values(fields));
+  const sync = seedSync(app, same);
+  if (sync === "create") {
+    const id = await ctx.db.insert("radarApps", { slug: s.slug, ...fields, status: "active", source: "seed", createdAt: now });
+    return { app: await ctx.db.get(id), sync };
+  }
+  if (!app || sync === "keep") return { app, sync };
+  // « adopt » : l'app ajoutée à la main devient une app de départ ; ses comptes et ses vidéos restent.
+  const patch = { ...fields, ...(sync === "adopt" ? { source: "seed" as const } : {}) };
+  await ctx.db.patch(app._id, patch);
+  return { app: { ...app, ...patch }, sync };
+}
+
+/** e2e : aligne une app sur une entrée de la liste de départ donnée ici (la vraie liste n'est pas semée en e2e). */
+export const e2eSyncSeedApp = e2eMutation({
+  args: { seed: v.object({ slug: v.string(), name: v.string(), rivalOf: v.array(v.string()), strong: v.array(v.string()), searches: v.array(v.string()) }) },
+  handler: async (ctx, { seed }) => {
+    const { sync } = await syncSeedApp(ctx, seed, Date.now());
+    // Relue en base : c'est ce qui est écrit qu'on vérifie, pas ce que la fonction renvoie.
+    const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", seed.slug)).first();
+    return { sync, source: app?.source ?? null, name: app?.name ?? null, rivalOf: app?.rivalOf ?? [], strong: app?.strong ?? [] };
+  },
+});
 
 /**
  * Comptes suivis par app, lus UNE fois par mutation dans le compteur de chaque app
