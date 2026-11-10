@@ -13,6 +13,8 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
   followspy: ["azufollow", "liana.chisme", "angie_detective", "julieta.chisme", "by.mafe27", "lolii_023", "maaarluch10", "scar_factos", "vale.spyhacks", "pili.chisme0", "pao_2fs", "fernanda.herrera2915"],
   kairo: ["juliakairoapp1", "bellacordacedo", "acordandocomgabi"],
   katch: ["sofia.71714", "paciencia.gossip", "gossip4sab"],
+  // Relevés le 10/11/2026 dans les vidéos de la découverte (légende ou texte à l'écran qui nomme l'app).
+  love8: ["bontlelove8", "johan_love8", "saraf.love8", "lour.love8"],
   loverzz: ["loveby_cami", "loveby.felipe"],
   lurk: ["glau.lurk", "valen.lurk", "delfi.lurk", "moralurk", "vanalurk", "joaco.lurk"],
   palima: ["erin8521", "juliaenvoyage"],
