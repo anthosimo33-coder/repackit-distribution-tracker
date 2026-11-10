@@ -67,9 +67,12 @@ export type SeedApp = AppRule & {
  * - Hors niche, même métier (armées de comptes dédiés) : celles du sourcing, et
  *   celles qu'une recherche du 06/11/2026 montre citées par plusieurs comptes ce
  *   mois-ci (Knowunity, Bible Chat, Cal AI, Glam AI, Finch), et Quittr, Umax et
- *   Creed (« prénom.prayer »), connues pour leurs comptes dédiés.
+ *   Creed (« prénom.prayer »), connues pour leurs comptes dédiés ; Astra AI et
+ *   Retain Cards (révisions), demandées par le fondateur le 10/11/2026.
  * Signatures de pseudo relevées : The Ick « prénom + secretaccount », Voca AI
- * « prénom.vocaai », Lurk « prénom.lurk », FollowSpy et RecentFollow « prénom.chisme ».
+ * « prénom.vocaai », Lurk « prénom.lurk », FollowSpy et RecentFollow « prénom.chisme »,
+ * Retain Cards « etudie.avec.prénom », Astra AI « study/learn with prénom » avec un
+ * dièse à quatre chiffres en légende (#4402, #4502 : le numéro de la vidéo fournie).
  */
 // Jamais un mot contenu dans un motif faible (« cheat » est dans « cheatlove ») :
 // il se servirait de contexte à lui-même.
@@ -79,6 +82,8 @@ const TEXT_CONTEXT = ["rizz", "text", "chat", "conversa", "crush", "date", "girl
 const MEAL_CONTEXT = ["calor", "food", "meal", "comida", "refei", "repas", "diet", "macro"];
 const LOOKS_CONTEXT = ["looksmax", "face", "rating", "jaw", "glow", "app"];
 const FAITH_CONTEXT = ["prayer", "oração", "oracao", "bible", "bíblia", "biblia", "deus", "god", "jesus"];
+// Ni « univers » (l'astrologie dit « the universe ») ni « tutor » (« tutorial ») : ils laisseraient passer les homonymes.
+const STUDY_CONTEXT = ["stud", "étud", "etud", "exam", "révis", "revis", "lern", "leren", "school", "schule", "scuola", "escuela", "escola", "lycée", "lycee", "universit", "flashcard", "karteikarte", "fiches", "math", "homework", "gcse"];
 
 const SNYTCH = ["snytch"] as const;
 const BLUSH = ["blush"] as const;
@@ -125,6 +130,15 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "fluencify", name: "Fluencify", rivalOf: [], strong: ["fluencify"], searches: ["fluencify"] },
   { slug: "airlearn", name: "Airlearn", rivalOf: [], strong: ["airlearn"], searches: ["airlearn"] },
   { slug: "knowunity", name: "Knowunity", rivalOf: [], strong: ["knowunity"], searches: ["knowunity", "#knowunity"] },
+  // Astra AI (tuteur d'examens, Slovénie) et Retain Cards (fiches de révision, Allemagne), demandées par le
+  // fondateur le 10/11/2026 : deux programmes créateurs qui montent des comptes d'étude dédiés, surtout en
+  // France (Astra : vidéos fournies, 0,30 € les 1 000 vues ; Retain : fixe par vidéo + prime). Légendes lues
+  // ce jour-là sous #astraai et #retaincards.
+  // « Astra AI » est aussi une app de portrait d'âme sœur, une d'avatars vidéo et un assistant : hors des
+  // pseudos officiels et du site, il lui faut un mot d'étude à côté.
+  { slug: "astraai", name: "Astra AI", rivalOf: [], strong: ["astraai.co", "astraaiofficial", "astraaies", "astraaisi"], weak: ["astraai"], context: STUDY_CONTEXT, searches: ["astra ai", "astra ai révision", "#astraai"] },
+  // « retain cards » au pluriel est le nom ; au singulier (« retain cardio »), il lui faut un mot d'étude.
+  { slug: "retaincards", name: "Retain Cards", rivalOf: [], strong: ["retaincards", "retain.cards"], weak: ["retaincard"], context: STUDY_CONTEXT, searches: ["retain cards", "retain cards révision", "#retaincards"] },
   { slug: "biblechat", name: "Bible Chat", rivalOf: [], strong: ["biblechat"], searches: ["bible chat app", "#biblechat"] },
   { slug: "calai", name: "Cal AI", rivalOf: [], strong: ["@calai", "#calai", "calaiapp"], weak: ["calai"], context: MEAL_CONTEXT, searches: ["cal ai app"] },
   { slug: "glamai", name: "Glam AI", rivalOf: [], strong: ["glamai"], searches: ["glam ai app"] },
