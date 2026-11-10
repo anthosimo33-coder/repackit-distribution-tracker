@@ -96,6 +96,10 @@ function semis(ts: number) {
       s(12, 9_650, 26, [[24, 965_000]], true, rival, `${p}c`),
       // Le plus haut score des anciennes, mais du même compte que la 1 : elle attend que la 1 soit traitée.
       s(13, 9_990, 55, [[24, 999_000]], true, rival, `${p}c`, undefined, undefined, 1),
+      // Découverte : un compte pas suivi, sans normale. Trouvée par « app for couples » : une trouvaille.
+      { videoId: `${m}20`, handle: `rxauj20_${ts}`, fans: 100, views: 990_000, lang: "en", caption: `${hook(20)} ${m}`, publishedAt: now - 30 * HOUR, hook: hook(20), durationSec: 24, foundBy: ["app for couples·us"] },
+      // Trouvée par « this app », encore plus de vues par abonné : hors sujet, pas une trouvaille.
+      { videoId: `${m}21`, handle: `rxauj21_${ts}`, fans: 100, views: 9_900_000, lang: "en", caption: `${hook(21)} ${m}`, publishedAt: now - 30 * HOUR, hook: hook(21), durationSec: 24, foundBy: ["this app·us"] },
     ],
     ads: [
       // La même créa, deux annonces actives : une seule ligne, une seule pub active.
@@ -136,6 +140,14 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       for (const [i, n] of [3, 4].entries()) await expect(fortes.getByTestId("radar-signal").nth(i)).toContainText(z.hook(n));
       // Une seule vidéo par compte : la 13 est du compte de la 1, elle n'est pas (encore) dans la file.
       await expect(carte(13)).toHaveCount(0);
+      // Hors des comptes suivis : la trouvaille de « app for couples », aux vues par abonné ; pas celle de « this app ».
+      const trouvailles = page.getByTestId("radar-trouvailles");
+      await expect(trouvailles.getByRole("heading", { name: "Hors des comptes suivis" })).toBeVisible();
+      await expect(trouvailles).toContainText("trouvées par la recherche, classées aux vues par abonné");
+      await expect(trouvailles.getByTestId("radar-signal").first()).toContainText(z.hook(20));
+      await expect(trouvailles).not.toContainText(z.hook(21));
+      await expect(fraiches).not.toContainText(z.hook(20));
+      await expect(fortes).not.toContainText(z.hook(20));
       await expect(carte(1).getByTestId("radar-score")).toHaveText("9900×");
       await expect(carte(1)).toContainText(`${z.rival} · concurrent`);
       // Ce qui se partage, et ce qui part tôt, en tête.

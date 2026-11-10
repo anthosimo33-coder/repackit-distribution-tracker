@@ -704,6 +704,8 @@
     "fraiches": "Posted in the last {h} h",
     "fraichesAide": "already {n} times their account's usual",
     "plusFortes": "The week's strongest",
+    "trouvailles": "Outside tracked accounts",
+    "trouvaillesAide": "found by search, ranked by views per follower",
     "legendeScore": "“50×” = 50 times what the account usually gets; “followers” when its usual is not known yet.",
     "formatsQuiCirculent": "Formats going around",
     "formatsAide": "The same on-screen text or sound, reused by several accounts within 14 days: {n, plural, =0 {none right now} other {# right now}}, your competitors' first.",

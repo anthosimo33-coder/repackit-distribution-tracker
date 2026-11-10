@@ -8,7 +8,8 @@
  *    (radarSignalFilters, « mediane »), la carte ne contredit plus la liste ;
  *  - « à regarder » : au plus 12 vidéos des 7 derniers jours que l'équipe du projet
  *    n'a pas encore traitées — les fraîches (moins de 48 h, déjà 10 fois leur
- *    normale) d'abord, puis les plus fortes, une seule par compte ;
+ *    normale) d'abord, puis les plus fortes, une seule par compte — et jusqu'à 2
+ *    trouvailles hors des comptes suivis ;
  *  - les pubs d'une même créa (même app, annonceur et texte) ne font qu'une
  *    ligne ; un texte de catalogue (« {{product.brand}} ») n'est pas un texte.
  */
@@ -64,6 +65,13 @@ export const TODAY_RIVAL_SLOTS = 6;
 export const FRESH_WINDOW_MS = 48 * HOUR;
 export const FRESH_MULTIPLIER = 10;
 export const TODAY_FRESH_SLOTS = 6;
+/**
+ * Trouvailles hors des comptes suivis (`isFind`) montrées EN PLUS des 12, au
+ * plus. En plus, et non à leur place : rejoué sur la prod du 10/11/2026, deux
+ * places prises sur les 12 sortaient de la file de BLUSH sa vidéo la plus forte
+ * de la semaine (Snitchy, 353 fois sa normale).
+ */
+export const TODAY_FIND_SLOTS = 2;
 
 export function isFresh(v: { publishedAt: number; multiplier?: number | null }, now: number): boolean {
   return now - v.publishedAt < FRESH_WINDOW_MS && (v.multiplier ?? 0) >= FRESH_MULTIPLIER;
@@ -80,6 +88,28 @@ export function onePerAccount<T extends { handle: string; platform: string }>(vi
   });
 }
 
+/** Ce que la file lit d'un signal, en plus des filtres. */
+type QueueSignal = FilterableSignal & {
+  elsewhere?: boolean;
+  network?: string | null;
+  durationSec?: number | null;
+  /** Vidéo d'un compte suivi (sa normale est connue, ou le sera). */
+  tracked?: boolean;
+  /** Trouvée par une recherche « app pour couple » (radarDiscoveryQueries.isRelationFind). */
+  niche?: boolean;
+};
+
+/**
+ * Une « trouvaille » : une vidéo d'un compte PAS ENCORE SUIVI (donc sans
+ * normale : on ne sait la juger qu'à ses vues par abonné), qui cite une app
+ * suivie ou sort d'une recherche « app pour couple ». Le reste de la découverte
+ * n'entre pas dans la file : lu le 10/11/2026, 9 vidéos sur 10 y sont hors
+ * sujet (foot, fonds d'écran, tutoriels de code) ; Explorer les garde.
+ */
+export function isFind(s: { tracked?: boolean; multiplier?: number | null; niche?: boolean; app: string | null }): boolean {
+  return !s.tracked && typeof s.multiplier !== "number" && (s.niche === true || s.app !== null);
+}
+
 /**
  * La file « à regarder », PROPRE AU PROJET (décidé le 09/11/2026 : BLUSH et
  * Snytch avaient le même fil) : 7 derniers jours, jamais traitées par l'équipe
@@ -92,8 +122,12 @@ export function onePerAccount<T extends { handle: string; platform: string }>(vi
  *    99 h d'âge médian et 2 vidéos de moins de 48 h quand 5 fraîches attendaient ;
  *  - UNE SEULE vidéo par compte (sa fraîche, sinon sa plus forte) : la suivante
  *    du même compte arrive quand celle-ci est traitée ;
+ *  - EN PLUS de ces 12, au plus 2 TROUVAILLES hors des comptes suivis (`isFind`),
+ *    une par compte, aux vues par abonné : la seule découverte qui entre (décidé
+ *    le 10/11/2026) ;
  *  - au plus 6 vidéos des concurrents DU projet ;
- *  - le reste : les autres apps et la découverte (ce qui marche partout) ;
+ *  - le reste : les autres apps, et, quand la file n'est pas pleine, les vidéos
+ *    sans normale connue (× ses abonnés) ;
  *  - jamais les concurrents d'un AUTRE projet (`elsewhere`, The Ick pour BLUSH),
  *    ni ce qu'un compte suivi publie sans citer d'app (`network` : « TURN OFF
  *    THESE ROKU SETTINGS » d'un compte du réseau Finch), ni les « texte sur plan »
@@ -101,18 +135,24 @@ export function onePerAccount<T extends { handle: string; platform: string }>(vi
  * Une part trop courte est complétée par l'autre. Une vidéo traitée en sort ;
  * la suivante prend sa place.
  */
-export function todayGroups<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(
+export function todayGroups<T extends QueueSignal>(
   signals: readonly T[],
   now: number,
   limit = TODAY_LIMIT,
   rivalSlots = TODAY_RIVAL_SLOTS,
   freshSlots = TODAY_FRESH_SLOTS,
-): { fresh: T[]; strongest: T[] } {
+  findSlots = TODAY_FIND_SLOTS,
+): { fresh: T[]; strongest: T[]; finds: T[] } {
   const f = defaultFilters();
   f.sel.statut = ["nouveau"];
   const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network && !isTextOnShot(s));
-  const kept = new Set(onePerAccount([...ranked.filter((s) => isFresh(s, now)), ...ranked.filter((s) => !isFresh(s, now))]));
-  const byScore = ranked.filter((s) => kept.has(s));
+  // Les trouvailles sont servies à part : classées au score, elles passaient derrière
+  // toute vidéo à normale connue et n'entraient jamais (la 1re au rang 76 chez Snytch).
+  const finds = onePerAccount(ranked.filter(isFind)).slice(0, findSlots);
+  const found = new Set(finds);
+  const pool = ranked.filter((s) => !found.has(s));
+  const kept = new Set(onePerAccount([...finds, ...pool.filter((s) => isFresh(s, now)), ...pool.filter((s) => !isFresh(s, now))]));
+  const byScore = pool.filter((s) => kept.has(s));
   const fresh = new Set(byScore.filter((s) => isFresh(s, now)).slice(0, freshSlots));
   // L'ordre de la file : les fraîches, puis le reste au score (une fraîche en trop y garde son rang).
   const order = [...fresh, ...byScore.filter((s) => !fresh.has(s))];
@@ -121,19 +161,20 @@ export function todayGroups<T extends FilterableSignal & { elsewhere?: boolean; 
   const nRivals = Math.min(rivals.length, Math.max(rivalSlots, limit - others.length));
   const picked = new Set([...rivals.slice(0, nRivals), ...others.slice(0, limit - nRivals)]);
   const queue = order.filter((s) => picked.has(s));
-  return { fresh: queue.filter((s) => fresh.has(s)), strongest: queue.filter((s) => !fresh.has(s)) };
+  return { fresh: queue.filter((s) => fresh.has(s)), strongest: queue.filter((s) => !fresh.has(s)), finds };
 }
 
-/** La file dans l'ordre où on la regarde : les fraîches, puis les plus fortes de la semaine. */
-export function todayQueue<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null; durationSec?: number | null }>(
+/** La file dans l'ordre où on la regarde : les fraîches, les plus fortes de la semaine, puis les trouvailles. */
+export function todayQueue<T extends QueueSignal>(
   signals: readonly T[],
   now: number,
   limit = TODAY_LIMIT,
   rivalSlots = TODAY_RIVAL_SLOTS,
   freshSlots = TODAY_FRESH_SLOTS,
+  findSlots = TODAY_FIND_SLOTS,
 ): T[] {
-  const g = todayGroups(signals, now, limit, rivalSlots, freshSlots);
-  return [...g.fresh, ...g.strongest];
+  const g = todayGroups(signals, now, limit, rivalSlots, freshSlots, findSlots);
+  return [...g.fresh, ...g.strongest, ...g.finds];
 }
 
 /** Vidéos traitées (gardée, à adapter, passée) aujourd'hui, jour de Paris. */
