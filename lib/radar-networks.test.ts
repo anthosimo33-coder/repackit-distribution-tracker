@@ -24,6 +24,8 @@ import {
   effectiveRivalOf,
   withRivalChoice,
   seedRemoval,
+  handPause,
+  canRejudge,
   seedSync,
   shadowingApp,
   suggestedAppName,
@@ -36,7 +38,7 @@ import {
   videoCitesApp,
 } from "../convex/radarNetworkMath";
 import { NETWORK_SEARCH_STALE_MS, networkSearchOutcome, networkSearchPhase } from "../convex/radarNetworkSearch";
-import { SEED_ACCOUNTS, SEED_REMOVED } from "../convex/radarSeedAccounts";
+import { OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "../convex/radarSeedAccounts";
 import { cleanText, mentionLabel, parseScVideo } from "../convex/radarSignalsMath";
 
 const app = (slug: string) => SEED_APPS.find((a) => a.slug === slug)!;
@@ -725,6 +727,48 @@ describe("comptes de départ après la recherche approfondie", () => {
     expect(seedRemoval({ matchedBy: "manual", status: "active" })).toBe(false);
     expect(seedRemoval({ matchedBy: "caption", status: "active" })).toBe(false);
     expect(seedRemoval(null)).toBe(false);
+  });
+});
+
+/** Décision du fondateur le 10/11/2026 : mettre en pause les comptes suivis clairement hors sujet. */
+describe("comptes mis en pause à la main", () => {
+  const tous = Object.values(SEED_ACCOUNTS).flat();
+
+  it("41 comptes, chacun une fois, aucun dans les listes de départ", () => {
+    expect(OFF_TOPIC_BY_HAND).toHaveLength(41);
+    expect(new Set(OFF_TOPIC_BY_HAND).size).toBe(41);
+    for (const h of OFF_TOPIC_BY_HAND) expect(h).toMatch(/^[a-z0-9._]+$/);
+    expect(OFF_TOPIC_BY_HAND.filter((h) => tous.includes(h) || SEED_REMOVED.includes(h))).toEqual([]);
+    // 1,5 M d'abonnés sous Bible Chat, 0 citation sur ses 10 dernières vidéos ; une boutique d'écouteurs sous Airbuds.
+    expect(OFF_TOPIC_BY_HAND).toContain("ntando_bash");
+    expect(OFF_TOPIC_BY_HAND).toContain("fawadmobile.ak");
+  });
+
+  it("n'y sont pas : ceux qui citent l'app dans la moitié de leurs vidéos, la marque, les cas non tranchés", () => {
+    // 13 sur 13, 11 sur 11, 10 sur 10 : de gros comptes, mais des comptes créateurs.
+    for (const h of ["angellingojourney", "sofiiilita", "shemoansmyname1", "zhong1993990", "zhong4044", "zhong41488", "geniapp09", "miree.asmr"]) expect(OFF_TOPIC_BY_HAND).not.toContain(h);
+    // « Flo is a period-tracking app… » : le compte de Flo pour les ados.
+    expect(OFF_TOPIC_BY_HAND).not.toContain("floteens");
+    // 2 à 4 citations sur 10, ou une bio qui renvoie vers une app de drague : pas tranché, on n'y touche pas.
+    for (const h of ["sharongambu", "david.doebele", "kenayx1", "keithcosmic", "sadeismother"]) expect(OFF_TOPIC_BY_HAND).not.toContain(h);
+  });
+
+  it("mis en pause une fois, jamais contre une réactivation faite à l'écran", () => {
+    expect(handPause({ status: "active" })).toBe(true);
+    expect(handPause({ status: "active", keptByHand: false })).toBe(true);
+    // Réactivé depuis l'écran après la pause : la synchro, qui passe toutes les heures, le laisse.
+    expect(handPause({ status: "active", keptByHand: true })).toBe(false);
+    expect(handPause({ status: "paused" })).toBe(false);
+    expect(handPause(null)).toBe(false);
+  });
+
+  it("le rejugement automatique ne relance pas un compte mis en pause à la main", () => {
+    const liste = ["ntando_bash"];
+    expect(canRejudge({ pausedReason: "offTopic", handle: "anacitesonapp" }, liste)).toBe(true);
+    // Une vidéo sponsorisée qui cite l'app le relancerait : c'est elle qui l'avait fait entrer.
+    expect(canRejudge({ pausedReason: "offTopic", handle: "ntando_bash" }, liste)).toBe(false);
+    // En pause sans motif (mis en pause à l'écran, ou retiré de la liste de départ) : jamais rejugé.
+    expect(canRejudge({ handle: "anacitesonapp" }, liste)).toBe(false);
   });
 });
 

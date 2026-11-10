@@ -31,9 +31,9 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind } from "./radarDiscoveryQueries";
-import { SEED_APPS, candidatesOf, canTrack, effectiveRivalOf, findApp, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, candidatesOf, canTrack, effectiveRivalOf, findApp, handPause, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
-import { SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
+import { OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
 import {
   BUDGET_VERSION,
   DISCOVERY_RUNS_PER_DAY,
@@ -149,6 +149,11 @@ export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
   for (const handle of SEED_REMOVED) {
     const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
     if (seedRemoval(t)) await ctx.db.patch(t!._id, { status: "paused" });
+  }
+  // Les comptes mis en pause à la main (gros généralistes, homonymes) : une fois, sans défaire une réactivation.
+  for (const handle of OFF_TOPIC_BY_HAND) {
+    const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+    if (handPause(t)) await ctx.db.patch(t!._id, { status: "paused", pausedReason: "offTopic" });
   }
   return created;
 }

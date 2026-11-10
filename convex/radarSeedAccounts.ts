@@ -111,3 +111,20 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
  * de Retain Cards, et trois comptes personnels entrés sur une seule vidéo pour Astra AI.
  */
 export const SEED_REMOVED: readonly string[] = ["nadegellg", "luca.lss", "chiara23091", "lauraretain", "mar.retainmx"];
+
+/**
+ * Comptes suivis mis en pause À LA MAIN, quelle que soit leur origine (décision du fondateur, 10/11/2026) : la
+ * synchro les met en pause une fois, « hors sujet ». Réactivé depuis l'écran, un compte n'y est plus remis
+ * (radarNetworkMath.handPause), et le rejugement automatique ne les relance pas (radarNetworkMath.canRejudge).
+ *  - 36 gros comptes généralistes : plus de 20 000 abonnés, ni pseudo ni bio au nom de l'app, et au plus une de
+ *    leurs 10 dernières légendes la cite (une vidéo sponsorisée de passage) ;
+ *  - 5 boutiques et revendeurs de téléphones rangés sous Airbuds : « airbuds » y désigne des écouteurs.
+ * Des 61 comptes proposés, 20 n'y sont pas : 8 citent l'app dans au moins 5 de leurs dernières vidéos (ce sont
+ * des créateurs), 1 est un compte de la marque (floteens), 11 ne sont pas tranchés.
+ */
+export const OFF_TOPIC_BY_HAND: readonly string[] = [
+  // Gros comptes généralistes.
+  "_szonjaaa._", "_yeahbert24", "anaylunagarcia", "annetll", "arganaca", "awadesandia62", "banginout009", "birdtart01", "calithekid_", "camii_.grwm_", "cedesugc", "celesste_apps", "dorriecherry", "ezgityp", "fix.with.zabit", "haileygracieee", "happylittledesign", "herasuns", "johnniehartmann", "larrylegend145", "lotte_1862", "maggiemurphyxo", "massi2elegant", "nashgotnyash", "ntando_bash", "praiize", "profsnider", "queenofvitality", "renduh", "salsa6ell", "samy.aasmr", "sarahandjk", "soya_ning", "tylerbtopg", "valeatoire", "z_zeika",
+  // Boutiques d'écouteurs « airbuds ».
+  "techzoneelectronix", "fawadmobile.ak", "fawad.mobile.zone75", "hamzamartofficialpk", "bilal_mobile_pakistan",
+];
