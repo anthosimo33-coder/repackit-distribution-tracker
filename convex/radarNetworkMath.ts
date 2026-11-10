@@ -218,6 +218,15 @@ export function seedSync(existing: { source: "seed" | "manual" } | null, sameFie
 }
 
 /** Une décision prise à la main, depuis l'écran d'un projet : cette app est (ou n'est pas) sa concurrente. */
+/**
+ * Un compte retiré de la liste de départ (radarSeedAccounts.SEED_REMOVED) est mis en pause — seulement s'il était
+ * entré par elle et qu'il est encore relevé. Ajouté à la main ou trouvé par une légende, il est resté pour une
+ * autre raison : on n'y touche pas. Déjà en pause, on ne réécrit rien (la synchro passe toutes les heures).
+ */
+export function seedRemoval(t: { matchedBy: "caption" | "manual" | "seed"; status: "active" | "paused" } | null): boolean {
+  return t !== null && t.matchedBy === "seed" && t.status === "active";
+}
+
 export type RivalChoice = { project: string; rival: boolean };
 
 /**
