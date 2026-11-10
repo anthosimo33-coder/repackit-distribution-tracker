@@ -83,7 +83,8 @@ const MEAL_CONTEXT = ["calor", "food", "meal", "comida", "refei", "repas", "diet
 const LOOKS_CONTEXT = ["looksmax", "face", "rating", "jaw", "glow", "app"];
 const FAITH_CONTEXT = ["prayer", "oração", "oracao", "bible", "bíblia", "biblia", "deus", "god", "jesus"];
 // Ni « univers » (l'astrologie dit « the universe ») ni « tutor » (« tutorial ») : ils laisseraient passer les homonymes.
-const STUDY_CONTEXT = ["stud", "étud", "etud", "exam", "révis", "revis", "lern", "leren", "school", "schule", "scuola", "escuela", "escola", "lycée", "lycee", "universit", "flashcard", "karteikarte", "fiches", "math", "homework", "gcse"];
+// « learnw » est le pseudo « learnwith… » ou « learnw.… », jamais « learn what » ; « belajar » et « opiskel » : étudier en indonésien, en finnois.
+const STUDY_CONTEXT = ["stud", "étud", "etud", "exam", "révis", "revis", "lern", "leren", "school", "schule", "scuola", "escuela", "escola", "lycée", "lycee", "universit", "flashcard", "karteikarte", "fiches", "math", "homework", "gcse", "learnw", "prüf", "belajar", "opiskel"];
 
 const SNYTCH = ["snytch"] as const;
 const BLUSH = ["blush"] as const;
@@ -136,7 +137,7 @@ export const SEED_APPS: readonly SeedApp[] = [
   // ce jour-là sous #astraai et #retaincards.
   // « Astra AI » est aussi une app de portrait d'âme sœur, une d'avatars vidéo et un assistant : hors des
   // pseudos officiels et du site, il lui faut un mot d'étude à côté.
-  { slug: "astraai", name: "Astra AI", rivalOf: [], strong: ["astraai.co", "astraaiofficial", "astraaies", "astraaisi"], weak: ["astraai"], context: STUDY_CONTEXT, searches: ["astra ai", "astra ai révision", "#astraai"] },
+  { slug: "astraai", name: "Astra AI", rivalOf: [], strong: ["astraai.co", "astraai.de", "astraaiofficial", "astraaies", "astraaisi"], weak: ["astraai"], context: STUDY_CONTEXT, searches: ["astra ai", "astra ai révision", "#astraai"] },
   // « retain cards » au pluriel est le nom ; au singulier (« retain cardio »), il lui faut un mot d'étude.
   { slug: "retaincards", name: "Retain Cards", rivalOf: [], strong: ["retaincards", "retain.cards"], weak: ["retaincard"], context: STUDY_CONTEXT, searches: ["retain cards", "retain cards révision", "#retaincards"] },
   { slug: "biblechat", name: "Bible Chat", rivalOf: [], strong: ["biblechat"], searches: ["bible chat app", "#biblechat"] },
