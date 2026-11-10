@@ -230,6 +230,135 @@ describe("Love8, app de couple suivie depuis le 10/11/2026", () => {
   });
 });
 
+/** Légendes lues le 10/11/2026 sur les pages TikTok #astraai et #retaincards. */
+describe("Astra AI et Retain Cards, apps de révision suivies depuis le 10/11/2026", () => {
+  const astra = app("astraai");
+  const retain = app("retaincards");
+
+  it("suivies sans être des concurrentes ; les comptes du premier relevé citent leur app dans leur vraie légende", () => {
+    expect(astra).toMatchObject({ name: "Astra AI", rivalOf: [] });
+    expect(retain).toMatchObject({ name: "Retain Cards", rivalOf: [] });
+    const astraVraies = [
+      { handle: "study.with.doina", caption: "Si tu étudies dans ces universités, tu peux obtenir les notes GRATUITEMENT 🤫‼️ #studytips #etudiant #université #astraai #3803" },
+      { handle: "study_with_chlox", caption: "tous vos thèmes de bac de CHAQUE matière au même endroit !! 🙌🏼 || #etudiant #studytok #astraai #bac #4402 " },
+      { handle: "an.lle3.study", caption: "Partage à tes amis avant que je supprime !🤫 #revision #etudes #etudiants #astraai #4502 (collaboration commerciale)" },
+      { handle: "learnwithmarine", caption: "Cette appli est à bannir de ton programme de révision !🤯 #studytok #study #studytips #astraai #4503 " },
+      { handle: "studywithl0u", caption: "Est-ce que c’est de la triche⁉️#studytips #studytok #triche #astraai #4002 " },
+      { handle: "loussshacks", caption: "la clé c’est gagner du temps pour bien retenir !! 📚💯 #studytok #studytips #hack #astraai #4403 " },
+      { handle: "tips_revision_calli", caption: "c est pas une dinguerie ???? #pourtoii #studytok #medecine #astraai #9999" },
+      { handle: "studyblondie", caption: "Vous avez trop de chance les ptits 2009 🫶🏻 #studytips #studytok #bac #astraai #4402 " },
+      { handle: "joanaritastudy", caption: "Esta dica devia ser conhecida por todos os estudantes… 🤫📚 Guarda para o próximo exame! #AstraAI #StudyTok #DicasDeEstudo #4502" },
+      { handle: "matildediaries", caption: "só espero que este vídeo não chegue a ela!! ❌❌ #estudos #dicas #astraai #4303 " },
+      { handle: "studywithyaniree", caption: "el mejor método de estudio para 🥚🥚🥚🥚s #greenscreenvideo #studytips #studytok #astraai #4525" },
+      { handle: "learnwithmariaa_", caption: "#publiiii CHICOS ya me contais que nota sacáis ‼️‼️‼️‼️ Seguro que un 14 ❤️ #4402 #astraai #studytok #estudiantes " },
+      { handle: "learnwnevia", caption: "Trinkt ihr gerne Kaffee?☕️ #schule #astraai #studytok #lerntipps #studytips Anzeige" },
+      { handle: "studywithsophiatalea", caption: "Was ist eure Meinung? 👀 #lerntipps #studytok #astraai #lernen #schulfächer Anzeige " },
+      { handle: "ssai741", caption: "il primo posto è imbattibile 👏📚 #studytok #school #perte #astraai #math " },
+      { handle: "studymetem", caption: "zooo chill #astraai #studytips #leren #6001 " },
+      { handle: "learnwithanne6", caption: "Evaluarea națională din 2027 va fi cea mai ușoară  de până acum ‼️ #examen#en#astraai#ad#4402" },
+      { handle: "rociotips_", caption: "cualquier duda en comentarios!! @Astra AI ES #app #estudio #tutorial #studytok #studytips" },
+      { handle: "studytipslaia", caption: "Respuesta a @Agus 🌻🇦🇷 Explicación del funcionamiento de @Astra AI ES. Espero que os haya quedado más o menos claro y cualquier duda ecribidme!! #estudio #ia #examen #universidad #studytok" },
+    ];
+    const retainVraies = [
+      { handle: "learnwithlanto", caption: "Comment je fais mes fiches en 5mn 🕦📚 #fichesderevisions #flashcards #rentree #retaincards #brevet publicité " },
+      { handle: "arno.revisions", caption: "Le secret bien gardé des profs… #retaincards #revisions #etudes #tuto #reussite  Publicité" },
+      { handle: "julie.tipsetudes", caption: "Qui sera la prochaine ? #retaincards #revisions #studytok #studytips publicité" },
+      { handle: "etudie.avec.marin", caption: "T’es obligé d’être malin si tu veux garder du temps pour chiller sur Netflix ! #retaincards #rentreescolaire #lycee #bac #fac publicité " },
+      { handle: "etudie.avec.ema", caption: "essayer cette application pour reviser #studytips #retaincards #etudesuperieures #studyhacks  #creatorsearchinsights " },
+      { handle: "study.withcharlie", caption: "Arrête de perdre ton temps bêtement à scroller sur TikTok #astucederevision #astuce #etudiant #retain #retaincards  Publicité " },
+      { handle: "linda.studytips", caption: "Sergeant Blake is working overtime on Retain Cards #retaincards #studying #college #studyapp #studywithme " },
+      { handle: "amandasstudier0", caption: "Ladda ner appen Retain Cards!!! Du får inte missa detta! Samarbete med Retain  " },
+    ];
+    // Les comptes de la marque citent l'app par leur pseudo, quelle que soit la légende.
+    const marque = { astraai: ["astra_ai_official", "astra_ai_es", "astra_ai_si"], retaincards: ["retain.cards", "retain.cards.offi", "retain.cards8"] };
+    for (const h of [...marque.astraai, ...astraVraies.map((v) => v.handle)]) expect(SEED_ACCOUNTS.astraai).toContain(h);
+    for (const h of [...marque.retaincards, ...retainVraies.map((v) => v.handle)]) expect(SEED_ACCOUNTS.retaincards).toContain(h);
+    for (const v of astraVraies) expect(videoApp(v, SEED_APPS)?.name).toBe("Astra AI");
+    for (const v of retainVraies) expect(videoApp(v, SEED_APPS)?.name).toBe("Retain Cards");
+    for (const h of marque.astraai) expect(videoCitesApp({ handle: h, caption: "We all been there before 😭" }, astra)).toBe(true);
+    for (const h of marque.retaincards) expect(videoCitesApp({ handle: h, caption: "Major life hack #finals" }, retain)).toBe(true);
+    // Aucune vidéo de l'une n'est rangée sous l'autre.
+    for (const v of astraVraies) expect(videoCitesApp(v, retain)).toBe(false);
+    for (const v of retainVraies) expect(videoCitesApp(v, astra)).toBe(false);
+  });
+
+  it("pages de hashtag déroulées en entier : 209 et 86 comptes, dans toutes les langues, sans recruteurs ni homonymes", () => {
+    expect(SEED_ACCOUNTS.astraai).toHaveLength(209);
+    expect(SEED_ACCOUNTS.retaincards).toHaveLength(86);
+    // Astra AI hors des langues du premier relevé : le mot d'étude est dans la légende, ou le pseudo est « learnwith… ».
+    const astraAilleurs = [
+      { handle: "belajarbarengbening", caption: "Gen Z kalau belajar sat set #astraai #tipskuliah #mahasiswa " },
+      { handle: "learnwithdorcsy", caption: "Hihetetlen😨Mentsd el ezt a videót késöbbre…#AstraAI #tanulás #learnwithme #reklám #4402 " },
+      { handle: "learnwithtamara", caption: "Koliko dobro#ucenje #fyp #4401 #loveisland #astraai " },
+      { handle: "learnwithemilia0", caption: "#zodiacsigns #zodiactiktok #ad #astraai #zodiii " },
+      { handle: "anniopiskelee", caption: "(mainos Astra Ai) Miten Astra toimii ja onks se oikeesti hyvä sovellus☝🏼 #opiskelu #opiskeluvinkit #astraai #koulu #suomitiktok " },
+      { handle: "nadegellg", caption: "Antwort auf @Josie_1504 So könnt ihr mündlich geprüft werden 🤩| Tutorial💓 AI#astraai #mündlicheprüfung #prüfung #tipps " },
+      { handle: "kristudyy", caption: "Пишу шпору на А4 за 5 годин до іспиту✍️ А в кінці станеться треш🤦🏼‍♀️ #навчання #studywithme #школа #astraai #університет " },
+      { handle: "rebeccarevise", caption: "Je supprime cette vidéo dans 24h 🤫 L'astuce qu'on m'a donnée pour réviser : j'importe mes fiches dans Astra AI, il me fait un planning de révision puis un examen blanc. " },
+      { handle: "siiri_astraai", caption: "astra-ai.de rettet euer Abi, ich meins ernst ! #mathematics#oberstufe#goviral#foryoupage#astraai" },
+      // La légende ne la nomme pas : c'est écrit à l'écran.
+      { handle: "estudiaconambardelol", caption: "Comenta para que te vaya bien en todos tus exámenes #bachillerato #universidad #tips #instituto", hook: "Astra Ai · La app se llama:" },
+      { handle: "studywithsumeyyee", caption: "kesinlikle denenmesi gereken bi uygulama🤌🏻🫶🏻 #ders #studytok #yks #kpss #1501 reklam", hook: "ASTRA AI HAKKINDA  GERÇEKÇİ YORUMUM" },
+    ];
+    for (const v of astraAilleurs) {
+      expect(SEED_ACCOUNTS.astraai).toContain(v.handle);
+      expect(videoApp(v, SEED_APPS)?.name).toBe("Astra AI");
+    }
+    expect(citesApp("astra-ai.de rettet euer Abi", "x", astra)).toBe(true);
+    // « learn what… » n'est pas le pseudo « learnwith… ».
+    expect(citesApp("learn what your soulmate looks like with Astra AI #astraai #soulmate", "luna.reads", astra)).toBe(false);
+    // Relevés sous #astraai et laissés dehors : un homonyme, un autre compte d'IA, le recrutement.
+    expect(videoCitesApp({ handle: "illuma.amulli", caption: "What a crazy timeline 😭😂 Anybody else find this kinda reassuring?! 😅 #AIsentience #OpenAI #chatGPT #AstraAI #whatatimetobealive " }, astra)).toBe(false);
+    expect(videoCitesApp({ handle: "astraa_ai", caption: "PART 3 #aitiktok #aitrend #foryou #foryoupage" }, astra)).toBe(false);
+    for (const h of ["illuma.amulli", "astraa_ai", "lisa_aicreatorclub", "jcstudio50"]) expect(SEED_ACCOUNTS.astraai).not.toContain(h);
+
+    const retainAilleurs = [
+      { handle: "studyingwithlaura", caption: "Die App heißt übrigens RetainCards - mega zum Lernen!😳 #retaincards #studytips #studentproblems" },
+      { handle: "study.mit.sophia", caption: "Soo viel leichter mit Retain.cards zu lernen 📖 #retaincards #viral #trend #prüfungsvorbereitung " },
+      // La légende ne la nomme pas : c'est écrit à l'écran.
+      { handle: "klausurphase.laura", caption: "🤫 #lerntipps #studytok Anzeige", hook: "Wenn du das hier siehst, ist das ein Zeichen, dass du deine Prüfungen bestehst · Mein Geheimtipp: Retain Cards" },
+      { handle: "etudie.avec.manal", caption: "J’ai une mémoire visuelle donc ca m’aide bien ! #studytok #studytips #examen #revisions #universite ", hook: "J'ai trouvé un logiciel qui me fait des cartes mentales · Tape Retaincards sur Google" },
+      { handle: "studywith.kat", caption: "#schule #studytips #lerntipps #lernen #studytok ", hook: "angefangen hast, nach der Retain-Cards-Methode zu lernen" },
+    ];
+    for (const v of retainAilleurs) {
+      expect(SEED_ACCOUNTS.retaincards).toContain(v.handle);
+      expect(videoApp(v, SEED_APPS)?.name).toBe("Retain Cards");
+    }
+    // Sous #retaincards sans que la légende ni l'écran la nomment, ou avec « #retain » seul : pas pris.
+    expect(citesApp("(Anzeige) Finde das so krass! #retain #karteikarten #studytok ", "laraemilyofficial", retain)).toBe(false);
+    for (const h of ["study_byerinn", "study.with.amino", "laraemilyofficial"]) expect(SEED_ACCOUNTS.retaincards).not.toContain(h);
+    // Le recrutement de créateurs, les comptes généralistes et la marque partenaire ne sont pas des comptes de format.
+    for (const h of ["retaincards.criadores", "marine.talentscoutretain", "ugc.marou", "dunja.nfs", "minimum20.study"]) expect(SEED_ACCOUNTS.retaincards).not.toContain(h);
+    // Personne dans les deux réseaux.
+    expect(SEED_ACCOUNTS.astraai.filter((h) => SEED_ACCOUNTS.retaincards.includes(h))).toEqual([]);
+  });
+
+  it("Astra AI : nommée en clair avec un mot d'étude, ou par son site ; jamais ses homonymes", () => {
+    expect(citesApp("Luckily Astra AI has my back ❤️ #gcse #studytok #alevels", "x", astra)).toBe(true);
+    expect(citesApp("You should check out Astra AI if you’re having math problems 🤝", "x", astra)).toBe(true);
+    expect(citesApp("👇Start for free astra-ai.co", "x", astra)).toBe(true);
+    // Le texte à l'écran ou ce qui est dit suffit, la légende n'a pas à la nommer.
+    expect(videoCitesApp({ handle: "ele.vs.uni", caption: "mandalo a quell’amico che cerca sempre gli appunti 🎀 #studytok #università", hook: "gli appunti di tutti i corsi · Astra AI" }, astra)).toBe(true);
+    // Les autres « Astra AI » : portrait d'âme sœur, avatars vidéo, assistant. Aucun mot d'étude.
+    expect(citesApp("Astra AI drew my soulmate and I'm shook 😳 #soulmate #astraai #fyp", "luna.reads", astra)).toBe(false);
+    expect(citesApp("the universe sent me this #astraai #astrology #tutorial", "x", astra)).toBe(false);
+    expect(citesApp("Opel Astra air suspension install #opel #astra", "garage.tom", astra)).toBe(false);
+    // Un compte d'étude qui ne la nomme pas n'est pas rangé sous elle.
+    expect(videoCitesApp({ handle: "study_byerinn", caption: "Tu me diras t’as eu combien à ton prochain contrôle 🙂‍↔️ #revision #flashcards #etudes #focus #college" }, astra)).toBe(false);
+  });
+
+  it("Retain Cards : le nom au pluriel, le site ou le pseudo ; au singulier il faut un mot d'étude", () => {
+    expect(citesApp("Mit Retain Cards lädst du deinen Stoff hoch und bekommst Karteikarten", "ugc.marou", retain)).toBe(true);
+    expect(citesApp("Suche 👉🏻 \"Retain Cards\" 👈🏻 im App Store", "x", retain)).toBe(true);
+    expect(citesApp("www.retain.cards", "x", retain)).toBe(true);
+    expect(citesApp("Retain card : comment utiliser les flashcards pour réviser", "x", retain)).toBe(true);
+    expect(citesApp("how to retain cardio fitness after 40 #gym #running", "coach.max", retain)).toBe(false);
+    // « retain » seul est un mot anglais courant, et une légende qui ne nomme pas l'app ne compte pas.
+    expect(citesApp("How to retain everything you study #studytok #flashcards", "x", retain)).toBe(false);
+    expect(videoCitesApp({ handle: "etudie.avec.manal", caption: "J’ai une mémoire visuelle donc ca m’aide bien ! #studytok #studytips #examen #revisions #universite " }, retain)).toBe(false);
+  });
+});
+
 describe("médiane et multiplicateur", () => {
   it("pas de médiane avant 5 vidéos ; impaire ou paire", () => {
     expect(medianViews([1_204, 980, 55_310, 612])).toBeUndefined();
