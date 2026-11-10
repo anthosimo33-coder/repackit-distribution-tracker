@@ -672,16 +672,16 @@ describe("comptes de départ après la recherche approfondie", () => {
   const tous = Object.values(SEED_ACCOUNTS).flat();
   const liste = (slug: string) => SEED_ACCOUNTS[slug] ?? [];
 
-  it("1 142 comptes sur 38 apps, chacun une seule fois", () => {
+  it("1 100 comptes sur 38 apps, chacun une seule fois", () => {
     expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(38);
-    expect(tous).toHaveLength(1142);
-    expect(new Set(tous).size).toBe(1142);
-    expect(liste("fluencify")).toHaveLength(125);
-    expect(liste("stalkie")).toHaveLength(63);
+    expect(tous).toHaveLength(1100);
+    expect(new Set(tous).size).toBe(1100);
+    expect(liste("fluencify")).toHaveLength(124);
+    expect(liste("stalkie")).toHaveLength(61);
     expect(liste("theick")).toHaveLength(38);
     // Des apps sans liste jusque-là.
-    expect(liste("wingaiapp")).toHaveLength(13);
-    expect(liste("plugai")).toHaveLength(23);
+    expect(liste("wingaiapp")).toHaveLength(10);
+    expect(liste("plugai")).toHaveLength(21);
   });
 
   it("entrent : pseudo ou bio au nom de l'app, ou plusieurs vidéos d'un compte de la niche", () => {
@@ -694,6 +694,14 @@ describe("comptes de départ après la recherche approfondie", () => {
     expect(liste("calai")).not.toContain("momyrizzler");
     // 303 000 abonnés, mais c'est un compte d'histoires de textos : la niche des apps de réponses.
     expect(liste("wingaiapp")).toContain("historias.texteadas");
+  });
+
+  it("n'entrent pas : ceux qui ne citent plus l'app dans leurs dix dernières vidéos", () => {
+    // Vus deux à quatre fois sous le hashtag de l'app, sans son nom en pseudo ni en bio : 0 ou 1 citation récente.
+    for (const h of ["nullachat", "storiedichatfakee", "textingwayys", "skrtgrizzy", "fallon62mzyh", "valersp_", "mouthfullofjass"]) expect(tous).not.toContain(h);
+    // Même genre de compte, mais 9 de ses 9 dernières vidéos citent Wing AI : il reste.
+    expect(liste("wingaiapp")).toContain("historias.texteadas");
+    expect(liste("wingaiapp")).toContain("chaat.stories");
   });
 
   it("n'entrent pas : gros comptes généralistes, recrutement, marque", () => {
