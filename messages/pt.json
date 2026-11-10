@@ -1653,6 +1653,7 @@
     "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} não é uma criadora parceira: publicar sem validação é só para elas.",
     "ERR_RADAR_APP_INVALID": "Dê um nome ao app e pelo menos um padrão de 3 caracteres.",
     "ERR_RADAR_APP_ALREADY_FOLLOWED": "O app “{name}” já é acompanhado.",
+    "ERR_RADAR_APP_PATTERN_TAKEN": "O padrão “{pattern}” já faz parte de “{name}”, um app acompanhado: escolha um mais preciso ou adicione a conta a esse app.",
     "ERR_RADAR_APP_NOT_FOUND": "App não encontrado.",
     "ERR_RADAR_TRACKED_FULL": "Já são {max} contas acompanhadas: pause algumas antes."
   },

@@ -1653,6 +1653,7 @@
     "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} isn't a partner creator: publishing without review is for them only.",
     "ERR_RADAR_APP_INVALID": "Give the app a name and at least one pattern of 3 characters.",
     "ERR_RADAR_APP_ALREADY_FOLLOWED": "The app “{name}” is already tracked.",
+    "ERR_RADAR_APP_PATTERN_TAKEN": "The pattern “{pattern}” is already part of “{name}”, a tracked app: pick a more specific one, or add the account to that app.",
     "ERR_RADAR_APP_NOT_FOUND": "App not found.",
     "ERR_RADAR_TRACKED_FULL": "Already {max} tracked accounts: pause some first."
   },

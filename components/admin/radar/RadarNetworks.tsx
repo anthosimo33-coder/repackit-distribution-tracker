@@ -436,12 +436,6 @@ export function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appN
 }
 
 /** Nom proposé pour une app repérée : « @Voca AI » → « Voca AI », « stalkie.io » → « Stalkie ». */
-function suggestedName(c: Candidate): string {
-  if (c.kind === "mention") return c.label.replace(/^@/, "");
-  const base = c.label.replace(/\.[a-z]+$/, "");
-  return base.charAt(0).toUpperCase() + base.slice(1);
-}
-
 function Candidates({ rows, onFollow }: { rows: Candidate[]; onFollow: (c: Candidate) => void }) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const showError = useConvexError();
@@ -501,7 +495,7 @@ function AddAppForm({ projectSlug, onDone, candidate }: { projectSlug: string; o
   const showError = useConvexError();
   const addApp = useProjectMutation(api.radarNetworks.addApp);
   const follow = useProjectMutation(api.radarNetworks.followCandidate);
-  const [name, setName] = useState(candidate ? suggestedName(candidate) : "");
+  const [name, setName] = useState(candidate ? candidate.name : "");
   const [patterns, setPatterns] = useState(candidate ? candidate.patterns.join(", ") : "");
   const [rival, setRival] = useState(true);
 

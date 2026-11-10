@@ -1653,6 +1653,7 @@
     "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} no es una creadora partner: publicar sin validación es solo para ellas.",
     "ERR_RADAR_APP_INVALID": "Ponle un nombre a la app y al menos un patrón de 3 caracteres.",
     "ERR_RADAR_APP_ALREADY_FOLLOWED": "La app «{name}» ya está en seguimiento.",
+    "ERR_RADAR_APP_PATTERN_TAKEN": "El patrón «{pattern}» ya forma parte de «{name}», una app en seguimiento: elige uno más preciso o añade la cuenta a esa app.",
     "ERR_RADAR_APP_NOT_FOUND": "App no encontrada.",
     "ERR_RADAR_TRACKED_FULL": "Ya hay {max} cuentas en seguimiento: pausa algunas primero."
   },

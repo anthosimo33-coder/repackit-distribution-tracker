@@ -55,6 +55,8 @@ import {
   nextReadAt,
   normalize,
   patternsOfCandidate,
+  shadowingApp,
+  suggestedAppName,
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
@@ -65,6 +67,7 @@ import {
   appRef,
   attachAccount,
   ensureSeedApps,
+  moveAccount,
   maybeAlert,
   noteCandidates,
   projectSlugOf,
@@ -447,27 +450,6 @@ export const applyAccountRead = internalMutation({
 /** Les autres apps suivies (actives) : celles qu'un compte ou une vidéo peut citer à la place de la sienne. */
 const otherActiveApps = (apps: readonly Doc<"radarApps">[], own: Id<"radarApps">) => apps.filter((a) => a._id !== own && a.status === "active");
 
-/**
- * Change un compte de réseau (radarNetworkMath.accountVerdict) : lui, ses vidéos
- * lues récentes (les formats et la vue d'ensemble les rangent par app) et le
- * compteur de comptes des deux apps.
- */
-async function moveAccount(
-  ctx: MutationCtx,
-  acc: Doc<"radarTracked">,
-  from: Doc<"radarApps">,
-  to: Doc<"radarApps">,
-  recent: readonly Doc<"radarTrackedVideos">[],
-): Promise<void> {
-  await ctx.db.patch(acc._id, { appId: to._id });
-  for (const vid of recent) if (vid.appId !== to._id) await ctx.db.patch(vid._id, { appId: to._id });
-  // Relus : plusieurs comptes peuvent changer de réseau dans la même mutation.
-  const f = await ctx.db.get(from._id);
-  const t = await ctx.db.get(to._id);
-  if (f?.trackedCount !== undefined) await ctx.db.patch(f._id, { trackedCount: Math.max(0, f.trackedCount - 1) });
-  if (t?.trackedCount !== undefined) await ctx.db.patch(t._id, { trackedCount: t.trackedCount + 1 });
-}
-
 /** Comptes en pause relus par passage. */
 const REJUDGE_BATCH = 400;
 
@@ -767,7 +749,8 @@ export const runAccountReads = internalAction({
  */
 export async function listNetworksCore(ctx: ProjectQueryCtx) {
   const slug = await projectSlugOf(ctx);
-  const apps = await ctx.db.query("radarApps").collect();
+  // Un doublon fondu dans une autre app (`mergedInto`) n'est plus une app à part.
+  const apps = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
   const tracked = await ctx.db.query("radarTracked").take(MAX_TRACKED + 100);
   const rows = apps.map((a) => {
     const mine = tracked.filter((t) => t.appId === a._id);
@@ -875,7 +858,8 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         label: (r.kind === "hook" ? r.members.find((m) => m.hook)?.hook : undefined) ?? r.label,
         variants: r.kind === "hook" ? Math.max(1, variants) : 1,
         accountCount: r.accountCount,
-        apps: fmtApps.map((a) => ({ name: a.name, rival: a.rivalOf.includes(slug) })),
+        // Par nom : un doublon fondu porte le nom de la vraie app.
+        apps: fmtApps.filter((a, i) => fmtApps.findIndex((b) => b.name === a.name) === i).map((a) => ({ name: a.name, rival: a.rivalOf.includes(slug) })),
         rival: fmtApps.some((a) => a.rivalOf.includes(slug)),
         // Repris seulement chez des concurrentes d'AUTRES projets : Aujourd'hui le laisse à ces projets.
         elsewhere: fmtApps.length > 0 && fmtApps.every((a) => a.rivalOf.length > 0 && !a.rivalOf.includes(slug)),
@@ -936,6 +920,8 @@ export async function listCandidatesCore(ctx: ProjectQueryCtx) {
     fromApps: c.fromApps.map((id) => apps.get(id)).filter((n): n is string => !!n),
     examples: c.examples,
     patterns: patternsOfCandidate(c),
+    // Le nom et les motifs proposés à l'écran pour la suivre (le pseudo sans son slogan).
+    name: suggestedAppName(c),
     firstSeenAt: c.firstSeenAt,
     lastSeenAt: c.lastSeenAt,
   }));
@@ -964,6 +950,12 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
   const slug = normalize(clean).compact.replace(/[^a-z0-9.]/g, "");
   if (await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first()) {
     throw err(ERR.RADAR_APP_ALREADY_FOLLOWED, `L'app « ${clean} » est déjà suivie.`, { name: clean });
+  }
+  // Un motif contenu dans celui d'une app suivie en ferait un doublon (« vocaa » dans « vocaai »).
+  const followed = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
+  for (const p of strong) {
+    const taken = shadowingApp(p, followed);
+    if (taken) throw err(ERR.RADAR_APP_PATTERN_TAKEN, `Le motif « ${p} » est déjà dans ceux de « ${taken.name} ».`, { pattern: p, name: taken.name });
   }
   const searches = [...strong, ...strong.map((p) => `#${p.replace(/\.[a-z]+$/, "")}`)].filter((x, i, a) => a.indexOf(x) === i);
   const now = Date.now();
@@ -1022,6 +1014,8 @@ export const ignoreCandidate = permissionMutation("radar.use")({
 export const setAppStatus = permissionMutation("radar.use")({
   args: { appId: v.id("radarApps"), status: v.union(v.literal("active"), v.literal("paused")) },
   handler: async (ctx, { appId, status }) => {
+    // Un doublon fondu reste en pause : il n'existe plus que comme renvoi.
+    if ((await ctx.db.get(appId))?.mergedInto !== undefined) return "paused" as const;
     await ctx.db.patch(appId, { status });
     return status;
   },

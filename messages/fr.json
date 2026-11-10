@@ -1653,6 +1653,7 @@
     "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} n'est pas une créatrice partenaire : la publication sans validation ne s'adresse qu'à elles.",
     "ERR_RADAR_APP_INVALID": "Donne un nom à l'app et au moins un motif de 3 caractères.",
     "ERR_RADAR_APP_ALREADY_FOLLOWED": "L'app « {name} » est déjà suivie.",
+    "ERR_RADAR_APP_PATTERN_TAKEN": "Le motif « {pattern} » est déjà dans ceux de « {name} », une app suivie : choisis-en un plus précis, ou ajoute le compte à cette app.",
     "ERR_RADAR_APP_NOT_FOUND": "App introuvable.",
     "ERR_RADAR_TRACKED_FULL": "Déjà {max} comptes suivis : mets-en en pause d'abord."
   },

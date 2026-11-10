@@ -207,6 +207,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
         name: adoptee,
         rivalOf: [E2E_PROJECT_SLUG],
         strong: [`@${r.prefixe}b`],
+        former: [],
       });
       // À l'écran : sous son nouveau nom, chez les concurrents du projet, son compte toujours là.
       await expect(groupe("Concurrents de ce projet").getByTestId("radar-app").filter({ hasText: adoptee })).toContainText("1 compte (1 relevé)");
@@ -216,6 +217,54 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       expect((await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed })).sync).toBe("keep");
       expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed: { ...seed, rivalOf: [] } })).toMatchObject({ sync: "align", source: "seed", rivalOf: [] });
       await expect(groupe("Autres apps").getByTestId("radar-app").filter({ hasText: adoptee })).toHaveCount(1);
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
+    }
+  });
+
+  test("un doublon est fondu dans la vraie app, un nom à slogan corrigé, un motif déjà pris refusé", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const r = reseau(ts);
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, { secret: E2E_SECRET, ...r.seed });
+    try {
+      const groupe = (nom: string) => page.getByRole("region", { name: nom });
+      const carte = (nom: string) => page.getByTestId("radar-app").filter({ hasText: nom });
+      await page.goto(adminPath("/radar?onglet=comptes"));
+      await expect(carte(r.rival)).toContainText("2 comptes (2 relevés)");
+      await expect(carte(r.ailleurs)).toContainText("1 compte (1 relevé)");
+
+      // ── Un doublon (« Voca A » pour Voca AI, 09/11/2026) : la liste de départ le reprend ──
+      const vraie = { slug: `${r.prefixe}a`, name: r.rival, rivalOf: [E2E_PROJECT_SLUG], strong: [`${r.prefixe}a`], searches: [`${r.prefixe}a`], formerSlugs: [`${r.prefixe}b`] };
+      const renvoi = [{ slug: `${r.prefixe}b`, name: r.rival, status: "paused", merged: true, accounts: 0 }];
+      expect((await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed: vraie })).former).toEqual(renvoi);
+      // Ses comptes ont rejoint la vraie app ; il n'est plus une app à part.
+      await expect(carte(r.rival)).toContainText("3 comptes (3 relevés)");
+      await expect(carte(r.ailleurs)).toHaveCount(0);
+      await expect(carte(r.rival)).toHaveCount(1);
+      await carte(r.rival).getByRole("button", { name: new RegExp(r.rival) }).click();
+      await expect(carte(r.rival).getByTestId("radar-compte").filter({ hasText: `@rxthree_${ts}` })).toHaveCount(1);
+      // Une seconde synchronisation ne change rien.
+      expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed: vraie })).toMatchObject({ sync: "keep", former: renvoi });
+      await expect(carte(r.rival)).toContainText("3 comptes (3 relevés)");
+
+      // ── Un nom à slogan (« Serializd | TV tracking app ») : l'app prend le bon nom et le bon slug ──
+      const renommee = `E2E Renommée ${ts}`;
+      const seed = { slug: `${r.prefixe}z`, name: renommee, rivalOf: [], strong: [`${r.prefixe}z`], searches: [`${r.prefixe}z`], formerSlugs: [`${r.prefixe}c`] };
+      expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed })).toEqual({ sync: "adopt", source: "seed", name: renommee, rivalOf: [], strong: [`${r.prefixe}z`], former: [] });
+      await expect(groupe("Autres apps").getByTestId("radar-app").filter({ hasText: renommee })).toHaveCount(1);
+      await expect(carte(r.autre)).toHaveCount(0);
+
+      // ── Ajouter à la main une app dont le motif est contenu dans celui d'une app suivie : refusé ──
+      await page.getByRole("button", { name: "Ajouter une app" }).click();
+      await page.getByLabel("Nom de l'app").fill(`E2E Doublon ${ts}`);
+      await page.getByLabel("Motifs qui la citent").fill(r.prefixe);
+      await page.getByRole("button", { name: "Suivre l'app" }).click();
+      // exact : l'overlay d'erreur du serveur de dev reprend le message du serveur.
+      await expect(
+        page.getByText(`Le motif « ${r.prefixe} » est déjà dans ceux de « ${r.rival} », une app suivie : choisis-en un plus précis, ou ajoute le compte à cette app.`, { exact: true }),
+      ).toBeVisible();
+      await expect(carte(`E2E Doublon ${ts}`)).toHaveCount(0);
     } finally {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
     }
