@@ -239,8 +239,8 @@ export default function ScriptCampaignDetailPage() {
 
   const bricks = useMemo(() => campaign?.bricks ?? [], [campaign]);
 
-  // Plateformes réellement servies par cette créatrice : l'unicité à vie est
-  // PAR PLATEFORME, l'évaluer sur les trois en dur inventerait des collisions.
+  // Plateformes réellement servies par cette créatrice : « déjà fait » se lit
+  // PAR PLATEFORME, l'évaluer sur les trois en dur inventerait des passages.
   const creatorPlatforms = useMemo(
     () => [
       ...new Set(
@@ -272,8 +272,8 @@ export default function ScriptCampaignDetailPage() {
     if (onlyActive && !b.active) return false;
     if (onlyWithInstruction && !b.instruction) return false;
     if (needle && !fold(`${b.content} ${b.label}`).includes(needle)) return false;
-    // La disponibilité n'a de sens que pour les HOOKS : l'unicité porte sur le
-    // combo entier, pas sur un flux ou un cta isolé.
+    // La disponibilité n'a de sens que pour les HOOKS (le badge est posé sur
+    // eux). Seul le cooldown masque : un hook déjà fait reste assignable.
     if (onlyAvailable && kind === "hook" && availableFor !== NO_CREATOR) {
       const a = availabilityOf(b._id as string);
       if (a !== undefined && !isHookAvailable(a)) return false;

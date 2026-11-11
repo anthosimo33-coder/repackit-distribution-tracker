@@ -22,7 +22,9 @@ const DAY = 86_400_000;
  *
  * Le menu liste les comptes de la créatrice sur les AUTRES plateformes : les
  * ajoutables, et — grisés, avec leur raison — ceux que le serveur refuserait
- * (en chauffe, géré par l'équipe, script déjà utilisé sur cette plateforme).
+ * (en chauffe, géré par l'équipe). Un compte d'une plateforme où elle a déjà
+ * ce script reste ajoutable : un script peut revenir chez la même créatrice
+ * (11/11/2026).
  * La cible ajoutée devient exigible à la publication ; une fois publiée,
  * l'assignation ne prend plus de cible.
  */
@@ -148,9 +150,12 @@ test.describe("Admin — panneau de détail : ajouter un compte sur une autre pl
     // Ajoutable : le compte Facebook.
     await expect(item(hFacebook)).toBeVisible();
     await expect(item(hFacebook)).toBeEnabled();
+    // Ajoutable aussi : Snapchat, où elle a DÉJÀ ce script (autre mission).
+    // Avant le 11/11/2026 : grisé « script déjà utilisé sur Snapchat ».
+    await expect(item(hSnap)).toBeVisible();
+    await expect(item(hSnap)).toBeEnabled();
+    await expect(item(hSnap)).not.toContainText("déjà utilisé");
     // Refusés : LISTÉS, grisés, avec leur raison.
-    await expect(item(hSnap)).toBeDisabled();
-    await expect(item(hSnap)).toContainText("script déjà utilisé sur Snapchat");
     await expect(item(hYtWarmup)).toBeDisabled();
     await expect(item(hYtWarmup)).toContainText("indisponible");
     await expect(item(hYtManaged)).toBeDisabled();
@@ -186,7 +191,6 @@ test.describe("Admin — panneau de détail : ajouter un compte sur une autre pl
     // ── Refus serveur — la règle ne dépend pas du grisé de l'écran ──────────
     const add = (accountId: Id<"comptes">) =>
       admin.mutation(api.assignments.addAssignmentTarget, { id: assignmentId, accountId });
-    await expect(add(tSnap.accountId)).rejects.toThrow(/ERR_COMBO_ALREADY_USED/);
     await expect(add(tTiktok2.accountId)).rejects.toThrow(/ERR_TARGET_PLATFORM_DUPLICATE/);
     await expect(add(tFacebook.accountId)).rejects.toThrow(/ERR_TARGET_PLATFORM_DUPLICATE/);
     await expect(add(tYtWarmup.accountId)).rejects.toThrow(/ERR_ACCOUNT_UNAVAILABLE/);

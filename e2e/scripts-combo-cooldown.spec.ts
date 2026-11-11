@@ -39,8 +39,9 @@ function dayMs(offsetDays: number): number {
  * simplement un autre et on ne saurait pas si le cooldown a joué. Ici il n'y a
  * rien d'autre à piocher — soit la fenêtre bloque, soit elle ne bloque pas.
  *
- * L'unicité à vie n'interfère jamais : chaque assignation vise un créateur
- * DIFFÉRENT, et l'unicité est par (créateur × plateforme).
+ * Ce qu'une créatrice a déjà fait n'interfère jamais : chaque assignation vise
+ * un créateur DIFFÉRENT (et depuis le 11/11/2026 ce n'est plus qu'une
+ * préférence du tirage, jamais un refus).
  */
 test.describe("Cooldown de combo — réglage par projet", () => {
   // Le réglage est GLOBAL au projet et la suite partage une base : on le remet
@@ -141,8 +142,7 @@ test.describe("Cooldown de combo — réglage par projet", () => {
     );
 
     // Et à 0 (cooldown désactivé) la même assignation passe, le jour même de
-    // celle de A — l'unicité à vie, elle, n'a pas bougé (D est une autre
-    // créatrice, elle n'a jamais vu ce combo).
+    // celle de A (D est une autre créatrice, elle n'a jamais vu ce combo).
     await admin.mutation(api.projects.setComboCooldownDays, { days: 0 });
     expect((await assignAt(d, dayMs(0))).created).toBe(1);
   });

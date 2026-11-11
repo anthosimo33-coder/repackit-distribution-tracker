@@ -30,8 +30,9 @@
  *
  * Le combo réécrit est marqué `comboImposed` — c'est une combinaison CHOISIE,
  * exactement comme le mode « Combinaison choisie » de l'assignation : elle ne
- * retire rien de la rotation automatique. Unicité et cooldown ne bloquent donc
- * pas ; leurs conflits sont rendus en AVERTISSEMENTS, à lire dans le plan.
+ * retire rien de la rotation automatique. Le cooldown ne bloque donc pas ; ses
+ * conflits sont rendus en AVERTISSEMENTS, à lire dans le plan. Un script que la
+ * créatrice a déjà fait n'en est plus un (scripts réutilisables, 11/11/2026).
  *
  * Module PUR (aucun import `_generated`) : testé par lib/mission-ops-plan.test.ts.
  */
@@ -213,7 +214,7 @@ export interface MissionOpsPlan {
   campaignPatches: PlannedCampaignPatch[];
   /** Gestes sans effet (déjà faits) — un second passage n'y trouve que ça. */
   skipped: string[];
-  /** Conflits d'unicité / cooldown et restes à relire : ne bloquent pas. */
+  /** Conflits de cooldown et restes à relire : ne bloquent pas. */
   warnings: string[];
 }
 
@@ -487,21 +488,23 @@ export function planMissionOps(input: {
         w.comboChanged = true;
       }
 
-      // Unicité et cooldown : la combinaison est CHOISIE, donc rien ne bloque —
-      // mais chaque conflit est dit, pour être relu avant d'écrire.
+      // Cooldown : la combinaison est CHOISIE, donc rien ne bloque — mais
+      // chaque conflit est dit, pour être relu avant d'écrire. Le délai vaut
+      // aussi entre deux vidéos de la même créatrice. Un script qu'elle a déjà
+      // fait plus tôt n'est plus un conflit (scripts réutilisables, 11/11/2026).
       for (const other of input.assignments) {
         if (other._id === a._id || other.comboKey !== comboKey) continue;
         if (COMBO_FREEING_STATUSES.has(other.status)) continue;
-        const day = other.postDate !== undefined ? parisDayOf(other.postDate) : "sans date";
-        if (other.creatorId === a.creatorId) {
-          plan.warnings.push(`Mission ${a._id} : même script déjà servi à cette créatrice (${other._id}, ${other.status}, ${day}).`);
-        } else if (
-          a.postDate !== undefined &&
-          other.postDate !== undefined &&
-          Math.abs(other.postDate - a.postDate) <= Math.max(input.cooldownDays, 0) * DAY_MS
+        if (
+          a.postDate === undefined ||
+          other.postDate === undefined ||
+          Math.abs(other.postDate - a.postDate) > Math.max(input.cooldownDays, 0) * DAY_MS
         ) {
-          plan.warnings.push(`Mission ${a._id} : même script prévu le ${day} chez une autre créatrice (${other._id}) — délai entre deux usages.`);
+          continue;
         }
+        const day = parisDayOf(other.postDate);
+        const chez = other.creatorId === a.creatorId ? "chez elle aussi" : "chez une autre créatrice";
+        plan.warnings.push(`Mission ${a._id} : même script prévu le ${day} ${chez} (${other._id}) — délai entre deux usages.`);
       }
     }
 

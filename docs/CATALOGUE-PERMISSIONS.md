@@ -407,7 +407,7 @@ Signalements : 🟠 **mixte** (gestion + argent dans le même appel, §2.1) · �
 | `getFormat` | Q | formats | Détail d'un format | 🟠 mixte |
 | `listFormats` | Q | formats | Liste les formats (brief + grille de paie) | 🟠 mixte |
 | `updateFormat` | M | formats | Modifie un format | 🟠 mixte |
-| `availableCombosForAssignment` | Q | scripts | Combos encore disponibles pour une créatrice |  |
+| `availableCombosForAssignment` | Q | scripts | Scripts jamais faits par une créatrice (au-delà, le tirage reprend les moins récents) |  |
 | `createBrick` | M | scripts | Crée une brique de script |  |
 | `createCampaign` | M | scripts | Crée une campagne |  |
 | `deleteBrick` | M | scripts | Supprime une brique |  |

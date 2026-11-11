@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   canAddPublishedTarget,
   canAddTarget,
-  comboTakenOnPlatform,
   isTargetAccountLocked,
   targetAccountRefusal,
   resolvePublishedTargetDate,
@@ -149,46 +148,15 @@ describe("resolvePublishedTargetDate — la cible ajoutée ne déplace pas la vi
   });
 });
 
-describe("comboTakenOnPlatform — unicité du script par plateforme", () => {
-  const self = { _id: "k17self", status: "todo", targets: [{ platform: "TikTok" }, { platform: "Instagram" }] };
-
-  it("libre quand seule l'assignation elle-même porte le combo", () => {
-    expect(comboTakenOnPlatform([self], { excludeId: "k17self", platform: "Snapchat" })).toBe(false);
-    // Elle-même vise TikTok : exclue, donc pas un conflit avec soi.
-    expect(comboTakenOnPlatform([self], { excludeId: "k17self", platform: "TikTok" })).toBe(false);
-  });
-
-  it("PRIS quand une autre assignation vivante vise déjà la plateforme", () => {
-    const other = { _id: "k17other", status: "to_publish", targets: [{ platform: "Snapchat" }] };
-    expect(comboTakenOnPlatform([self, other], { excludeId: "k17self", platform: "Snapchat" })).toBe(true);
-    // …mais pas une autre plateforme.
-    expect(comboTakenOnPlatform([self, other], { excludeId: "k17self", platform: "Facebook" })).toBe(false);
-  });
-
-  it("PRIS aussi quand l'autre ligne est publiée (le script y est déjà sorti)", () => {
-    const other = { _id: "k17other", status: "paid", targets: [{ platform: "Snapchat" }] };
-    expect(comboTakenOnPlatform([self, other], { excludeId: "k17self", platform: "Snapchat" })).toBe(true);
-  });
-
-  it.each(["cancelled", "video_rejected"])(
-    "une assignation %s ne réserve rien (jamais publiée)",
-    (status) => {
-      const other = { _id: "k17other", status, targets: [{ platform: "Snapchat" }] };
-      expect(comboTakenOnPlatform([self, other], { excludeId: "k17self", platform: "Snapchat" })).toBe(false);
-    },
-  );
-});
-
-describe("targetAddRefusal — refus du remplacement + format + script", () => {
+describe("targetAddRefusal — refus du remplacement + format", () => {
   const ok = {
     available: true,
     accountManaged: false,
     assignmentManaged: false,
     formatAllowed: true,
-    comboTaken: false,
   };
 
-  it("accepte un compte disponible, même mode, format compatible, script libre", () => {
+  it("accepte un compte disponible, même mode, format compatible", () => {
     expect(targetAddRefusal(ok)).toBe(null);
   });
 
@@ -199,9 +167,5 @@ describe("targetAddRefusal — refus du remplacement + format + script", () => {
 
   it("refuse un format non publiable sur la plateforme", () => {
     expect(targetAddRefusal({ ...ok, formatAllowed: false })).toBe("formatIncompatible");
-  });
-
-  it("refuse un script déjà pris sur la plateforme", () => {
-    expect(targetAddRefusal({ ...ok, comboTaken: true })).toBe("comboUsed");
   });
 });

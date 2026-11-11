@@ -95,7 +95,7 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
       pricingId,
     });
     expect(assigned.created).toBe(1);
-    // L'unique combo est désormais occupé pour ce créateur sur TikTok.
+    // L'unique combo est désormais fait par ce créateur sur TikTok.
     expect(
       await admin.query(api.scripts.availableCombosForAssignment, {
         campaignId,
@@ -209,8 +209,8 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
       await admin.query(api.assignments.listAssignments, {})
     ).filter((a) => a.creatorId === c.creatorId);
     // Mission script (en cours) supprimée → combo libéré : plus aucune row
-    // occupante (l'unicité combo×créateur×plateforme est purement basée sur
-    // l'existence de la row, cf assertComboFreeForCreatorPlatforms).
+    // (« déjà fait » est purement basé sur l'existence de la row, cf
+    // derniersPassagesDe).
     expect(
       assignmentsAfter.some((a) => a.scriptCombo?.campaignId === campaignId),
     ).toBe(false);

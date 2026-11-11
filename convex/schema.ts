@@ -256,10 +256,10 @@ export default defineSchema({
     // l'autre. Édité par projects.setComboCooldownDays (gardée par bloc, écran
     // /scripts).
     //
-    // ⚠️ NE TOUCHE PAS à l'unicité à vie (combo × créatrice × plateforme), qui
-    // vit dans lib/script-combo-uniqueness et n'a aucun réglage : les deux
-    // protections se cumulent. Mettre 0 ici ne réautorise jamais le même script
-    // deux fois chez la même créatrice.
+    // C'est la seule règle qui interdit un script : depuis le 11/11/2026 un
+    // script déjà fait peut revenir chez la même créatrice (le tirage préfère
+    // seulement ce qu'elle n'a jamais fait, cf convex/comboRecency). Le délai
+    // vaut aussi entre ses propres vidéos.
     //
     // N'agit que sur les tirages À VENIR : un combo déjà attribué est figé sur
     // son assignation et n'est jamais rejugé.
@@ -2521,7 +2521,7 @@ export default defineSchema({
         editedOnce: v.optional(v.boolean()),
         // NOTIF — brique OPTIONNELLE tirée à part du combo (cf
         // convex/scriptNotif) : n'entre NI dans assembledScript NI dans
-        // comboKey, donc unicité, cooldown et découpage en zones sont
+        // comboKey, donc « déjà fait », cooldown et découpage en zones sont
         // inchangés. `notifText` = texte FIGÉ à l'assignation, comme
         // assembledScript : éditer la brique ensuite ne réécrit pas la fiche
         // d'une créatrice qui a déjà tourné. Absents = vidéo sans notif.
@@ -2561,8 +2561,9 @@ export default defineSchema({
     // UNIQUEMENT dans ce cas ; absent = combo auto (0 bruit sur les lignes
     // existantes). Analytics : compté SANS distinction (perfByCombo/perfByBrick
     // lisent comboKey/brickIds, jamais ce flag). Anti-coordination : les lignes
-    // imposées sont IGNORÉES du set usedKeys → le triplet reste piochable en auto
-    // (« un choix manuel ne retire rien de la rotation »).
+    // imposées ne comptent pas dans ce qu'elle a « déjà fait » → le triplet
+    // reste neuf pour le tirage auto (« un choix manuel ne retire rien de la
+    // rotation »).
     comboImposed: v.optional(v.boolean()),
     // Lignage de rejeu — assignation SOURCE d'où ce combo a été rejoué. Posé pour
     // les entrées tracker/détail ; absent depuis l'entrée analytics (agrégat, pas
@@ -2866,9 +2867,8 @@ export default defineSchema({
     //     (cf cooldownAnchorOf) : toutes les participantes reçoivent le MÊME
     //     script le même jour, c'est le principe. Sans cette exclusion, un défi
     //     stériliserait son combo pour toute la production normale.
-    //  2. Elles sont créées avec `comboImposed: true`, donc déjà hors de
-    //     l'unicité à vie — une créatrice soumet autant de vidéos qu'elle veut
-    //     sur le même script.
+    //  2. Elles sont créées avec `comboImposed: true` — une créatrice soumet
+    //     autant de vidéos qu'elle veut sur le même script.
     //  3. Elles portent le pricing DÉDIÉ du défi (montantFixe 0) : groupe de
     //     paie séparé, le budget fixe des vidéos ordinaires est intouchable.
     challengeId: v.optional(v.id("challenges")),

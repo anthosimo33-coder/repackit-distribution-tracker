@@ -12,9 +12,10 @@
  * pas réattribuable à cette date — même sur un autre compte, même chez une autre
  * créatrice. Passé ce délai il redevient piochable.
  *
- * Ce n'est PAS l'exclusion à vie, qui vit ailleurs (par créatrice × plateforme,
- * cf `lib/script-combo-uniqueness.ts`) et n'est pas concernée par ce réglage :
- * les deux protections se CUMULENT, elles ne se remplacent pas.
+ * C'est la SEULE règle qui interdit un script. Il n'y a plus d'exclusion à vie
+ * par créatrice (11/11/2026) : ce qu'elle a déjà fait n'est qu'une préférence
+ * du tirage (cf convex/comboRecency), sans réglage. Le délai vaut aussi entre
+ * deux vidéos de la même créatrice.
  *
  * ── Pourquoi c'est un réglage de PROJET et non une constante ─────────────────
  * Même raisonnement que `projects.warmupTargetDays` : c'est une règle ÉDITORIALE
@@ -38,9 +39,9 @@ export const COMBO_COOLDOWN_DAYS_FALLBACK = 1;
 
 /**
  * 0 est une valeur LÉGITIME : elle désactive le cooldown (la fenêtre devient
- * vide, `Math.abs(écart) < 0` n'est jamais vrai). L'unicité à vie par créatrice
- * continue de s'appliquer — désactiver le cooldown ne rouvre jamais la porte au
- * « même script deux fois chez la même personne ».
+ * vide, `Math.abs(écart) < 0` n'est jamais vrai). Plus rien n'interdit alors
+ * un script, même deux fois le même jour : le tirage préfère seulement ce que
+ * la créatrice n'a jamais fait, puis le moins récent.
  */
 export const COMBO_COOLDOWN_DAYS_MIN = 0;
 export const COMBO_COOLDOWN_DAYS_MAX = 30;

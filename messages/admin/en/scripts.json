@@ -62,7 +62,7 @@
     "avecConsigne": "💡 With a note",
     "aucuneCreatrice": "— no creator —",
     "masquerLesIndisponibles": "Hide unavailable ones",
-    "cetteCreatriceNAAucun": "This creator has no declared account — no uniqueness collision can be computed.",
+    "cetteCreatriceNAAucun": "This creator has no declared account — we can't tell what she has already done.",
     "sur": "of {count} {value}",
     "active": "· {activeCount} active",
     "ajouter": "Add",
@@ -238,7 +238,7 @@
     "libre": "Free",
     "cooldown": "Cooldown → {date}",
     "fenetreDeCooldownAL": "Project-wide cooldown window (all creators combined)",
-    "uniciteAVieCetteCreatrice": "Lifetime uniqueness: this creator has already had this hook on this platform"
+    "dejaFaitParCetteCreatrice": "Already done by this creator on this platform: it can come back to her"
   },
   "ComboCooldownSettingsButton": {
     "cooldown": "Script settings",
@@ -251,10 +251,9 @@
     "jours": "Days",
     "unEntierEntreEtOu": "A whole number between {COMBO_COOLDOWN_DAYS_MIN} and {COMBO_COOLDOWN_DAYS_MAX}, or empty for the default.",
     "ceReglageNeChange": "This setting only changes",
-    "unComboDejaAttribueEst": ": a combo already assigned is frozen on its assignment. It doesn't touch",
-    "uneCreatriceNeRecoitJamais": "either — a creator never gets the same script twice on the same platform, whatever this number is.",
+    "unComboDejaAttribueEst": ": a combo already assigned is frozen on its assignment.",
+    "scriptDejaFaitPeutRevenir": "The delay also applies between one creator's own videos. A script she has already done can come back to her: the draw takes the ones she has never done first, then the ones she did longest ago.",
     "queLesTiragesAVenir": "future draws",
-    "uniciteAVie": "lifetime uniqueness",
     "enregistrer": "Save",
     "defaut": "default: {fallback}",
     "nonDefiniJourApplique": "not set — {fallback} {fallback, plural, one {day} other {days}} applied",

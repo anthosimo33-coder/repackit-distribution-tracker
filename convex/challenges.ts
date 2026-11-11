@@ -845,10 +845,8 @@ export async function freezeFinalRanking(
  * comptent, et ce sont précisément ceux qui ne se voient pas :
  *
  *   1. `challengeId` — c'est LUI qui fait entrer la vidéo dans le score.
- *   2. `comboImposed: true` — toutes les participantes reçoivent le MÊME
- *      script ; sans ce flag, l'unicité à vie refuserait la 2e vidéo de la même
- *      créatrice, et « autant de vidéos qu'elle veut » serait faux dès la
- *      deuxième.
+ *   2. le MÊME script pour toutes les participantes, autant de vidéos qu'elles
+ *      veulent (script libre, sans combinaison — cf plus bas).
  *   3. le `pricingSnapshot` du barème DÉDIÉ du défi (fixe nul) — groupe de paie
  *      séparé, le budget fixe des vidéos ordinaires reste intact.
  *
@@ -921,9 +919,9 @@ export async function createChallengeAssignment(
     // l'`assembledScript` figé d'avant.
     freeScript: challenge.script,
     // NI `scriptCombo`, NI `comboKey`, NI `comboImposed` : sans combinaison, il
-    // n'y a plus rien à imposer. L'unicité à vie ne s'applique qu'aux combos —
-    // deux vidéos de défi d'une même créatrice ne se gênent donc plus, et ce
-    // n'est plus un flag qui le permet, c'est l'absence de clé.
+    // n'y a plus rien à imposer. Le tirage et le délai du projet ne lisent que
+    // les combos — deux vidéos de défi d'une même créatrice ne se gênent donc
+    // pas, et ce n'est pas un flag qui le permet, c'est l'absence de clé.
     targets: input.targets,
     dueDate: input.dueDate ?? challenge.deadline,
     // Compte géré, ou créatrice de confiance → direct « à publier »

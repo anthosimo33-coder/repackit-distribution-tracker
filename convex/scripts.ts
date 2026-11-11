@@ -25,6 +25,7 @@ import {
   representativePostedAt,
 } from "./assignments";
 import { COMBO_FREEING_STATUSES } from "./comboFreeing";
+import { derniersPassages, tirerPourDates } from "./comboRecency";
 import { formatDateFr } from "./dateFr";
 import { comboCooldownDaysOf } from "./comboCooldown";
 import { isValidPostWindow } from "./postWindow";
@@ -234,12 +235,14 @@ function generateCombosServer(bricks: Doc<"scriptBricks">[]): ServerCombo[] {
  * RÉPLIQUE EXACTE de lib/scriptCombos.pickCombosForCreator (règle A6). Score d'un
  * combo = somme des usages de ses 3 bricks ; on prend le score MINIMAL, tie-break
  * stable par ordre de génération. Compteurs amorcés depuis usedKeys (combos déjà
- * pris créateur+plateforme) pour POURSUIVRE l'équilibre. Exclut usedKeys, ≤ n,
- * jamais de doublon.
+ * faits par la créatrice, ou interdits à cette date) pour POURSUIVRE l'équilibre.
+ * Exclut usedKeys, ≤ n, jamais de doublon. C'est l'étage « jamais fait » du
+ * tirage ; quand il ne rend plus rien, convex/comboRecency reprend le moins
+ * récemment fait.
  */
 function pickCombosServer(
-  all: ServerCombo[],
-  usedKeys: Set<string>,
+  all: readonly ServerCombo[],
+  usedKeys: ReadonlySet<string>,
   n: number,
 ): ServerCombo[] {
   if (n <= 0) return [];
@@ -422,31 +425,44 @@ function notifFieldsOf(combo: {
 }
 
 /**
- * Unicité (comboKey, créateur, plateforme) — RÉPLIQUE de
- * lib/script-combo-uniqueness (règle A6). comboKeys déjà pris par `creatorId`
- * sur AU MOINS UNE des `platforms` (union) parmi `existing`. Sert à exclure de
- * la génération : un combo doit être libre sur CHAQUE plateforme ciblée.
+ * Quand la créatrice dit le script de cette mission : publication prévue,
+ * sinon réelle, sinon création de la mission (cf convex/comboRecency).
  */
-function usedComboKeysForPlatforms(
+function passageAt(a: Doc<"assignments">): number {
+  if (typeof a.postDate === "number") return a.postDate;
+  const stamps = (a.targets ?? [])
+    .map((t) => t.publishedAt)
+    .filter((x): x is number => typeof x === "number");
+  return stamps.length > 0 ? Math.min(...stamps) : a.createdAt;
+}
+
+/**
+ * Ses derniers passages par script, sur AU MOINS UNE des `platforms` — l'entrée
+ * de la préférence « jamais fait d'abord, puis le moins récent »
+ * (convex/comboRecency). Plus une exclusion : depuis le 11/11/2026, un script
+ * déjà fait peut revenir chez la même créatrice.
+ *
+ * Abandonnée / vidéo refusée ⇒ jamais publiée ⇒ ne compte pas (cf
+ * COMBO_FREEING_STATUSES). Combo IMPOSÉ (rejeu / choix manuel) : ne compte pas
+ * non plus (« un choix manuel ne retire rien de la rotation »). Face lib :
+ * lib/script-combo-uniqueness.
+ */
+function derniersPassagesDe(
   existing: Doc<"assignments">[],
   creatorId: Id<"creators">,
   platforms: string[],
-): Set<string> {
-  const target = new Set(platforms);
-  const used = new Set<string>();
-  for (const a of existing) {
-    if (a.creatorId !== creatorId || !a.comboKey) continue;
-    // Abandonnée / vidéo refusée ⇒ jamais publiée ⇒ le combo redevient tirable,
-    // pour cette créatrice comme pour les autres (cf COMBO_FREEING_STATUSES).
-    if (COMBO_FREEING_STATUSES.has(a.status)) continue;
-    // Combo IMPOSÉ (rejeu / choix manuel) : ne consomme PAS la rotation auto →
-    // le triplet reste piochable (« un choix manuel ne retire rien de la
-    // rotation »). Réplique A6 : lib/script-combo-uniqueness fait de même.
-    if (a.comboImposed === true) continue;
-    const aps = (a.targets ?? []).map((t) => t.platform);
-    if (aps.some((p) => target.has(p))) used.add(a.comboKey);
-  }
-  return used;
+): Map<string, number> {
+  return derniersPassages(
+    existing.map((a) => ({
+      creatorId: a.creatorId,
+      comboKey: a.comboKey,
+      platforms: (a.targets ?? []).map((t) => t.platform),
+      at: passageAt(a),
+      comboImposed: a.comboImposed === true,
+      liberee: COMBO_FREEING_STATUSES.has(a.status),
+    })),
+    { creatorId, platforms },
+  );
 }
 
 const DAY_MS = 86_400_000;
@@ -479,7 +495,7 @@ export async function comboCooldownDaysFor(
 /**
  * Ancre de cooldown d'un assignment : date de publication PRÉVUE, à défaut la
  * date RÉELLE de sortie. `null` si ni l'une ni l'autre (l'assignation n'occupe
- * alors aucune fenêtre — elle reste couverte par l'unicité à vie).
+ * alors aucune fenêtre).
  *
  * Le repli sur `dueDate` a été ÉCARTÉ délibérément : c'est une échéance de
  * production, pas une date de sortie ; s'en servir créerait des cooldowns
@@ -516,8 +532,9 @@ function cooldownAnchorOf(a: Doc<"assignments">): number | null {
  * n'est pas celle du projet.
  *
  * Les combos IMPOSÉS occupent la fenêtre (une publication imposée sort pour de
- * vrai) alors qu'ils sont ignorés de l'unicité à vie : « hors règles » veut dire
- * jamais REFUSÉ, pas invisible aux autres.
+ * vrai) alors qu'ils ne comptent pas dans ce qu'une créatrice a « déjà fait »
+ * (cf derniersPassagesDe) : « hors règles » veut dire jamais REFUSÉ, pas
+ * invisible aux autres.
  */
 function comboKeysInCooldownServer(
   projectAssignments: Doc<"assignments">[],
@@ -563,19 +580,20 @@ function firstFreeSlotServer(
  * TIRAGE VIDÉO PAR VIDÉO — le cœur partagé par la CRÉATION (assignScriptCampaign)
  * et par l'APERÇU (previewCombosForAssignment).
  *
- * Extrait tel quel de la mutation, sans changement de logique : c'est ce qui
- * garantit que l'aperçu montre EXACTEMENT ce qui sera créé. Une réimplémentation
- * côté lecture diverge au premier correctif — mieux vaut pas d'aperçu du tout.
+ * Même code pour les deux : c'est ce qui garantit que l'aperçu montre
+ * EXACTEMENT ce qui sera créé. Une réimplémentation côté lecture diverge au
+ * premier correctif — mieux vaut pas d'aperçu du tout.
  *
- * Chaque vidéo vise SA date, donc sa propre fenêtre de cooldown : un tirage
- * global sur l'union des dates sur-bloquerait (un combo occupé au jour 1
- * interdirait le jour 8). `takenThisCall` empêche le doublon intra-appel, que le
- * picker garantit quand on lui demande n d'un coup mais plus quand on l'appelle
- * n fois.
+ * La boucle vit dans convex/comboRecency (`tirerPourDates`, pure et testée) :
+ * pour chaque vidéo, à SA date, un script qu'elle n'a jamais fait (tirage
+ * équilibré), sinon celui qu'elle a fait il y a le plus longtemps. Interdits :
+ * le délai du projet à cette date (un tirage global sur l'union des dates
+ * sur-bloquerait — un combo occupé au jour 1 interdirait le jour 8), y compris
+ * entre les vidéos de ce même tirage, et les retraits à la main.
  *
  * `manualExclusions` = combos retirés à la main dans l'aperçu. Ils s'AJOUTENT
- * aux exclusions automatiques (unicité à vie + cooldown), ils n'en remplacent
- * aucune : le rejet éditorial est une contrainte de plus, jamais un passe-droit.
+ * au délai du projet, ils ne le remplacent pas : le rejet éditorial est une
+ * contrainte de plus, jamais un passe-droit.
  *
  * `onExhausted` laisse l'appelant décider : la mutation lève une erreur datée,
  * l'aperçu s'arrête et rend une liste plus courte (montrer la pénurie vaut mieux
@@ -583,7 +601,8 @@ function firstFreeSlotServer(
  */
 function pickForDates(input: {
   combos: ServerCombo[];
-  lifetimeKeys: Set<string>;
+  /** Ses derniers passages par script (cf derniersPassagesDe). */
+  derniers: ReadonlyMap<string, number>;
   projectRows: Doc<"assignments">[];
   postDates: number[] | undefined;
   count: number;
@@ -592,27 +611,21 @@ function pickForDates(input: {
   manualExclusions?: string[];
   onExhausted?: (targetAt: number | undefined) => void;
 }): ServerCombo[] {
-  const picked: ServerCombo[] = [];
-  const takenThisCall = new Set<string>(input.manualExclusions ?? []);
-  for (let i = 0; i < input.count; i++) {
-    const targetAt = input.postDates?.[i];
-    const excluded = new Set<string>([
-      ...input.lifetimeKeys,
-      ...comboKeysInCooldownServer(input.projectRows, targetAt, input.cooldownDays),
-      ...takenThisCall,
-    ]);
-    const one = pickCombosServer(input.combos, excluded, 1);
-    if (one.length === 0) {
-      input.onExhausted?.(targetAt);
-      // Aucune date visée, ou pénurie qui ne vient pas du cooldown : le
-      // catalogue lui-même est trop petit (ou déjà entièrement vu par cette
-      // créatrice). Comportement historique conservé : pénurie signalée.
-      break;
-    }
-    picked.push(one[0]);
-    takenThisCall.add(comboKeyOf(one[0]));
-  }
-  return picked;
+  return tirerPourDates({
+    combos: input.combos,
+    cleDe: comboKeyOf,
+    equilibre: (combos, exclus) => pickCombosServer(combos, exclus, 1)[0] ?? null,
+    derniers: input.derniers,
+    bloquesLe: (date) =>
+      comboKeysInCooldownServer(input.projectRows, date, input.cooldownDays),
+    delaiMs: input.cooldownDays * DAY_MS,
+    dates: input.postDates,
+    count: input.count,
+    retiresALaMain: input.manualExclusions,
+    // Tout est interdit à cette date : le délai du projet (la création le
+    // dit, datée), ou des retraits à la main qui ont vidé le catalogue.
+    onExhausted: input.onExhausted,
+  });
 }
 
 /**
@@ -643,7 +656,7 @@ export async function projectAssignmentsForCooldown(
 /**
  * Les missions qu'un APERÇU de tirage lit, partagées entre plusieurs aperçus
  * d'UNE même query : celles du projet (cooldown) une fois, celles de chaque
- * créatrice (unicité à vie) une fois.
+ * créatrice (ce qu'elle a déjà fait) une fois.
  *
  * Le Pilote prévisualise une campagne par créatrice ET par campagne dans une
  * seule query. Relire les missions du projet à chaque aperçu le faisait passer
@@ -684,45 +697,29 @@ export function lecturesApercu(ctx: ProjectQueryCtx): LecturesApercu {
 }
 
 /**
- * Garde serveur d'unicité : rejette (ConvexError lisible) si `comboKey` est déjà
- * utilisé par un AUTRE assignment du même créateur sur l'une des `platforms`.
- * Lit via l'index by_creator_combo (créateur, comboKey).
+ * Garde serveur du chemin d'ÉDITION : rejette (ConvexError lisible) si
+ * `comboKey` est programmé ailleurs sur le projet à moins du délai du projet
+ * de la date de CETTE mission.
+ *
+ * Plus de contrôle d'unicité : depuis le 11/11/2026, un script déjà fait par
+ * la créatrice peut lui revenir (cf convex/comboRecency) — y compris par une
+ * correction de brique. Le délai, lui, vaut aussi pour elle.
  */
-async function assertComboFreeForCreatorPlatforms(
+async function assertComboOutOfCooldown(
   ctx: MutationCtx,
   input: {
     comboKey: string;
-    creatorId: Id<"creators">;
-    platforms: string[];
     excludeAssignmentId?: Id<"assignments">;
     /**
      * Date de publication visée — active le contrôle de COOLDOWN PROJET.
-     * Absente/nulle ⇒ seule l'unicité à vie est vérifiée (sans date visée il n'y
-     * a pas de fenêtre à calculer).
+     * Absente/nulle ⇒ rien à vérifier (sans date visée il n'y a pas de
+     * fenêtre à calculer).
      */
     targetAt?: number | null;
     /** Projet du cooldown. Passé explicitement : MutationCtx ne le porte pas. */
     projectId: Id<"projects">;
   },
 ): Promise<void> {
-  const target = new Set(input.platforms);
-  const sameCombo = await ctx.db
-    .query("assignments")
-    .withIndex("by_creator_combo", (q) =>
-      q.eq("creatorId", input.creatorId).eq("comboKey", input.comboKey),
-    )
-    .collect();
-  for (const a of sameCombo) {
-    if (a._id === input.excludeAssignmentId) continue;
-    const conflict = (a.targets ?? [])
-      .map((t) => t.platform)
-      .find((p) => target.has(p));
-    if (conflict) {
-      const creator = await ctx.db.get(input.creatorId);
-      throw err(ERR.COMBO_ALREADY_USED, `Ce combo est déjà utilisé pour ${creator?.name ?? "ce créateur"} sur ${conflict}.`, { name: creator?.name ?? "ce créateur", conflict });
-    }
-  }
-
   // ─── Cooldown PROJET ────────────────────────────────────────────────────────
   // Même règle que le tirage auto (commit 1), appliquée ici au chemin d'ÉDITION :
   // changer une brique fabrique un comboKey NEUF, qui peut très bien retomber sur
@@ -767,11 +764,10 @@ async function assertComboFreeForCreatorPlatforms(
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 /**
- * Combos UNIQUES disponibles pour assigner un créateur sur des plateformes
- * données : total des combos de la campagne MOINS ceux déjà
- * pris par ce créateur sur l'une des plateformes ciblées (unicité comboKey ×
- * créateur × plateforme). Alimente la modale pour prévenir AVANT d'assigner s'il
- * manque des combos uniques. `available` = combos encore attribuables.
+ * Scripts que la créatrice n'a JAMAIS faits sur les plateformes données
+ * (`available`), sur le total de la campagne. Plus une limite : au-delà, le
+ * tirage reprend ceux qu'elle a faits il y a le plus longtemps (scripts
+ * réutilisables, 11/11/2026). La modale le dit AVANT d'assigner.
  */
 export const availableCombosForAssignment = permissionQuery("scripts.manage")({
   args: {
@@ -793,12 +789,8 @@ export const availableCombosForAssignment = permissionQuery("scripts.manage")({
       .query("assignments")
       .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
       .collect();
-    const usedKeys = usedComboKeysForPlatforms(
-      existing,
-      args.creatorId,
-      args.platforms,
-    );
-    const available = combos.filter((c) => !usedKeys.has(comboKeyOf(c))).length;
+    const dejaFaits = derniersPassagesDe(existing, args.creatorId, args.platforms);
+    const available = combos.filter((c) => !dejaFaits.has(comboKeyOf(c))).length;
     return { total: combos.length, available };
   },
 });
@@ -884,7 +876,7 @@ export async function previewCombosCore(
     };
   }
   const existing = await lu.missionsDe(args.creatorId);
-  const lifetimeKeys = usedComboKeysForPlatforms(
+  const derniers = derniersPassagesDe(
     existing,
     args.creatorId,
     args.targets.map((t) => t.platform),
@@ -893,7 +885,7 @@ export async function previewCombosCore(
   const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
   const picked = pickForDates({
     combos: sansHooks(combos, options.hooksExclus),
-    lifetimeKeys,
+    derniers,
     projectRows,
     postDates: args.postDates,
     count: args.videosPerCreator,
@@ -1582,11 +1574,13 @@ export const importHooks = permissionMutation("scripts.manage")({
 
 /**
  * Assigne une campagne à N créateurs × M vidéos. ANTI-COORDINATION : pour chaque
- * créateur, on pioche M combos DISTINCTS jamais déjà reçus par CE créateur sur
- * CETTE campagne (diversité de hook maximisée). Deux créateurs PEUVENT partager
- * un combo (anti-coordination par-créateur, pas globale). Chaque assignment
- * porte son scriptCombo (assembledScript FIGÉ) + pricingSnapshot figé. Épuisement
- * (créateur ayant déjà reçu tous les combos dispo) signalé via `shortages`.
+ * créateur, on pioche d'abord des combos qu'il n'a JAMAIS faits sur ces
+ * plateformes (diversité de hook maximisée), puis ceux qu'il a faits il y a le
+ * plus longtemps : un script peut revenir chez la même créatrice (11/11/2026).
+ * Deux créateurs PEUVENT partager un combo, hors du délai du projet. Chaque
+ * assignment porte son scriptCombo (assembledScript FIGÉ) + pricingSnapshot
+ * figé. Pénurie (tout interdit à une date : délai du projet, retraits à la
+ * main) signalée via `shortages`.
  *
  * PRICING OBLIGATOIRE : le barème de paie (fixe/CPM/paliers) vient EXCLUSIVEMENT
  * du pricing choisi, figé en pricingSnapshot. Les anciens champs tarif de base /
@@ -1627,8 +1621,8 @@ const assignScriptCampaignArgs = {
   // passe le MÊME tableau pour chaque créateur (même répartition pour toutes).
   postDates: v.optional(v.array(v.number())),
   // Combos RETIRÉS À LA MAIN dans l'aperçu (contrôle qualité éditorial). Ils
-  // s'AJOUTENT aux exclusions automatiques (unicité à vie + cooldown projet),
-  // ils n'en relâchent aucune : rejeter un script est une contrainte de plus.
+  // s'AJOUTENT à l'exclusion automatique (le cooldown projet), ils n'en
+  // relâchent rien : rejeter un script est une contrainte de plus.
   // Absent → tirage inchangé, exactement comme avant l'aperçu.
   excludedComboKeys: v.optional(v.array(v.string())),
   // CONVERSATION WhatsApp : le THÈME de scénarios choisi à l'assignation —
@@ -1648,7 +1642,7 @@ const assignScriptCampaignArgs = {
   remunerated: v.optional(v.boolean()),
   // Combinaison IMPOSÉE (« Rejouer ce script » / mode « Combinaison choisie ») :
   // les 3 briques sont fournies par l'admin au lieu du tirage auto. Présent →
-  // court-circuite generateCombos/pickCombos et l'unicité anti-coordination ;
+  // court-circuite generateCombos/pickCombos et la préférence « jamais fait » ;
   // les N vidéos demandées portent CE combo (aucun blocage, aucun dédoublonnage :
   // « réutiliser une combinaison est volontaire »). Absent → chemin auto inchangé.
   imposedCombo: v.optional(
@@ -1823,11 +1817,12 @@ export async function assignScriptCampaignCore(
 
   // ─── Sélection des combos : IMPOSÉE (rejeu / choix manuel) ou AUTO ──────────
   // Imposée : les 3 briques viennent de l'admin ; CHAQUE vidéo demandée porte ce
-  // combo, sans tirage ni contrôle d'unicité (réutilisation volontaire → aucun
-  // blocage, aucun avertissement de doublon). Aucune pénurie possible.
-  // Auto : tirage anti-coordination least-used + unicité (comboKey × créateur ×
-  // plateforme). Les lignes à combo imposé sont ignorées de usedKeys → le triplet
-  // imposé reste piochable en auto.
+  // combo, sans tirage (réutilisation volontaire → aucun blocage, aucun
+  // avertissement de doublon). Aucune pénurie possible.
+  // Auto : tirage anti-coordination least-used, ce qu'elle n'a jamais fait
+  // d'abord, puis le moins récent (comboKey × créatrice × plateforme). Les
+  // lignes à combo imposé ne comptent pas comme « déjà fait » → le triplet
+  // imposé reste neuf pour le tirage auto.
   // ─── Conversation D'ABORD (cf convex/scenarioFiche) ─────────────────────────
   // Le scénario de chaque vidéo est tiré avant le script : le script ne prend
   // que des briques que sa fiche remplit ({duree}, {lui}…), puis le texte est
@@ -1891,26 +1886,23 @@ export async function assignScriptCampaignCore(
       throw err(ERR.NO_COMBO_AVAILABLE, "Aucun combo disponible (un type de brique manque, ou aucun hook actif).");
     }
     totalCombos = combos.length;
-    // Unicité (comboKey, créateur, PLATEFORME) : on exclut les combos déjà pris
-    // par CE créateur sur l'une des plateformes ciblées (union). Cross-plateforme
-    // AUTORISÉ → un combo sur le TikTok du créateur reste dispo pour son YouTube.
-    // Le créateur est mono-projet → scoping projet implicite ; comboKey embarque
-    // les brickIds (uniques par campagne) → pas de collision inter-campagnes.
+    // Ce qu'elle a déjà fait (comboKey, créatrice, PLATEFORME) : une
+    // PRÉFÉRENCE depuis le 11/11/2026, plus une exclusion — jamais faits
+    // d'abord, puis le moins récent (cf convex/comboRecency). Cross-plateforme :
+    // un combo fait sur son TikTok reste neuf pour son YouTube. La créatrice est
+    // mono-projet → scoping projet implicite ; comboKey embarque les brickIds
+    // (uniques par campagne) → pas de collision inter-campagnes.
     const existing = await ctx.db
       .query("assignments")
       .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
       .collect();
     const targetPlatforms = args.targets.map((t) => t.platform);
-    const lifetimeKeys = usedComboKeysForPlatforms(
-      existing,
-      args.creatorId,
-      targetPlatforms,
-    );
+    const derniers = derniersPassagesDe(existing, args.creatorId, targetPlatforms);
     // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de
     // `cooldownDays` de la date visée est indisponible, quel que soit le
-    // compte ou la créatrice. Deux exclusions qui se CUMULENT, elles ne se
-    // remplacent pas : l'unicité à vie reste appliquée par-dessus (et n'a
-    // aucun réglage — mettre 0 jour ici ne la relâche pas).
+    // compte ou la créatrice — elle comprise. C'est la SEULE exclusion
+    // automatique (0 jour = aucune) ; ce qu'elle a déjà fait ne fait que
+    // passer après ce qu'elle n'a jamais fait.
     const projectRows = await projectAssignmentsForCooldown(
       ctx,
       ctx.projectId,
@@ -1918,7 +1910,7 @@ export async function assignScriptCampaignCore(
     const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
     picked = pickForDates({
       combos: sansHooks(combos, options.hooksExclus),
-      lifetimeKeys,
+      derniers,
       projectRows,
       postDates: args.postDates,
       count: args.videosPerCreator,
@@ -2257,7 +2249,7 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
     }
 
     // NOTIF — hors combo : on remplace la notif figée, et rien d'autre. Ni
-    // texte monté, ni comboKey, donc ni unicité ni cooldown à revérifier.
+    // texte monté, ni comboKey, donc pas de cooldown à revérifier.
     if (args.slot === "notif") {
       const notifText = newBrick.content.trim();
       if (notifText.length === 0) {
@@ -2299,14 +2291,11 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
     );
     const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
 
-    // Garde unicité (comboKey, créateur, plateforme) : le nouveau combo ne doit
-    // pas déjà être pris par un AUTRE assignment du même créateur sur l'une des
-    // plateformes ciblées par CET assignment. + cooldown PROJET à la date de
-    // publication de CETTE assignation (son ancre : prévue, sinon réelle).
-    await assertComboFreeForCreatorPlatforms(ctx, {
+    // Cooldown PROJET à la date de publication de CETTE assignation (son
+    // ancre : prévue, sinon réelle). Un script qu'elle a déjà fait reste
+    // permis (scripts réutilisables, 11/11/2026).
+    await assertComboOutOfCooldown(ctx, {
       comboKey,
-      creatorId: a.creatorId,
-      platforms: (a.targets ?? []).map((t) => t.platform),
       excludeAssignmentId: a._id,
       targetAt: cooldownAnchorOf(a),
       projectId: ctx.projectId,
@@ -2444,9 +2433,9 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
       }),
       valeurs,
     );
-    // Unicité (comboKey, créateur, plateforme) : le fork crée une brique NEUVE
-    // (brickId inédit) → comboKey forcément unique → aucune collision possible
-    // avec un assignment existant. Pas de garde nécessaire ici (cf #53).
+    // Le fork crée une brique NEUVE (brickId inédit) → comboKey forcément
+    // inédit → rien d'autre ne le porte, ni ailleurs dans la fenêtre du délai
+    // projet. Pas de garde nécessaire ici (cf #53).
     const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
 
     await ecrireCombo(
@@ -3007,25 +2996,34 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
               },
         );
       }
-      // Unicité : règle PARTENAIRE (créateur, plateforme), conservée telle quelle.
-      // L'amendement B1 (clé par compte pour les clippeurs) touche un module pur
-      // PARTAGÉ avec les partenaires — hors périmètre ici. La règle actuelle est
-      // plus stricte, jamais plus permissive : elle ne peut pas produire de
-      // doublon, seulement écarter un combo qui aurait pu resservir.
+      // Même préférence que les partenaires (créatrice, plateforme) : un script
+      // jamais fait sur ces comptes d'abord, sinon le moins récemment fait
+      // (scripts réutilisables, 11/11/2026). L'amendement B1 (clé par compte
+      // pour les clippeurs) reste hors périmètre.
       const existing = await ctx.db
         .query("assignments")
         .withIndex("by_creator", (q) => q.eq("creatorId", talent.clipperId!))
         .collect();
-      const usedKeys = usedComboKeysForPlatforms(
+      const derniers = derniersPassagesDe(
         existing,
         talent.clipperId,
         args.targets.map((t) => t.platform),
       );
-      const picked = pickCombosServer(combos, usedKeys, 1);
-      if (picked.length === 0) {
-        throw err(ERR.ALL_SCRIPTS_USED, "Tous les scripts affichables de cette campagne ont déjà été utilisés sur ces comptes.");
-      }
-      combo = picked[0];
+      const [tire] = tirerPourDates({
+        combos,
+        cleDe: comboKeyOf,
+        equilibre: (cs, exclus) => pickCombosServer(cs, exclus, 1)[0] ?? null,
+        derniers,
+        // Ce chemin n'a jamais appliqué le délai du projet : un rush n'a pas de
+        // date de publication visée.
+        bloquesLe: () => new Set<string>(),
+        delaiMs: 0,
+        dates: undefined,
+        count: 1,
+      });
+      // Rien n'est interdit ici : le tirage rend toujours un script tant que
+      // la campagne en a un (vérifié juste au-dessus).
+      combo = tire ?? combos[0];
     }
 
     // Notif : même règle que l'assignation de campagne (tirée hors combo).

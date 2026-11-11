@@ -3,8 +3,8 @@
  * missions »), droit `assignments.manage` : celui du bouton « Assigner ».
  *
  *  - `assigner_scripts` : une campagne à une ou plusieurs créatrices, une vidéo
- *    par jour de publication — le tirage de l'écran (unicité à vie, délai entre
- *    deux usages d'un combo), son barème par défaut, son EMAIL « nouvelle
+ *    par jour de publication — le tirage de l'écran (jamais faits d'abord, puis
+ *    le moins récent ; délai entre deux usages d'un combo), son barème par défaut, son EMAIL « nouvelle
  *    mission ». `simuler` montre les scripts tirés sans rien écrire (l'aperçu de
  *    la modale) ;
  *  - `rejouer_script` : le combo d'un post désigné par son LIEN, chez d'autres
@@ -175,7 +175,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
   {
     name: "assigner_scripts",
     title: "Assigner une campagne de scripts",
-    description: `MODIFIE les missions : assigne une campagne de scripts à une ou plusieurs créatrices, une vidéo par jour de publication. Chaque vidéo reçoit un script tiré comme à l'écran : jamais un script déjà reçu par la créatrice sur cette plateforme, ni un script programmé ailleurs dans le délai du projet entre deux usages ; si la campagne n'a plus assez de scripts, moins de vidéos sont créées et la réponse le dit. ${EMAIL} Utilise d'abord « simuler » pour montrer les scripts, puis « exclure » ceux à écarter.`,
+    description: `MODIFIE les missions : assigne une campagne de scripts à une ou plusieurs créatrices, une vidéo par jour de publication. Chaque vidéo reçoit un script tiré comme à l'écran : d'abord un script que la créatrice n'a jamais fait sur cette plateforme, sinon celui qu'elle a fait il y a le plus longtemps (un script peut lui revenir) ; jamais un script programmé dans le délai du projet entre deux usages ; si ce délai ou les exclusions vident la campagne pour un jour, moins de vidéos sont créées et la réponse le dit. ${EMAIL} Utilise d'abord « simuler » pour montrer les scripts, puis « exclure » ceux à écarter.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -201,7 +201,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
   {
     name: "rejouer_script",
     title: "Rejouer le script d'un post",
-    description: `MODIFIE les missions : rejoue le script d'un post — désigné par son LIEN (outils \`meilleurs_posts\`, \`validation\`) — chez une ou plusieurs créatrices, comme « Rejouer ce script » : mêmes trois briques (hook, flux, cta), ou le texte exact du post avec « a_l_identique ». Réutiliser un script est voulu ici : ni l'unicité ni le délai entre deux usages ne s'appliquent. ${EMAIL}`,
+    description: `MODIFIE les missions : rejoue le script d'un post — désigné par son LIEN (outils \`meilleurs_posts\`, \`validation\`) — chez une ou plusieurs créatrices, comme « Rejouer ce script » : mêmes trois briques (hook, flux, cta), ou le texte exact du post avec « a_l_identique ». Réutiliser un script est voulu ici : le délai entre deux usages ne s'applique pas. ${EMAIL}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -391,7 +391,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
   {
     name: "piloter_missions",
     title: "Piloter les missions de la semaine",
-    description: `MODIFIE les missions : propose puis assigne les prochains jours d'une ou plusieurs créatrices, comme l'écran Pilote. Chaque jour un PARLÉ et un MUET (réaction + démo) — un parlé et deux muets à 3 par jour ; aucune heure de publication sur les missions, la créatrice publie le jour prévu (« midi », « soir » ne font que ranger et désigner les créneaux du plan). Chaque créneau rejoue à l'identique un GAGNANT (ses vidéos à ≥ ×1,5 sa médiane à 72 h d'abord, puis celles des autres créatrices à ≥ 10 000 vues, dans les campagnes qu'elle tourne), ou prend un nouveau script de la campagne (part d'exploration). Un script ne revient pas chez elle avant 7 jours ; un créneau déjà pris par une mission existante n'est pas touché ; seules les campagnes classées parlé ou muet (\`classer_campagne\`, ou l'écran Pilote) entrent dans le plan ; un nouveau script ne reprend jamais un hook déjà raté chez elle (toutes ses publications mûres de ce hook sous sa médiane). Simule d'abord (« simuler »), montre le plan, puis rappelle sans « simuler » — « retirer » écarte des créneaux. ENVOIE UN email par créatrice pour toute sa semaine (sauf comptes gérés par l'équipe) : dis-le avant.`,
+    description: `MODIFIE les missions : propose puis assigne les prochains jours d'une ou plusieurs créatrices, comme l'écran Pilote. Chaque jour un PARLÉ et un MUET (réaction + démo) — un parlé et deux muets à 3 par jour ; aucune heure de publication sur les missions, la créatrice publie le jour prévu (« midi », « soir » ne font que ranger et désigner les créneaux du plan). Chaque créneau rejoue à l'identique un GAGNANT (ses vidéos à ≥ ×1,5 sa médiane à 72 h d'abord, puis celles des autres créatrices à ≥ 10 000 vues, dans les campagnes qu'elle tourne), ou prend un nouveau script de la campagne (part d'exploration). Un script qu'elle a tourné ces 7 derniers jours passe après les autres gagnants et après un nouveau script (il n'est plus exclu : il revient quand rien d'autre n'est possible) ; un créneau déjà pris par une mission existante n'est pas touché ; seules les campagnes classées parlé ou muet (\`classer_campagne\`, ou l'écran Pilote) entrent dans le plan ; un nouveau script ne reprend jamais un hook déjà raté chez elle (toutes ses publications mûres de ce hook sous sa médiane). Simule d'abord (« simuler »), montre le plan, puis rappelle sans « simuler » — « retirer » écarte des créneaux. ENVOIE UN email par créatrice pour toute sa semaine (sauf comptes gérés par l'équipe) : dis-le avant.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -1063,7 +1063,7 @@ export const ecrireAbandon = mcpWriteMutation("assignments.manage", "missions")(
  * `missionOps` (convex/missionOps.ts), directement en base et hors journal.
  * Désormais par un outil, journalisé avec la mission avant/après, et défaisable
  * (annulation « combo »). Combinaison CHOISIE (`comboImposed`), comme le mode
- * « Combinaison choisie » de l'assignation : unicité et délai ne bloquent pas.
+ * « Combinaison choisie » de l'assignation : le délai ne bloque pas.
  */
 export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions")({
   args: {

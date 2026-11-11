@@ -392,9 +392,9 @@ export function AssignScriptCampaignDialog({
         }
       : undefined;
 
-  // Combos UNIQUES encore attribuables à ce créateur sur les plateformes
-  // choisies (unicité comboKey × créateur × plateforme). Sert à prévenir AVANT
-  // d'assigner s'il en manque pour le nombre de vidéos demandé.
+  // Scripts que cette créatrice n'a JAMAIS faits sur les plateformes choisies.
+  // Plus une limite (scripts réutilisables, 11/11/2026) : au-delà, le tirage
+  // reprend ceux qu'elle a faits il y a le plus longtemps. On le dit AVANT.
   const combosInfo = useProjectQuery(
     api.scripts.availableCombosForAssignment,
     open && comboMode === "auto" && creatorId !== NONE && targets.length > 0
@@ -728,7 +728,7 @@ export function AssignScriptCampaignDialog({
   const total = (Number(videos) || 0) * targets.length;
   const need = Number(videos) || 0;
   const platformsLabel = targets.map((t) => t.platform).join(", ");
-  const lacksCombos = combosInfo !== undefined && need > combosInfo.available;
+  const reprises = combosInfo !== undefined && need > combosInfo.available;
 
   // Planning complet = chaque vidéo a une date de post. Requis pour activer
   // « Assigner » (c'est le but du chantier). postDates n'est envoyé que dans ce
@@ -837,7 +837,7 @@ export function AssignScriptCampaignDialog({
           {/* Combinaison : AUTO (tirage serveur anti-coordination — défaut) ou
               CHOISIE (imposée : « Rejouer ce script » pré-remplit ici, ou choix
               from scratch). En choisie, la même combinaison va sur toutes les
-              vidéos/créateurs — aucune unicité, réutilisation volontaire. */}
+              vidéos/créateurs — réutilisation volontaire. */}
           <div className="space-y-2">
             <div
               role="radiogroup"
@@ -1122,17 +1122,17 @@ export function AssignScriptCampaignDialog({
             )}
           </div>
 
-          {/* Combos uniques disponibles (unicité comboKey × créateur × plateforme) */}
+          {/* Scripts jamais faits par elle (comboKey × créatrice × plateforme) */}
           {creatorId !== NONE &&
             targets.length > 0 &&
             combosInfo !== undefined && (
               <p
-                className={`text-xs ${lacksCombos ? "text-amber-600" : "text-slate-500"}`}
+                className="text-xs text-slate-500"
                 data-testid="combo-availability"
               >
-                {lacksCombos
-                  ? tr("plusAssezDeCombosUniques", { platformsLabel: platformsLabel, available: combosInfo.available, need: need })
-                  : tr("comboUniqueDisponiblePourCe", { available: combosInfo.available, platformsLabel: platformsLabel })}
+                {reprises
+                  ? tr("scriptsJamaisFaitsReprises", { platformsLabel: platformsLabel, available: combosInfo.available, need: need })
+                  : tr("scriptsJamaisFaits", { available: combosInfo.available, platformsLabel: platformsLabel })}
               </p>
             )}
 

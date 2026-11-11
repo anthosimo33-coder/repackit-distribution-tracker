@@ -9,12 +9,13 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 /**
  * Pastille de disponibilité d'un hook POUR UNE CRÉATRICE.
  *
- * ⚠️ Le libellé dit « utilisé PAR [créatrice] SUR [plateforme] », jamais « sur
- * [compte] ». Le compte n'est pas le grain de la règle : l'unicité à vie porte
+ * ⚠️ Le libellé dit « fait PAR [créatrice] SUR [plateforme] », jamais « sur
+ * [compte] ». Le compte n'est pas le grain de la règle : « déjà fait » porte
  * sur (créatrice, plateforme) et sur le combo entier. Nommer le compte
- * laisserait croire à une contrainte qui n'existe pas — et ferait chercher en
- * vain pourquoi le même hook reste proposé sur un autre compte de la même
- * créatrice.
+ * laisserait croire à une contrainte qui n'existe pas.
+ *
+ * « Déjà fait » est une INFORMATION depuis le 11/11/2026 (le hook reste
+ * assignable, cf convex/hookAvailability) ; seul le cooldown est en orange.
  */
 export function HookAvailabilityBadge({
   availability,
@@ -48,7 +49,7 @@ export function HookAvailabilityBadge({
     <Badge
       variant="outline"
       className="shrink-0 border-slate-200 bg-slate-50 text-slate-600"
-      title={tr("uniciteAVieCetteCreatrice")}
+      title={tr("dejaFaitParCetteCreatrice")}
     >
       {availability.creatorName} · {availability.platform}
       {availability.at !== null ? ` · ${formatDateFr(availability.at, loc)}` : ""}

@@ -7,7 +7,7 @@
  * Tout scénario du thème est tiré, sauf ARCHIVÉ (les missions qui l'ont reçu
  * gardent le leur). Rien à régler sur la campagne.
  *
- * Tirage HORS combo (la clé de combo, l'unicité, le cooldown ne bougent pas),
+ * Tirage HORS combo (la clé de combo, « déjà fait », le cooldown ne bougent pas),
  * en rotation équilibrée — la mécanique de la notif (convex/scriptNotif) : le
  * scénario le moins servi À CETTE CRÉATRICE d'abord, puis le moins servi sur la
  * campagne, puis le plus ancien. Seul l'id du scénario est posé, sur

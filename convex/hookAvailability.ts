@@ -6,15 +6,16 @@
  *
  * ── Le grain, et pourquoi ce n'est pas celui qu'on croit ─────────────────────
  * On voudrait lire « ce hook est-il libre pour ce COMPTE ». Ce n'est pas la
- * règle qui existe. Les deux règles réellement appliquées à l'assignation sont :
+ * règle qui existe. Ce que l'assignation lit réellement :
  *
- *  1. UNICITÉ À VIE — par (créateur, plateforme) et sur le COMBO entier
- *     (hook:flux:cta), pas sur le hook seul. Un même hook peut donc revenir
- *     légitimement chez la même créatrice dans un autre combo. Les combos
- *     IMPOSÉS (« Rejouer ce script ») en sont exclus.
- *     Cf lib/script-combo-uniqueness.ts.
+ *  1. DÉJÀ FAIT — par (créateur, plateforme) et sur le COMBO entier
+ *     (hook:flux:cta). Depuis le 11/11/2026 ce n'est plus un refus : un script
+ *     déjà fait peut revenir chez la même créatrice, le tirage préfère
+ *     seulement ce qu'elle n'a jamais fait (cf convex/comboRecency). Les combos
+ *     IMPOSÉS (« Rejouer ce script ») n'y comptent pas.
  *  2. COOLDOWN — par comboKey à l'échelle du PROJET, fenêtre de quelques jours
- *     autour d'une date visée. Cf lib/scriptCombos.ts (PR #55).
+ *     autour d'une date visée. Cf lib/scriptCombos.ts (PR #55). Seule
+ *     indisponibilité réelle.
  *
  * Ce module ne fait que LIRE ces deux règles et les rendre lisibles par hook.
  * Il n'en invente aucune, ne touche pas au tirage, et ne doit jamais servir à
@@ -34,13 +35,16 @@ export type HookUsage = {
   platforms: string[];
   /** Date d'ancrage (publication prévue, à défaut réelle). null = aucune. */
   anchorAt: number | null;
-  /** Combo IMPOSÉ : hors unicité à vie (mais occupe la fenêtre de cooldown). */
+  /** Combo IMPOSÉ : ne compte pas comme « déjà fait » (mais occupe la fenêtre de cooldown). */
   comboImposed: boolean;
 };
 
 export type HookAvailability =
   | { kind: "free" }
-  /** Unicité à vie : cette créatrice a déjà eu ce hook sur cette plateforme. */
+  /**
+   * Déjà fait : cette créatrice a déjà eu ce hook sur cette plateforme. Une
+   * INFORMATION, plus un refus — le hook reste assignable.
+   */
   | {
       kind: "used";
       creatorName: string;
@@ -54,13 +58,13 @@ export type HookAvailability =
 /**
  * État d'un hook POUR UNE CRÉATRICE DONNÉE à une date visée.
  *
- * Ordre de priorité : l'unicité à vie d'abord (c'est un refus DÉFINITIF pour ce
- * couple créatrice×plateforme), le cooldown ensuite (un simple délai). Annoncer
- * « libre dans 2 jours » sur un hook qu'elle ne pourra jamais reprendre serait
- * un mensonge par omission.
+ * Ordre de priorité : le cooldown d'abord (la seule indisponibilité réelle),
+ * puis « déjà fait » (une information : le hook reste assignable), puis libre.
+ * Annoncer « déjà fait » sur un hook bloqué par le délai cacherait la date à
+ * laquelle il redevient assignable.
  *
  * `targetAt` nul (pas de date visée) → pas de fenêtre de cooldown calculable,
- * seule l'unicité s'applique. C'est la même convention que
+ * seul « déjà fait » se lit. C'est la même convention que
  * `comboKeysInCooldown`.
  */
 export function hookAvailabilityFor(input: {
@@ -73,22 +77,7 @@ export function hookAvailabilityFor(input: {
 }): HookAvailability {
   const { usages, creatorId, platforms, targetAt, cooldownMs } = input;
 
-  // 1) Unicité à vie — même créatrice, même plateforme, combo NON imposé.
-  for (const u of usages) {
-    if (u.comboImposed) continue;
-    if (u.creatorId !== creatorId) continue;
-    const collision = u.platforms.find((p) => platforms.includes(p));
-    if (collision !== undefined) {
-      return {
-        kind: "used",
-        creatorName: u.creatorName,
-        platform: collision,
-        at: u.anchorAt,
-      };
-    }
-  }
-
-  // 2) Cooldown projet — tous créateurs confondus, imposés COMPRIS (un combo
+  // 1) Cooldown projet — tous créateurs confondus, imposés COMPRIS (un combo
   //    imposé est une publication réelle, il sort le même jour que les autres).
   if (targetAt !== null) {
     let until: number | null = null;
@@ -104,10 +93,29 @@ export function hookAvailabilityFor(input: {
     if (until !== null) return { kind: "cooldown", until };
   }
 
+  // 2) Déjà fait — même créatrice, même plateforme, combo NON imposé. Une
+  //    information : le hook reste assignable.
+  for (const u of usages) {
+    if (u.comboImposed) continue;
+    if (u.creatorId !== creatorId) continue;
+    const collision = u.platforms.find((p) => platforms.includes(p));
+    if (collision !== undefined) {
+      return {
+        kind: "used",
+        creatorName: u.creatorName,
+        platform: collision,
+        at: u.anchorAt,
+      };
+    }
+  }
+
   return { kind: "free" };
 }
 
-/** Le hook est-il assignable à cette créatrice à cette date ? (filtre de la page) */
+/**
+ * Le hook est-il assignable à cette créatrice à cette date ? (filtre de la
+ * page) Seul le cooldown l'empêche : un hook déjà fait reste assignable.
+ */
 export function isHookAvailable(a: HookAvailability): boolean {
-  return a.kind === "free";
+  return a.kind !== "cooldown";
 }
