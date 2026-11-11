@@ -391,7 +391,7 @@ function SignalRow({ s, now, onOpen, onStatus }: { s: RadarSignal; now: number; 
 }
 
 /** Un bouton de filtre qui ouvre son menu : « Langue · Toutes ». */
-function Menu({
+export function Menu({
   label,
   value,
   children,
@@ -479,7 +479,7 @@ function CheckList({
 }
 
 /** Un choix unique (période, seuil, tri), avec son compteur quand il en a un. */
-function RadioList({
+export function RadioList({
   name,
   legend,
   options,

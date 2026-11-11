@@ -4225,7 +4225,9 @@ export default defineSchema({
     .index("by_next_check", ["nextCheckAt"])
     // Contrôle de visibilité : les vidéos d'un compte (le privé vaut pour toutes), et celles déjà invisibles.
     .index("by_author", ["authorHandle"])
-    .index("by_unavailable", ["unavailable.reason"]),
+    .index("by_unavailable", ["unavailable.reason"])
+    // Les vidéos d'un compte suivi (fiche d'un créateur) : son pseudo peut avoir changé, pas ce lien.
+    .index("by_tracked", ["trackedAccountId"]),
 
   // Statut posé par une équipe sur un signal. Absent = « nouvelle ».
   radarSignalMarks: defineTable({
@@ -4238,7 +4240,9 @@ export default defineSchema({
     updatedBy: v.id("users"),
   })
     .index("by_project", ["projectId"])
-    .index("by_project_signal", ["projectId", "signalId"]),
+    .index("by_project_signal", ["projectId", "signalId"])
+    // L'onglet Gardées lit les seules vidéos gardées, pas toutes celles qu'on a passées.
+    .index("by_project_status", ["projectId", "status"]),
 
   // Réglages du Radar : UN document (key « global »). Budget mensuel, postes,
   // ordre de coupure, alerte, et l'état des tâches (curseur de rotation des
@@ -4343,7 +4347,9 @@ export default defineSchema({
     .index("by_handle", ["platform", "handle"])
     .index("by_app", ["appId"])
     .index("by_due", ["status", "nextReadAt"])
-    .index("by_ig_due", ["status", "igNextReadAt"]),
+    .index("by_ig_due", ["status", "igNextReadAt"])
+    // L'onglet Créateurs lit les comptes d'une langue, jamais tous les comptes suivis.
+    .index("by_lang", ["lang", "status"]),
 
   // Toutes les vidéos relevées d'un compte suivi (sa médiane en vient) ; celles
   // qui sortent du lot sont aussi promues dans radarSignals.

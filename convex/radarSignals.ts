@@ -57,6 +57,7 @@ import {
   type BudgetSettings,
   type SignalInput,
 } from "./radarSignalsMath";
+import { keptFirst } from "./radarCreatorsMath";
 import { scKeyPresent, scSearchKeyword, scVideoInfo } from "./scrapeCreatorsApi";
 
 const DAY = 86_400_000;
@@ -813,7 +814,6 @@ export function competitorFor(r: Pick<Doc<"radarSignals">, "appName" | "appRival
 
 /** Les signaux publiés depuis `since` (les plus récents d'abord), avec le statut du projet. */
 export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: number }) {
-  const slug = await projectSlugOf(ctx);
   const rows = await ctx.db
     .query("radarSignals")
     .withIndex("by_published", (q) => q.gte("publishedAt", since))
@@ -823,6 +823,33 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
     .query("radarSignalMarks")
     .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
     .collect();
+  return { truncated: rows.length === SIGNALS_LIST_CAP, signals: await signalRows(ctx, rows, marks) };
+}
+
+/**
+ * Les vidéos GARDÉES par le projet, les dernières gardées d'abord (onglet
+ * Gardées). Lues par leur statut, pas dans la liste des signaux : celle-ci
+ * s'arrête aux 3 000 plus récents, et une vidéo gardée il y a trois mois doit
+ * rester à portée tant qu'elle est en base (180 jours après sa publication).
+ */
+export async function listKeptCore(ctx: ProjectQueryCtx) {
+  const all = await ctx.db
+    .query("radarSignalMarks")
+    .withIndex("by_project_status", (q) => q.eq("projectId", ctx.projectId).eq("status", "enregistre"))
+    .collect();
+  const marks = keptFirst(all);
+  const rows = (await Promise.all(marks.map((m) => ctx.db.get(m.signalId)))).filter((r): r is Doc<"radarSignals"> => r !== null);
+  return { total: all.length, signals: await signalRows(ctx, rows, marks) };
+}
+
+export const listKept = permissionQuery("radar.use")({
+  args: {},
+  handler: (ctx) => listKeptCore(ctx),
+});
+
+/** Un signal tel que l'écran le lit : son app, son réseau, le statut que le projet lui a donné. */
+async function signalRows(ctx: ProjectQueryCtx, rows: readonly Doc<"radarSignals">[], marks: readonly Doc<"radarSignalMarks">[]) {
+  const slug = await projectSlugOf(ctx);
   const markOf = new Map<Id<"radarSignals">, Doc<"radarSignalMarks">>(marks.map((m) => [m.signalId, m]));
   // Les règles de chaque app (une quarantaine de lignes) : une vidéo est rangée
   // sous l'app qu'elle CITE (radarNetworkMath.videoCitesApp) — celle de son
@@ -833,9 +860,7 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
   const apps = await ctx.db.query("radarApps").collect();
   const rules = new Map(apps.map((a) => [a._id, a]));
   const active = apps.filter((a) => a.status === "active");
-  return {
-    truncated: rows.length === SIGNALS_LIST_CAP,
-    signals: rows.map((r) => {
+  return rows.map((r) => {
       const own = r.appId ? rules.get(r.appId) : undefined;
       const text = { caption: r.caption, hook: r.hook, transcript: r.transcript, handle: r.authorHandle };
       // Une vidéo de compte suivi qui ne cite aucune app suivie n'est « de »
@@ -884,8 +909,7 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       // Quand l'équipe l'a traitée : « N traitées aujourd'hui » (radarDisplay.handledToday).
       markedAt: markOf.get(r._id)?.updatedAt ?? null,
       };
-    }),
-  };
+  });
 }
 
 export const listSignals = permissionQuery("radar.use")({
@@ -1017,6 +1041,8 @@ export const e2eSeedSignals = e2eMutation({
         foundBy: v.optional(v.array(v.string())),
         // Devenue invisible sur TikTok, avec son motif (convex/radarAvailability).
         unavailable: v.optional(v.union(v.literal("private"), v.literal("region"), v.literal("removed"), v.literal("review"), v.literal("restricted"), v.literal("other"))),
+        // Relevée chez un compte suivi (semé par e2eSeedNetwork, même pseudo) : le signal lui est lié, comme en vrai.
+        tracked: v.optional(v.boolean()),
       }),
     ),
   },
@@ -1034,6 +1060,9 @@ export const e2eSeedSignals = e2eMutation({
         : seed
           ? { appName: seed.name, appRivalOf: [...seed.rivalOf, ...(rivalProject ? [rivalProject] : [])] }
           : {};
+      const account = s.tracked
+        ? await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", s.handle)).first()
+        : null;
       ids.push(
         await ctx.db.insert("radarSignals", {
           platform: s.platform ?? "tiktok",
@@ -1061,6 +1090,7 @@ export const e2eSeedSignals = e2eMutation({
           firstSeenAt: now,
           lastSeenAt: now,
           ...(s.unavailable ? { unavailable: { reason: s.unavailable, at: now }, checkedAt: now } : {}),
+          ...(account ? { trackedAccountId: account._id } : {}),
         }),
       );
     }

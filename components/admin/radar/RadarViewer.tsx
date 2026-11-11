@@ -183,7 +183,11 @@ export function RadarViewer({
   );
 }
 
-function Player({ s, now }: { s: RadarSignal; now: number }) {
+/** Ce qu'il faut d'une vidéo pour la lire : un signal, ou une vidéo relevée d'un compte suivi (fiche d'un créateur). */
+export type PlayableVideo = Pick<RadarSignal, "videoId" | "url" | "handle" | "platform" | "coverUrl" | "hook" | "caption" | "unavailable">;
+
+/** La vidéo en grand — ou, quand TikTok ne la sert plus, pourquoi. */
+export function Player({ s, now }: { s: PlayableVideo; now: number }) {
   const tr = useTranslations("admin.ops.RadarViewer");
   const age = useAge();
   return (
