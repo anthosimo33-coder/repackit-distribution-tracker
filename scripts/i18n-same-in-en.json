@@ -210,6 +210,8 @@
     "admin.ops.RadarAds.plateformes.tiktok",
     "admin.ops.RadarBudget.creditsCourt",
     "admin.ops.RadarBudget.creditsEtPacks",
+    "admin.ops.RadarCreators.app",
+    "admin.ops.RadarCreators.instagram",
     "admin.ops.RadarExplorer.formats",
     "admin.ops.RadarAdaptations.missions",
     "admin.ops.RadarFormats.colFormat",

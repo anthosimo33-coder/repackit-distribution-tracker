@@ -1141,6 +1141,7 @@ export const e2eSeedNetwork = e2eMutation({
         // Semé déjà mis en pause parce qu'il ne cite jamais l'app.
         offTopic: v.optional(v.boolean()),
         lang: v.optional(v.string()),
+        bio: v.optional(v.string()),
         // Ses vidéos relevées (radarTrackedVideos), pour « ce qui sort du lot ».
         videos: v.optional(
           v.array(v.object({ videoId: v.string(), ageH: v.number(), views: v.number(), hook: v.optional(v.string()), musicTitle: v.optional(v.string()), caption: v.optional(v.string()) })),
@@ -1189,7 +1190,8 @@ export const e2eSeedNetwork = e2eMutation({
         fans: t.fans,
         ...(t.medianViews !== undefined ? { medianViews: t.medianViews } : {}),
         ...(t.lang !== undefined ? { lang: t.lang } : {}),
-        videosSeen: 9,
+        ...(t.bio !== undefined ? { bio: t.bio } : {}),
+        videosSeen: videos?.length ?? 9,
         posts7d: t.posts7d,
         ...(t.best7d ? { best7d: { ...t.best7d, url: videoUrl(t.handle, t.best7d.videoId) } } : {}),
         ...(t.igHandle ? { igHandle: t.igHandle, igReadAt: now, igNextReadAt: now + DAY } : {}),

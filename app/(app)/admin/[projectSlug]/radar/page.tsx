@@ -15,12 +15,14 @@ import { formatMoney } from "@/lib/format-rate";
 import { RadarToday } from "@/components/admin/radar/RadarToday";
 import { RadarExplorer, type ExplorerVue } from "@/components/admin/radar/RadarExplorer";
 import { RadarRivals } from "@/components/admin/radar/RadarRivals";
+import { RadarCreators } from "@/components/admin/radar/RadarCreators";
+import { RadarKept } from "@/components/admin/radar/RadarKept";
 import { RadarSettings } from "@/components/admin/radar/RadarSettings";
 import { useAccentInk, useNow } from "@/components/admin/radar/radar-ui";
 import { todayQueue } from "@/convex/radarDisplay";
 import { listSince } from "@/convex/radarSignalFilters";
 
-const ONGLETS = ["aujourdhui", "explorer", "concurrents", "reglages"] as const;
+const ONGLETS = ["aujourdhui", "explorer", "concurrents", "createurs", "gardees", "reglages"] as const;
 type Onglet = (typeof ONGLETS)[number];
 
 /**
@@ -47,13 +49,17 @@ export default function RadarPage() {
 }
 
 /**
- * RADAR — veille (ADMIN UNIQUEMENT), refondu le 09/11/2026 en trois endroits :
+ * RADAR — veille (ADMIN UNIQUEMENT), refondu le 09/11/2026 en trois endroits,
+ * puis deux de plus le 11/11 :
  *  - AUJOURD'HUI : les 12 vidéos à regarder, les formats qui circulent, les
  *    concurrents de la semaine (RadarToday) ;
  *  - EXPLORER : tout, en vidéos, formats ou pubs, avec quatre filtres visibles
  *    (RadarExplorer) ;
  *  - CONCURRENTS : une fiche par app — vidéos, formats, pubs, comptes, réseau
  *    (RadarRivals) ;
+ *  - CRÉATEURS (11/11/2026) : les comptes suivis d'une langue, à contacter, avec
+ *    tous leurs TikToks relevés (RadarCreators) ;
+ *  - GARDÉES (11/11/2026) : les vidéos que l'équipe a gardées (RadarKept) ;
  * et RÉGLAGES à part : apps suivies et budget (RadarSettings). L'onglet vit dans
  * l'adresse (`?onglet=`, `vue=`, `app=`), comme les filtres. L'accès est gardé
  * serveur : un créateur n'atteint aucune fonction Radar.
@@ -68,6 +74,7 @@ function RadarPageInner() {
   const ink = useAccentInk();
   const signals = useProjectQuery(api.radarSignals.listSignals, { since: listSince(now) });
   const budget = useProjectQuery(api.radarSignals.getRadarBudget, {});
+  const kept = useProjectQuery(api.radarSignals.listKept, {});
 
   const raw = searchParams.get("onglet") ?? "";
   const ancien = ANCIENS[raw];
@@ -96,6 +103,8 @@ function RadarPageInner() {
     { id: "aujourdhui", label: tr("aujourdhui") },
     { id: "explorer", label: tr("explorer") },
     { id: "concurrents", label: tr("concurrents") },
+    { id: "createurs", label: tr("createurs") },
+    { id: "gardees", label: tr("gardees") },
   ];
 
   return (
@@ -156,6 +165,12 @@ function RadarPageInner() {
                   {toWatch}
                 </span>
               )}
+              {/* Un compte, pas une file à vider : sans la couleur du projet. */}
+              {t.id === "gardees" && kept && kept.total > 0 && (
+                <span className="rounded-full bg-slate-100 px-2 py-px text-xs font-semibold text-slate-700" data-testid="radar-badge-gardees">
+                  {kept.total}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
@@ -164,6 +179,8 @@ function RadarPageInner() {
       {onglet === "aujourdhui" && <RadarToday go={go} />}
       {onglet === "explorer" && <RadarExplorer vue={vue} hrefFor={(v) => href("explorer", v === "videos" ? {} : { vue: v })} />}
       {onglet === "concurrents" && <RadarRivals selected={searchParams.get("app")} hrefFor={(slug) => href("concurrents", { app: slug })} overviewHref={href("concurrents")} go={go} />}
+      {onglet === "createurs" && <RadarCreators />}
+      {onglet === "gardees" && <RadarKept go={go} />}
       {onglet === "reglages" && <RadarSettings backHref={href("aujourdhui")} />}
     </div>
   );
