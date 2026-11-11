@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind } from "./radarDiscoveryQueries";
-import { SEED_APPS, candidatesOf, canTrack, effectiveRivalOf, findApp, handPause, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
 import { OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
 import {
@@ -312,13 +312,15 @@ export async function attachAccount(
   matchedBy: "caption" | "manual" | "seed",
   now: number,
   counter: TrackedCounter,
+  // La langue de la vidéo qui l'a fait trouver : un francophone passe outre le plafond de son app (canAttach).
+  lang?: string,
 ): Promise<"added" | "known" | "full"> {
   const known = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
   if (known) return "known";
   counter.counts ??= await trackedCounts(ctx);
   const c = counter.counts;
   const rival = app.rivalOf.length > 0;
-  if (!canTrack({ total: c.total, ofApp: c.byApp.get(app._id) ?? 0, others: c.others }, rival, matchedBy !== "caption")) return "full";
+  if (!canAttach({ total: c.total, ofApp: c.byApp.get(app._id) ?? 0, others: c.others }, rival, matchedBy, lang)) return "full";
   c.total++;
   const ofApp = (c.byApp.get(app._id) ?? 0) + 1;
   c.byApp.set(app._id, ofApp);

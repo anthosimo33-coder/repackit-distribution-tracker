@@ -171,10 +171,20 @@ export const MAX_TRACKED = 3_000;
 /**
  * Une app qui n'est concurrente d'aucun projet ne prend pas plus de 100 comptes,
  * et toutes ensemble pas plus de 1 800 : 1 200 places restent aux concurrentes.
- * Les comptes de départ et ceux ajoutés à la main passent outre.
+ * Les comptes de départ, ceux ajoutés à la main et les comptes francophones
+ * (cf `capFree`) passent outre.
  */
 export const MAX_PER_OTHER_APP = 100;
 export const MAX_OTHER_TOTAL = 1_800;
+
+/**
+ * Les langues dont les comptes entrent même quand leur app non concurrente a fait
+ * le plein : le français, marché des projets. Le 11/11/2026, les deux apps où il
+ * y a le plus de créatrices françaises (Retain Cards, Astra AI) étaient au
+ * plafond : la recherche du réseau ne pouvait plus leur en ajouter une seule.
+ */
+export const CAP_FREE_LANGS: readonly string[] = ["fr"];
+export const capFree = (lang: string | undefined): boolean => lang !== undefined && CAP_FREE_LANGS.includes(lang);
 
 /** Le compte peut-il entrer ? `counts` : comptes suivis en tout, par app, et des apps non concurrentes. */
 export function canTrack(
@@ -185,6 +195,20 @@ export function canTrack(
   if (counts.total >= MAX_TRACKED) return false;
   if (rival || bypassAppCaps) return true;
   return counts.ofApp < MAX_PER_OTHER_APP && counts.others < MAX_OTHER_TOTAL;
+}
+
+/**
+ * Le compte trouvé peut-il entrer dans le réseau de l'app ? `matchedBy` : comment
+ * il a été trouvé ; `lang` : la langue de la vidéo qui l'a fait trouver. Le
+ * plafond de tous les comptes suivis (MAX_TRACKED) vaut pour tous.
+ */
+export function canAttach(
+  counts: { total: number; ofApp: number; others: number },
+  rival: boolean,
+  matchedBy: "caption" | "manual" | "seed",
+  lang?: string,
+): boolean {
+  return canTrack(counts, rival, matchedBy !== "caption" || capFree(lang));
 }
 
 /** Médiane fiable à partir de 5 vidéos connues ; jamais en dessous de 200 vues. */
@@ -464,6 +488,24 @@ export const MAX_READ_ERRORS = 3;
 export function searchKind(s: string): { kind: "hashtag" | "keyword"; value: string } {
   return s.startsWith("#") ? { kind: "hashtag", value: s.slice(1) } : { kind: "keyword", value: s };
 }
+
+/**
+ * Les régions d'une recherche de réseau : sans région (comme depuis le début),
+ * puis la France. La région est le pays du relais par lequel ScrapeCreators
+ * interroge TikTok : elle ne filtre pas l'origine des vidéos, elle fait remonter
+ * ce que TikTok montre dans ce pays. Sans elle, les créatrices françaises sont
+ * peu trouvées : 127 comptes francophones sur 1 950 actifs le 11/11/2026, alors
+ * qu'une recherche à la main en a trouvé 37 de plus en une soirée.
+ */
+export const NETWORK_REGIONS: readonly (string | null)[] = [null, "FR"];
+
+/** Les passes de la recherche du réseau d'une app : chacune de ses recherches, dans chaque région. */
+export function networkPasses(searches: readonly string[]): { kind: "hashtag" | "keyword"; value: string; region: string | null }[] {
+  return searches.flatMap((raw) => NETWORK_REGIONS.map((region) => ({ ...searchKind(raw), region })));
+}
+
+/** Ce qu'un signal garde de la recherche qui l'a trouvé : « réseau Stalkie », « réseau Stalkie·fr » pour la passe France. */
+export const networkFoundBy = (app: string, region: string | null): string => (region ? `réseau ${app}·${region.toLowerCase()}` : `réseau ${app}`);
 
 /** Pages lues par recherche de réseau (30 vidéos par page en mot-clé) : 3 pour une concurrente, 2 sinon. */
 export const networkPages = (rival: boolean) => (rival ? 3 : 2);
