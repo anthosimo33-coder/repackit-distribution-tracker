@@ -1043,6 +1043,8 @@ export const e2eSeedSignals = e2eMutation({
         unavailable: v.optional(v.union(v.literal("private"), v.literal("region"), v.literal("removed"), v.literal("review"), v.literal("restricted"), v.literal("other"))),
         // Relevée chez un compte suivi (semé par e2eSeedNetwork, même pseudo) : le signal lui est lié, comme en vrai.
         tracked: v.optional(v.boolean()),
+        // Sa miniature (en vrai : une adresse TikTok signée, qui expire).
+        coverUrl: v.optional(v.string()),
       }),
     ),
   },
@@ -1091,6 +1093,7 @@ export const e2eSeedSignals = e2eMutation({
           lastSeenAt: now,
           ...(s.unavailable ? { unavailable: { reason: s.unavailable, at: now }, checkedAt: now } : {}),
           ...(account ? { trackedAccountId: account._id } : {}),
+          ...(s.coverUrl ? { coverUrl: s.coverUrl } : {}),
         }),
       );
     }
