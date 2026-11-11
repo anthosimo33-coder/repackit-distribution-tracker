@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
-import { AccentTag, SignalThumb, useAge, useNow } from "@/components/admin/radar/radar-ui";
+import { AccentTag, useAge, useNow } from "@/components/admin/radar/radar-ui";
 import { Menu, RadioList } from "@/components/admin/radar/RadarSignals";
 import { Player } from "@/components/admin/radar/RadarViewer";
 import {
@@ -332,6 +332,32 @@ function CreatorFiche({ list, openId, now, onChange }: { list: readonly Creator[
   );
 }
 
+/**
+ * La miniature d'une vidéo de la fiche, ou un repère de lecture : quand il n'y en
+ * a pas (une vidéo qui n'est pas un signal), et quand elle ne se charge plus —
+ * les miniatures TikTok sont signées et expirent en quelques jours (11/11/2026 :
+ * 4 rectangles noirs sur les 15 vidéos de la première fiche ouverte en prod).
+ */
+function VideoThumb({ coverUrl, selected }: { coverUrl: string | null; selected: boolean }) {
+  const [broken, setBroken] = useState(false);
+  if (coverUrl && !broken) {
+    return (
+      <span className="relative block h-16 w-9 shrink-0 overflow-hidden rounded-md bg-slate-100">
+        {/* eslint-disable-next-line @next/next/no-img-element -- miniature TikTok signée, hors domaine optimisable */}
+        <img src={coverUrl} alt="" loading="lazy" onError={() => setBroken(true)} className="absolute inset-0 size-full object-cover" data-testid="radar-createur-miniature" />
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn("flex h-16 w-9 shrink-0 items-center justify-center rounded-md", selected ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-400")}
+      data-testid="radar-createur-repere"
+    >
+      <PlayIcon className="size-3.5 fill-current" aria-hidden />
+    </span>
+  );
+}
+
 /** Un TikTok du créateur : son texte à l'écran (sinon sa légende), son âge, ses vues, son score s'il sort du lot. */
 function VideoRow({ v, selected, now, onPick }: { v: CreatorVideo; selected: boolean; now: number; onPick: () => void }) {
   const tr = useTranslations("admin.ops.RadarCreators");
@@ -347,14 +373,7 @@ function VideoRow({ v, selected, now, onPick }: { v: CreatorVideo; selected: boo
         className={cn("flex w-full items-center gap-3 rounded-lg border p-2 text-left", selected ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:bg-slate-50")}
         data-testid="radar-createur-video"
       >
-        {v.coverUrl ? (
-          <SignalThumb s={v} className="h-16 w-9 shrink-0 rounded-md" />
-        ) : (
-          // Pas de miniature pour une vidéo qui n'est pas un signal : un repère de lecture, pas un rectangle noir.
-          <span className={cn("flex h-16 w-9 shrink-0 items-center justify-center rounded-md", selected ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-400")}>
-            <PlayIcon className="size-3.5 fill-current" aria-hidden />
-          </span>
-        )}
+        <VideoThumb coverUrl={v.coverUrl} selected={selected} />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className={cn("line-clamp-2 break-words text-sm leading-snug", text ? "font-medium text-slate-900" : "text-slate-500")}>{text || tr("sansTexte")}</span>
           <span className="text-xs text-slate-500">

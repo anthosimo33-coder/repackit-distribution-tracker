@@ -154,6 +154,9 @@ test.describe("Radar — Gardées et Créateurs", () => {
       rivalProject: E2E_PROJECT_SLUG,
       signals: [
         { videoId: `${m}22`, handle: h(2), fans: 40_000, views: 6_000, lang: "fr", caption: `Vieille vidéo ${m} avec ${p}b`, publishedAt: now - 90 * HOUR, multiplier: 1, app: autre, unavailable: "private", tracked: true },
+        // Deux signaux de la 1 : une miniature qui se charge, et une qui a expiré (les adresses TikTok sont signées).
+        { videoId: `${m}11`, handle: h(1), fans: 28, views: 130_000, lang: "fr", caption: `Il like en secret ${m} avec ${p}a`, publishedAt: now - 5 * HOUR, multiplier: 10, app: rival, tracked: true, coverUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" },
+        { videoId: `${m}12`, handle: h(1), fans: 28, views: 13_000, lang: "fr", caption: `Ma routine du soir ${m} avec ${p}a`, publishedAt: now - 30 * HOUR, multiplier: 1, app: rival, tracked: true, coverUrl: "http://127.0.0.1:9/miniature-expiree.jpg" },
       ],
     });
     try {
@@ -220,6 +223,11 @@ test.describe("Radar — Gardées et Créateurs", () => {
       await expect(videos.nth(1)).toContainText(`Ma routine du soir ${ts}`);
       await expect(videos.nth(1)).not.toContainText("×");
       await expect(videos.nth(2)).toContainText("Sans texte ni légende");
+      // La miniature quand elle se charge ; un repère de lecture quand elle a expiré, ou qu'il n'y en a pas — jamais un rectangle noir.
+      await expect(videos.nth(0).getByTestId("radar-createur-miniature")).toBeVisible();
+      await expect(videos.nth(1).getByTestId("radar-createur-repere")).toBeVisible();
+      await expect(videos.nth(1).getByTestId("radar-createur-miniature")).toHaveCount(0);
+      await expect(videos.nth(2).getByTestId("radar-createur-repere")).toBeVisible();
       await expect(fiche.locator("iframe")).toHaveAttribute("src", new RegExp(`/player/v1/${m}11`));
       // Un clic en lit une autre ; les flèches haut et bas aussi.
       await videos.nth(2).click();
