@@ -76,6 +76,18 @@ export async function scProfileVideos(handle: string): Promise<ScCall<SignalInpu
 }
 
 /**
+ * La requête d'une page de recherche de réseau. `region` : code pays à deux
+ * lettres du relais (doc ScrapeCreators, les deux recherches l'acceptent) ; sans
+ * région, la requête est celle d'avant le 11/11/2026, à l'identique.
+ */
+export function networkPageRequest(kind: "keyword" | "hashtag", value: string, cursor: number | undefined, region?: string): { path: string; params: Record<string, string> } {
+  const more = { ...(region ? { region } : {}), ...(cursor !== undefined ? { cursor: String(cursor) } : {}) };
+  return kind === "keyword"
+    ? { path: "/v1/tiktok/search/keyword", params: { query: value, date_posted: "last-3-months", sort_by: "relevance", ...more } }
+    : { path: "/v1/tiktok/search/hashtag", params: { hashtag: value, ...more } };
+}
+
+/**
  * Une page de recherche pour le réseau d'une app : mot-clé (3 derniers mois, par
  * pertinence, 30 vidéos) ou hashtag (environ 20). `cursor` = page suivante.
  */
@@ -83,16 +95,10 @@ export async function scNetworkPage(
   kind: "keyword" | "hashtag",
   value: string,
   cursor: number | undefined,
+  region?: string,
 ): Promise<ScCall<{ videos: SignalInput[]; cursor: number | undefined }>> {
-  const r =
-    kind === "keyword"
-      ? await scGet("/v1/tiktok/search/keyword", {
-          query: value,
-          date_posted: "last-3-months",
-          sort_by: "relevance",
-          ...(cursor !== undefined ? { cursor: String(cursor) } : {}),
-        })
-      : await scGet("/v1/tiktok/search/hashtag", { hashtag: value, ...(cursor !== undefined ? { cursor: String(cursor) } : {}) });
+  const q = networkPageRequest(kind, value, cursor, region);
+  const r = await scGet(q.path, q.params);
   if (!r.ok) return r;
   const raw = Array.isArray(r.value.search_item_list) ? r.value.search_item_list : Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];
   const next = typeof r.value.cursor === "number" ? r.value.cursor : typeof r.value.cursor === "string" ? Number(r.value.cursor) : undefined;

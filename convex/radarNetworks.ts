@@ -24,7 +24,7 @@
  *
  * Données GLOBALES (les réseaux sont les mêmes pour tous les projets).
  */
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { ERR, err } from "./errorCodes";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
@@ -60,7 +60,8 @@ import {
   effectiveRivalOf,
   withRivalChoice,
   suggestedAppName,
-  searchKind,
+  networkFoundBy,
+  networkPasses,
   shouldPromote,
 } from "./radarNetworkMath";
 import { OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
@@ -147,28 +148,65 @@ export const seedApps = internalMutation({
  */
 export const attachFromSearch = internalMutation({
   args: { appId: v.id("radarApps"), videos: v.array(signalInput), foundBy: v.string(), now: v.number(), step: v.optional(v.number()) },
-  handler: async (ctx, { appId, videos, foundBy, now, step }): Promise<{ attached: number; signals: number }> => {
-    const app = await ctx.db.get(appId);
+  handler: (ctx, args): Promise<{ attached: number; signals: number }> => attachFromSearchCore(ctx, args),
+});
+
+async function attachFromSearchCore(
+  ctx: MutationCtx,
+  { appId, videos, foundBy, now, step }: { appId: Id<"radarApps">; videos: Infer<typeof signalInput>[]; foundBy: string; now: number; step?: number },
+): Promise<{ attached: number; signals: number }> {
+  const app = await ctx.db.get(appId);
+  if (!app) return { attached: 0, signals: 0 };
+  const counter: TrackedCounter = {};
+  let attached = 0;
+  let signals = 0;
+  for (const s of videos) {
+    if (!citesApp(s.caption, s.authorHandle, app)) continue;
+    // La langue de la vidéo suit : un compte francophone entre même si son app non concurrente a fait le plein.
+    if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, s.lang)) === "added") attached++;
+    const r = await writeSignal(ctx, s, now, {
+      insert: keepSignal(s) && s.publishedAt >= now - RETENTION_DAYS * DAY,
+      foundBy,
+      app: appRef(app),
+    });
+    if (r === "inserted") signals++;
+  }
+  // La progression que l'écran affiche pendant la recherche.
+  const ns = app.networkSearch;
+  if (ns && ns.finishedAt === undefined) {
+    await ctx.db.patch(appId, { networkSearch: { ...ns, step: step ?? ns.step, attached: ns.attached + attached, signals: ns.signals + signals } });
+  }
+  return { attached, signals };
+}
+
+/** E2E — ce que la recherche du réseau d'une app semée rattache, pour des vidéos données (légende, langue). */
+export const e2eAttachFromSearch = e2eMutation({
+  args: { appSlug: v.string(), videos: v.array(v.object({ handle: v.string(), fans: v.number(), caption: v.string(), lang: v.string() })) },
+  handler: async (ctx, { appSlug, videos }) => {
+    const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", appSlug)).first();
     if (!app) return { attached: 0, signals: 0 };
-    const counter: TrackedCounter = {};
-    let attached = 0;
-    let signals = 0;
-    for (const s of videos) {
-      if (!citesApp(s.caption, s.authorHandle, app)) continue;
-      if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") attached++;
-      const r = await writeSignal(ctx, s, now, {
-        insert: keepSignal(s) && s.publishedAt >= now - RETENTION_DAYS * DAY,
-        foundBy,
-        app: appRef(app),
-      });
-      if (r === "inserted") signals++;
-    }
-    // La progression que l'écran affiche pendant la recherche.
-    const ns = app.networkSearch;
-    if (ns && ns.finishedAt === undefined) {
-      await ctx.db.patch(appId, { networkSearch: { ...ns, step: step ?? ns.step, attached: ns.attached + attached, signals: ns.signals + signals } });
-    }
-    return { attached, signals };
+    const now = Date.now();
+    return attachFromSearchCore(ctx, {
+      appId: app._id,
+      now,
+      foundBy: networkFoundBy(app.name, "FR"),
+      videos: videos.map((x, i) => ({
+        videoId: `${appSlug}v${i}`,
+        url: `https://www.tiktok.com/@${x.handle}/video/${appSlug}v${i}`,
+        authorId: x.handle,
+        authorHandle: x.handle,
+        authorFans: x.fans,
+        caption: x.caption,
+        lang: x.lang,
+        publishedAt: now - DAY,
+        isAd: false,
+        views: 100,
+        likes: 5,
+        comments: 0,
+        shares: 0,
+        saves: 0,
+      })),
+    });
   },
 });
 
@@ -618,7 +656,9 @@ export const runNetworkSearch = internalAction({
     let stop = false;
     let attached = 0;
     for (const app of due) {
-      await ctx.runMutation(internal.radarNetworks.startNetworkSearch, { appId: app.id, now: Date.now(), steps: app.searches.length });
+      // Chaque recherche de l'app passe deux fois : sans région, puis par la France (radarNetworkMath.NETWORK_REGIONS).
+      const passes = networkPasses(app.searches);
+      await ctx.runMutation(internal.radarNetworks.startNetworkSearch, { appId: app.id, now: Date.now(), steps: passes.length });
       let complete = true;
       let noCredits = false;
       let appCalls = 0;
@@ -627,8 +667,7 @@ export const runNetworkSearch = internalAction({
       let crashed = false;
       let appAttached = 0;
       try {
-        for (const [i, raw] of app.searches.entries()) {
-          const { kind, value } = searchKind(raw);
+        for (const [i, { kind, value, region }] of passes.entries()) {
           let cursor: number | undefined;
           for (let page = 0; page < networkPages(app.rival); page++) {
             if (credits >= left) {
@@ -636,7 +675,7 @@ export const runNetworkSearch = internalAction({
               complete = false;
               break;
             }
-            const r = await scNetworkPage(kind, value, cursor);
+            const r = await scNetworkPage(kind, value, cursor, region ?? undefined);
             calls++;
             appCalls++;
             credits += r.credits;
@@ -656,7 +695,7 @@ export const runNetworkSearch = internalAction({
             const found: { attached: number } = await ctx.runMutation(internal.radarNetworks.attachFromSearch, {
               appId: app.id,
               videos: r.value.videos,
-              foundBy: `réseau ${app.name}`,
+              foundBy: networkFoundBy(app.name, region),
               now,
               step: i + 1,
             });
