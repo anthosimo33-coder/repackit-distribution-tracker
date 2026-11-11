@@ -8,7 +8,7 @@
  * SAIT laquelle fait les vues au lieu de deviner.
  *
  * TIRÉE HORS DU COMBO, volontairement. Le combo hook × flux × description garde
- * sa clé à 3 segments : unicité à vie, cooldown et capacité du catalogue sont
+ * sa clé à 3 segments : « déjà fait », cooldown et capacité du catalogue sont
  * INCHANGÉS. En faire une 4e pièce aurait (1) laissé une créatrice retourner le
  * même texte avec seule la notif changée, et (2) produit une clé à 4 segments,
  * celle de l'ancien format « hook:corps:flux:cta » que parseComboKey lit déjà.
@@ -66,7 +66,7 @@ export interface NotifUsage {
 /**
  * Compte les notifs DÉJÀ servies sur la campagne. Les statuts `freeingStatuses`
  * (vidéo refusée, abandon) n'ont jamais produit de post : ils ne comptent pas,
- * comme pour l'unicité des combos.
+ * comme pour ce qu'une créatrice a « déjà fait » des combos.
  */
 export function notifUsageOf(
   rows: readonly NotifUsageRow[],

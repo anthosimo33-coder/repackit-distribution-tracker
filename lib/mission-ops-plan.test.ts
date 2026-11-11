@@ -257,18 +257,49 @@ describe("planMissionOps — passer une mission dans une autre campagne", () => 
     expect(() => plan([midi()], request)).toThrow(/0 notif « Ma copine est pas là ce soir 😏 »/);
   });
 
-  it("avertit — sans bloquer — quand la créatrice a déjà eu ce script", () => {
+  // Le script visé par moveMidi, déjà porté par une autre mission.
+  const MEME_SCRIPT =
+    "n5764p92k1s9w4yxmb79vsh4q98fk1pn:n57fsj4xb3ezv5htqar2y6f5js8dzdp3:n5785mqyaz4b5zcr9abwxgk5gx8eagea";
+
+  it("n'avertit plus quand la créatrice a déjà fait ce script il y a 11 jours (scripts réutilisables)", () => {
     const deja = midi({
       _id: "ms722j1xk5aq86h5ve10f1ykvx8et59f",
       status: "published",
       postDate: OCT5 - 11 * DAY,
       targets: [{ publishedAt: OCT5 - 11 * DAY + 3600_000 }],
-      comboKey: "n5764p92k1s9w4yxmb79vsh4q98fk1pn:n57fsj4xb3ezv5htqar2y6f5js8dzdp3:n5785mqyaz4b5zcr9abwxgk5gx8eagea",
+      comboKey: MEME_SCRIPT,
     });
     const p = plan([midi(), deja], moveMidi);
     expect(p.assignmentPatches).toHaveLength(1);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it("avertit — sans bloquer — quand le même script est prévu chez elle dans le délai", () => {
+    // Contre-épreuve de présence du cas ci-dessus : même créatrice, même
+    // script, mais le même jour → le délai du projet vaut aussi pour elle.
+    const memeJour = midi({
+      _id: "ms722j1xk5aq86h5ve10f1ykvx8et59f",
+      status: "to_publish",
+      postDate: OCT5 + DAY,
+      comboKey: MEME_SCRIPT,
+    });
+    const p = plan([midi(), memeJour], moveMidi);
+    expect(p.assignmentPatches).toHaveLength(1);
     expect(p.warnings).toEqual([
-      "Mission ms789zx5wc61m37w4ks3kbp65x8fjt2j : même script déjà servi à cette créatrice (ms722j1xk5aq86h5ve10f1ykvx8et59f, published, 2026-09-24).",
+      "Mission ms789zx5wc61m37w4ks3kbp65x8fjt2j : même script prévu le 2026-10-06 chez elle aussi (ms722j1xk5aq86h5ve10f1ykvx8et59f) — délai entre deux usages.",
+    ]);
+  });
+
+  it("avertit quand le même script est prévu chez une autre créatrice dans le délai", () => {
+    const ailleurs = midi({
+      _id: "ms722j1xk5aq86h5ve10f1ykvx8et59f",
+      creatorId: JULIETTE,
+      status: "todo",
+      postDate: OCT5 + 2 * DAY,
+      comboKey: MEME_SCRIPT,
+    });
+    expect(plan([midi(), ailleurs], moveMidi).warnings).toEqual([
+      "Mission ms789zx5wc61m37w4ks3kbp65x8fjt2j : même script prévu le 2026-10-07 chez une autre créatrice (ms722j1xk5aq86h5ve10f1ykvx8et59f) — délai entre deux usages.",
     ]);
   });
 

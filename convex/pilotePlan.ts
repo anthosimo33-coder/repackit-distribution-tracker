@@ -25,13 +25,18 @@
  *    autres créatrices — à ≥ 10 000 vues —, dans les campagnes qu'elle tourne
  *    déjà ces 30 derniers jours (même langue, même marché).
  *  - USURE : un script dont le dernier passage mûr chez elle est sous sa
- *    médiane sort du lot ; un script ne revient pas chez elle avant 7 jours ;
- *    deux créatrices ne sortent pas le même script dans le délai du projet.
+ *    médiane sort du lot ; un script qu'elle a tourné à moins de 7 jours passe
+ *    APRÈS les autres gagnants et après un nouveau script, le plus
+ *    anciennement tourné d'abord — une préférence, plus une pause
+ *    (11/11/2026 : un script peut revenir chez la même créatrice) ; deux
+ *    vidéos ne sortent pas le même script dans le délai du projet, les
+ *    siennes comprises.
  *    Un HOOK dont tous ses passages mûrs sont sous sa médiane est raté chez
  *    elle (`hooksRates`) : plus de nouveau script ni de gagnant d'une autre
  *    sur ce hook, quelle que soit la légende (08/11/2026).
  *  - EXPLORER : une part des créneaux (30 % par défaut) prend un NOUVEAU script
- *    de la campagne, par le tirage habituel (unicité à vie, délai) : sans
+ *    de la campagne, par le tirage habituel (jamais fait d'abord, puis le
+ *    moins récent ; délai du projet) : sans
  *    exploration, plus aucun gagnant à rejouer dans trois semaines. Seulement
  *    dans une campagne qui a encore des scripts à tirer (« Format Verdict »,
  *    toutes briques désactivées, aurait fait échouer toute l'assignation).
@@ -61,8 +66,13 @@ export const PILOTE = {
   maturiteMs: 72 * HEURE,
   /** Fenêtre des gagnants, des médianes et des campagnes « qu'elle tourne ». */
   fenetreJours: 30,
-  /** Délai avant qu'un même script revienne chez la même créatrice. */
-  reposJours: 7,
+  /**
+   * Un script tourné chez elle à moins de ce nombre de jours (passé ou prévu)
+   * passe après les autres gagnants et après un nouveau script. Une
+   * PRÉFÉRENCE depuis le 11/11/2026, plus une pause : il reste proposé en
+   * alternative, et revient de lui-même quand rien d'autre n'est possible.
+   */
+  recentJours: 7,
   /** Sous ce nombre de vidéos mûres, pas de médiane : seul 10 000 vues compte. */
   medianeMinPosts: 3,
   explorationDefaut: 0.3,
@@ -269,7 +279,7 @@ export function medianesDe(
  * (moins de 3 vidéos mûres à cet étage sur cette plateforme) n'est pas « sous
  * sa médiane » : le hook n'est pas raté, faute de pouvoir le dire.
  *
- * Par HOOK, pas par script : le délai de 7 jours et l'unicité du tirage se
+ * Par HOOK, pas par script : la préférence des 7 jours et celle du tirage se
  * comptent par combinaison (hook + flux + légende), si bien qu'un hook raté
  * revenait avec une autre légende (08/11/2026 : « Amigas, el contacto cero » et
  * « Si fue él quien te dejó », tournés sous ses médianes, re-tirés chez la même
@@ -424,12 +434,31 @@ export function planifier(e: EntreePilote): PlanCreatrice[] {
     const equipe = [...autres.values()].sort((a, b) => b.vues - a.vues || a.jour.localeCompare(b.jour));
     const candidats = [...propres, ...equipe];
 
-    const prisChezElle = new Set<string>();
+    // Plus rien n'est EXCLU chez elle (11/11/2026) : seul le délai du projet
+    // interdit, et il compte aussi ses propres missions (joursDuScript).
     const libre = (s: SourceRejeu, jour: string) =>
-      !prisChezElle.has(s.comboKey) &&
-      (sesJours.get(s.comboKey) ?? []).every((j) => ecartJours(j, jour) >= PILOTE.reposJours) &&
-      (e.delaiCombo <= 0 ||
-        (joursDuScript.get(s.comboKey) ?? []).every((j) => ecartJours(j, jour) >= e.delaiCombo));
+      e.delaiCombo <= 0 ||
+      (joursDuScript.get(s.comboKey) ?? []).every((j) => ecartJours(j, jour) >= e.delaiCombo);
+    // Écart, en jours, à son passage le plus proche (passé ou prévu, ce plan
+    // compris) ; Infinity = jamais tourné chez elle.
+    const ecartChezElle = (s: SourceRejeu, jour: string) =>
+      Math.min(Infinity, ...(sesJours.get(s.comboKey) ?? []).map((j) => ecartJours(j, jour)));
+    // Les gagnants permis ce jour-là, en deux groupes. `anciens` : ce qu'elle
+    // n'a pas tourné depuis `recentJours`, dans l'ordre du plan (les siens par
+    // force, puis ceux des autres). `recents` : le reste, le plus anciennement
+    // tourné d'abord — sinon le premier de la liste reviendrait chaque jour.
+    const gagnantsLe = (etage: Etage, jour: string) => {
+      const ecarts = new Map<SourceRejeu, number>();
+      for (const c of candidats) {
+        if (c.campaignId && etageDe(c.campaignId) === etage && libre(c, jour)) ecarts.set(c, ecartChezElle(c, jour));
+      }
+      const permis = [...ecarts.keys()];
+      const recent = (c: SourceRejeu) => (ecarts.get(c) ?? Infinity) < PILOTE.recentJours;
+      return {
+        anciens: permis.filter((c) => !recent(c)),
+        recents: permis.filter(recent).sort((a, b) => (ecarts.get(b) ?? 0) - (ecarts.get(a) ?? 0)),
+      };
+    };
 
     // Les créneaux à remplir, jour par jour, moins ceux déjà pris.
     const aRemplir: { jour: string; etage: Etage; plage: PlageId }[] = [];
@@ -462,7 +491,8 @@ export function planifier(e: EntreePilote): PlanCreatrice[] {
     const creneaux: Creneau[] = aRemplir.map((s, i) => {
       const id = creneauId(cr.id, s.jour, s.plage);
       const explorer = Math.floor((i + 1) * exploration) > Math.floor(i * exploration);
-      const libres = candidats.filter((c) => c.campaignId && etageDe(c.campaignId) === s.etage && libre(c, s.jour));
+      const { anciens, recents } = gagnantsLe(s.etage, s.jour);
+      const libres = [...anciens, ...recents];
       const base = {
         id,
         creatorId: cr.id,
@@ -483,13 +513,19 @@ export function planifier(e: EntreePilote): PlanCreatrice[] {
         source = libres.find((c) => c.comboKey === voulu) ?? null;
       }
       if (source === null) {
-        const nouveau = campagneNouveau(s.etage);
-        if (explorer && nouveau) source = { kind: "nouveau", campaignId: nouveau };
-        else source = libres[0] ?? (nouveau ? { kind: "nouveau", campaignId: nouveau } : null);
+        // Ce qu'elle n'a pas tourné récemment d'abord : un gagnant ancien, puis
+        // un nouveau script (jamais fait), et un gagnant tourné ces derniers
+        // jours seulement à défaut — il n'est plus exclu, il passe après. Le
+        // faire passer devant le nouveau script laisserait la première
+        // créatrice du plan rejouer chaque jour un gagnant d'équipe que le
+        // délai du projet refuserait alors à toutes les autres.
+        const campagne = campagneNouveau(s.etage);
+        const nouveau = campagne ? { kind: "nouveau" as const, campaignId: campagne } : null;
+        if (explorer && nouveau) source = nouveau;
+        else source = anciens[0] ?? nouveau ?? recents[0] ?? null;
       }
 
       if (source?.kind === "rejeu") {
-        prisChezElle.add(source.comboKey);
         noterChezElle(source.comboKey, s.jour);
         noter(source.comboKey, s.jour);
       } else if (source?.kind === "nouveau") {

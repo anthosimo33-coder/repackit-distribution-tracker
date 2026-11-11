@@ -2,8 +2,9 @@
  * Disponibilité d'un hook (`convex/hookAvailability.ts`).
  *
  * L'enjeu de ces tests : verrouiller que l'affichage suit la VRAIE règle
- * (combo × créatrice × plateforme + cooldown projet) et n'en invente pas une
- * autre au grain du compte.
+ * (cooldown projet = seul interdit ; « déjà fait » par créatrice × plateforme =
+ * une information depuis le 11/11/2026) et n'en invente pas une autre au grain
+ * du compte.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -15,7 +16,7 @@ import {
 const DAY = 86_400_000;
 /**
  * Fenêtre EXPLICITE (4 j) et non le défaut produit : ces cas vérifient l'ORDRE
- * des deux règles (unicité d'abord, cooldown ensuite) et la borne stricte, pas
+ * des deux lectures (cooldown d'abord, déjà fait ensuite) et la borne stricte, pas
  * la durée retenue par le projet. Les écarts choisis plus bas (2 j, 3 j) n'ont
  * de sens que dans une fenêtre plus large qu'eux.
  */
@@ -50,7 +51,7 @@ describe("libre", () => {
   });
 
   it("usage d'une AUTRE créatrice, hors cooldown → libre", () => {
-    // L'unicité est PAR créatrice : le hook d'Orlane ne bloque pas Kelly.
+    // « Déjà fait » est PAR créatrice : le hook d'Orlane reste neuf pour Kelly.
     expect(
       etat([usage({ creatorId: "cr_orlane", creatorName: "Orlane" })]),
     ).toEqual({ kind: "free" });
@@ -61,14 +62,14 @@ describe("libre", () => {
     expect(etat([usage({ platforms: ["YouTube"] })])).toEqual({ kind: "free" });
   });
 
-  it("un combo IMPOSÉ ne consomme pas l'unicité à vie", () => {
+  it("un combo IMPOSÉ ne compte pas comme déjà fait", () => {
     // « Rejouer ce script » ne retire rien de la rotation automatique.
     expect(etat([usage({ comboImposed: true })])).toEqual({ kind: "free" });
   });
 });
 
-describe("utilisé — unicité à vie", () => {
-  it("même créatrice, même plateforme → utilisé, avec le nom et la date", () => {
+describe("déjà fait — une information, plus un refus", () => {
+  it("même créatrice, même plateforme → déjà fait, avec le nom et la date, et ASSIGNABLE", () => {
     const quand = CIBLE - 30 * DAY;
     expect(etat([usage({ anchorAt: quand })])).toEqual({
       kind: "used",
@@ -76,14 +77,18 @@ describe("utilisé — unicité à vie", () => {
       platform: "TikTok",
       at: quand,
     });
+    // Scripts réutilisables (11/11/2026) : un hook déjà fait reste assignable.
+    expect(isHookAvailable(etat([usage({ anchorAt: quand })]))).toBe(true);
   });
 
-  it("l'unicité PRIME sur le cooldown", () => {
-    // Un usage récent de la même créatrice coche les deux règles. Annoncer
-    // « libre dans 2 jours » sur un hook qu'elle ne reprendra JAMAIS serait un
-    // mensonge par omission.
+  it("le cooldown PRIME sur « déjà fait »", () => {
+    // Un usage récent de la même créatrice coche les deux. Le cooldown est le
+    // seul vrai interdit : il faut dire quand le hook redevient assignable.
     const recent = CIBLE - 1 * DAY;
-    expect(etat([usage({ anchorAt: recent })])).toMatchObject({ kind: "used" });
+    expect(etat([usage({ anchorAt: recent })])).toEqual({
+      kind: "cooldown",
+      until: recent + COOLDOWN_MS,
+    });
   });
 
   it("s'applique même sans date d'ancrage (l'usage existe quand même)", () => {
@@ -112,7 +117,7 @@ describe("cooldown — fenêtre projet", () => {
   });
 
   it("un combo IMPOSÉ occupe bien la fenêtre (c'est une vraie publication)", () => {
-    // Symétrique du test d'unicité : imposé = ignoré de l'unicité, mais PAS du
+    // Symétrique du test « déjà fait » : imposé = ignoré de « déjà fait », mais PAS du
     // cooldown. Une vidéo imposée sort le même jour que les autres.
     const recent = CIBLE - 1 * DAY;
     expect(
@@ -151,7 +156,7 @@ describe("cooldown — fenêtre projet", () => {
     ).toEqual({ kind: "cooldown", until: tard + COOLDOWN_MS });
   });
 
-  it("sans date visée, pas de cooldown calculable — seule l'unicité s'applique", () => {
+  it("sans date visée, pas de cooldown calculable — seul « déjà fait » se lit", () => {
     const recent = Date.UTC(2026, 7, 19, 22, 0);
     expect(
       etat(
@@ -159,7 +164,7 @@ describe("cooldown — fenêtre projet", () => {
         { targetAt: null },
       ),
     ).toEqual({ kind: "free" });
-    // Contre-épreuve : l'unicité, elle, s'applique toujours.
+    // Contre-épreuve : « déjà fait », lui, se lit toujours.
     expect(etat([usage({ anchorAt: recent })], { targetAt: null })).toMatchObject({
       kind: "used",
     });
@@ -167,7 +172,7 @@ describe("cooldown — fenêtre projet", () => {
 });
 
 describe("isHookAvailable — le filtre « disponible pour »", () => {
-  it("ne laisse passer QUE les hooks libres", () => {
+  it("ne cache QUE les hooks en cooldown — un hook déjà fait reste assignable", () => {
     expect(isHookAvailable({ kind: "free" })).toBe(true);
     expect(
       isHookAvailable({
@@ -176,7 +181,7 @@ describe("isHookAvailable — le filtre « disponible pour »", () => {
         platform: "TikTok",
         at: null,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(isHookAvailable({ kind: "cooldown", until: CIBLE })).toBe(false);
   });
 });

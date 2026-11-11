@@ -61,7 +61,6 @@ import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import {
   canAddPublishedTarget,
   canAddTarget,
-  comboTakenOnPlatform,
   isTargetAccountLocked,
   resolvePublishedTargetDate,
   targetAccountRefusal,
@@ -740,15 +739,15 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
     }));
 
     // ── AJOUT d'une cible : les comptes des plateformes pas encore visées ──
-    // Mêmes lectures que `addAssignmentTarget` : format (compatibilité) et
-    // assignations au même combo (unicité par plateforme). Vidéo sortie
+    // Mêmes lectures que `addAssignmentTarget` : format (compatibilité). Un
+    // script que la créatrice a déjà sur cette plateforme ne refuse plus rien
+    // (scripts réutilisables, 11/11/2026). Vidéo sortie
     // (`published`) : le compte s'ajoute AVEC le lien de son post
     // (`addPublishedTarget`) — mêmes refus par compte.
     const published = canAddPublishedTarget(a.status);
     const allowed = canAddTarget(a.status) || published;
     const taken = new Set(targets.map((t) => t.platform));
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-    const sameCombo = await sameComboForAdd(ctx, a);
     const add = {
       allowed,
       published,
@@ -769,10 +768,6 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
                 accountManaged: c.managedByAdmin === true,
                 assignmentManaged,
                 formatAllowed: formatAllowsPlatform(format, c.plateforme),
-                comboTaken: comboTakenOnPlatform(sameCombo, {
-                  excludeId: a._id,
-                  platform: c.plateforme,
-                }),
               }),
             }))
             // Choisissables d'abord, puis par plateforme (ordre canonique) et
@@ -788,26 +783,6 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
     return { targets, add };
   },
 });
-
-/**
- * Assignations de la même créatrice au même combo — l'entrée de
- * `comboTakenOnPlatform`. Vide quand la règle ne s'applique pas : pas de combo
- * (format, script libre de défi) ou combo IMPOSÉ (rejeu : doublon voulu, que la
- * création ne contrôle pas non plus).
- */
-async function sameComboForAdd(
-  ctx: QueryCtx,
-  a: Doc<"assignments">,
-): Promise<Doc<"assignments">[]> {
-  const comboKey = a.comboKey;
-  if (comboKey === undefined || a.comboImposed === true) return [];
-  return ctx.db
-    .query("assignments")
-    .withIndex("by_creator_combo", (q) =>
-      q.eq("creatorId", a.creatorId).eq("comboKey", comboKey),
-    )
-    .collect();
-}
 
 /** Compatibilité format ↔ plateforme — le contrôle d'`assignFormat`. */
 function formatAllowsPlatform(
@@ -834,8 +809,8 @@ function formatAllowsPlatform(
  *  3. il est du même mode (géré par l'équipe / compte de la créatrice) que
  *     l'assignation, dont le `managedByAdmin` figé décide qui publie.
  *
- * Rien d'autre ne bouge : combo, unicité (clé créatrice × plateforme), cooldown
- * (ancré sur les dates), barème, statut. Idempotent : même compte → no-op.
+ * Rien d'autre ne bouge : combo, cooldown (ancré sur les dates), barème,
+ * statut. Idempotent : même compte → no-op.
  */
 export const setAssignmentTargetAccount = permissionMutation("assignments.manage")({
   args: {
@@ -908,9 +883,9 @@ export async function setAssignmentTargetAccountCore(
  *  2. le compte est à la créatrice, et la plateforme n'est pas déjà visée ;
  *  3. `validateTargets` — les refus de la création (disponibilité…) ;
  *  4. même mode géré / non géré que l'assignation ;
- *  5. format compatible avec la plateforme (assignations de format) ;
- *  6. script pas déjà pris par la créatrice sur cette plateforme
- *     (`comboTakenOnPlatform`), sauf combo imposé.
+ *  5. format compatible avec la plateforme (assignations de format).
+ * Un script déjà fait par la créatrice sur cette plateforme ne refuse plus
+ * l'ajout (scripts réutilisables, 11/11/2026).
  *
  * La cible est AJOUTÉE EN FIN de liste : `targets[0]` ne bouge pas. Rien
  * d'autre ne change (combo, cooldown — calé sur la date, pas la plateforme —,
@@ -943,7 +918,7 @@ export const addAssignmentTarget = permissionMutation("assignments.manage")({
 });
 
 /**
- * Le compte peut-il devenir une cible de plus de `a` ? Les gardes 2 à 6 de
+ * Le compte peut-il devenir une cible de plus de `a` ? Les gardes 2 à 5 de
  * `addAssignmentTarget`, partagées avec `addPublishedTarget` : avant ou après
  * la sortie, un compte ajouté passe les mêmes refus. Rend sa plateforme et le
  * format de l'assignation (déjà lu).
@@ -978,10 +953,6 @@ async function assertTargetAddable(
     accountManaged: compte.managedByAdmin === true,
     assignmentManaged: a.managedByAdmin === true,
     formatAllowed: formatAllowsPlatform(format, platform),
-    comboTaken: comboTakenOnPlatform(await sameComboForAdd(ctx, a), {
-      excludeId: a._id,
-      platform,
-    }),
   });
   if (refusal === "managedMismatch") {
     throw err(
@@ -994,15 +965,6 @@ async function assertTargetAddable(
       ERR.FORMAT_PLATFORM_MISMATCH,
       `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
       { name: format.name, type: format.type, platform },
-    );
-  }
-  if (refusal === "comboUsed") {
-    const creator = await ctx.db.get(a.creatorId);
-    const name = creator?.name ?? "ce créateur";
-    throw err(
-      ERR.COMBO_ALREADY_USED,
-      `Ce combo est déjà utilisé pour ${name} sur ${platform}.`,
-      { name, conflict: platform },
     );
   }
   return { platform, format };
@@ -1479,9 +1441,8 @@ export const getCancelNotifyData = internalQuery({
 /**
  * SUPPRIME la row d'une mission en GARDANT sa vidéo envoyée : les fichiers
  * (Convex + Stream) passent en archive 30 jours (convex/deletedVideos), avec la
- * mission entière. La row partie LIBÈRE son comboKey (l'unicité
- * créateur+plateforme est purement basée sur l'existence de la row, cf
- * by_creator_combo). Partagé par deleteAssignment (unitaire) et deleteCreator
+ * mission entière. La row partie ne compte plus dans ce que la créatrice a
+ * « déjà fait » (basé sur l'existence de la row). Partagé par deleteAssignment (unitaire) et deleteCreator
  * (cascade). N'effectue AUCUNE garde de statut : l'appelant filtre.
  */
 export async function archiveAndDeleteAssignment(
@@ -1525,9 +1486,10 @@ export async function purgeAndDeleteAssignment(
 }
 
 /**
- * SUPPRESSION manuelle d'un assignment (admin) — HARD-DELETE. Libère le comboKey
- * occupé (unicité créateur+plateforme : plus d'assignment = plus d'occupation →
- * le combo redevient assignable). Scopé projet ; admin only.
+ * SUPPRESSION manuelle d'un assignment (admin) — HARD-DELETE. Le comboKey ne
+ * compte plus dans ce que la créatrice a « déjà fait » (plus d'assignment =
+ * redevient neuf pour elle), ni dans le délai du projet. Scopé projet ; admin
+ * only.
  *
  * GARDE-FOU statut : refuse published/paid (+ legacy validated) — historique
  * financier/analytics rattaché (publication, snapshots, paiement). Les statuts

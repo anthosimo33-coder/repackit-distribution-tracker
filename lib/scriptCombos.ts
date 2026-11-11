@@ -35,7 +35,7 @@ export interface ScheduledComboUsage {
   /**
    * Date d'ancrage = date de publication PRÉVUE (`postDate`), à défaut la date
    * RÉELLE de sortie (`targets[].publishedAt`). `null` = aucune des deux → la
-   * ligne n'occupe aucune fenêtre (elle reste couverte par l'exclusion à vie).
+   * ligne n'occupe aucune fenêtre.
    */
   anchorAt: number | null | undefined;
 }
@@ -49,13 +49,14 @@ export interface ScheduledComboUsage {
  * que vers le futur, sinon programmer à rebours contournerait la règle.
  *
  * `cooldownDays = 0` désactive le cooldown (aucun écart n'est jamais strictement
- * inférieur à 0) — l'unicité à vie, elle, continue de s'appliquer.
+ * inférieur à 0) — plus rien n'interdit alors un script ; le tirage préfère
+ * seulement ce que la créatrice n'a jamais fait (cf convex/comboRecency).
  *
- * ⚠️ Les combos IMPOSÉS occupent la fenêtre comme les autres, alors qu'ils sont
- * ignorés de l'unicité à vie. Ce n'est pas une incohérence : un combo imposé est
- * une publication RÉELLE, elle sort le même jour que les autres. « Hors règles »
- * signifie qu'un imposé n'est jamais REFUSÉ, pas qu'il devient invisible aux
- * autres.
+ * ⚠️ Les combos IMPOSÉS occupent la fenêtre comme les autres, alors qu'ils ne
+ * comptent pas dans ce qu'une créatrice a « déjà fait ». Ce n'est pas une
+ * incohérence : un combo imposé est une publication RÉELLE, elle sort le même
+ * jour que les autres. « Hors règles » signifie qu'un imposé n'est jamais
+ * REFUSÉ, pas qu'il devient invisible aux autres.
  *
  * `targetAt` nul (assignation sans date planifiée) → aucun cooldown : sans date
  * visée, il n'y a pas de fenêtre à calculer.
@@ -204,9 +205,10 @@ export function generateCombos(bricks: ComboBrick[]): Combo[] {
 
 /**
  * Choisit jusqu'à `n` combos pour un créateur en ÉQUILIBRANT les 3 dimensions
- * (hook, flux, cta) — sélection gloutonne « least-used ». Exclut les combos déjà
- * reçus (`usedKeys`). Renvoie MOINS de `n` si le stock disponible est épuisé
- * (l'appelant signale l'épuisement). Pas de doublon silencieux.
+ * (hook, flux, cta) — sélection gloutonne « least-used ». Exclut `usedKeys`
+ * (déjà faits par la créatrice, ou interdits à cette date). Renvoie MOINS de
+ * `n` si le stock est épuisé : c'est l'étage « jamais fait » du tirage, et
+ * convex/comboRecency (`tirerPourDates`) reprend alors le moins récemment fait.
  *
  * Score d'un combo = somme des usages de ses 3 bricks (hook + flux + cta) sur les
  * combos DÉJÀ retenus. À chaque pas on prend le combo disponible de score MINIMAL

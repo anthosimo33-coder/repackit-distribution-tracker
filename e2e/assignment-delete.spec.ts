@@ -16,7 +16,8 @@ const DAY = 86_400_000;
 
 /**
  * Suppression manuelle d'un assignment (hard-delete admin). Prouve SERVEUR :
- *  - le hard-delete LIBÈRE le comboKey → le combo redevient assignable (unicité) ;
+ *  - le hard-delete LIBÈRE le comboKey → le combo redevient neuf pour elle (le
+ *    tirage le reprend avant les scripts qu'elle a déjà faits) ;
  *  - garde-fou statut : published/paid non supprimables ; une abandonnée l'est,
  *    sauf si un lien de publication y reste rattaché ;
  *  - admin only (le créateur ne peut pas supprimer) ;
@@ -90,7 +91,7 @@ test.describe("Suppression d'assignment — hard-delete admin", () => {
         platforms: ["TikTok"],
       });
 
-    // 2 vidéos → les 2 combos pris sur TikTok ; plus aucun dispo.
+    // 2 vidéos → les 2 combos faits sur TikTok ; plus aucun neuf.
     expect((await assign(2)).created).toBe(2);
     expect(await avail()).toEqual({ total: 2, available: 0 });
 
@@ -104,14 +105,14 @@ test.describe("Suppression d'assignment — hard-delete admin", () => {
     });
     expect(del).toMatchObject({ ok: true, alreadyGone: false });
 
-    // La ligne a disparu ; 1 combo redevient disponible.
+    // La ligne a disparu ; 1 combo redevient neuf.
     const after = await rowsFor(campaignId, c.creatorId);
     expect(after.length).toBe(1);
     expect(after.some((a) => a._id === victim._id)).toBe(false);
     expect(await avail()).toEqual({ total: 2, available: 1 });
 
-    // Réassignable : 1 vidéo → created 1, et c'est bien le combo libéré (le seul
-    // dispo) → AUCUN conflit d'unicité.
+    // 1 vidéo → created 1, et c'est bien le combo libéré : le seul neuf passe
+    // devant celui qu'elle a déjà fait.
     expect((await assign(1)).created).toBe(1);
     const reassigned = await rowsFor(campaignId, c.creatorId);
     expect(reassigned.length).toBe(2);

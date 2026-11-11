@@ -70,7 +70,7 @@ test.describe("Rejeu — combinaison imposée", () => {
       handle: `@e2erep${ts}`,
     });
 
-    // Disponibilité AVANT : 4 combos uniques (2 hooks × 1 flux × 2 cta).
+    // AVANT : 4 combos jamais faits (2 hooks × 1 flux × 2 cta).
     const avail0 = await admin.query(api.scripts.availableCombosForAssignment, {
       campaignId: c.campaignId,
       creatorId: creator.creatorId,
@@ -111,7 +111,8 @@ test.describe("Rejeu — combinaison imposée", () => {
     expect(source.comboImposed).toBe(true);
     expect(source.comboKey).toBe(`${c.hookS}:${c.flux1}:${c.cta1}`);
 
-    // RESTE dans le pool auto : la dispo n'a PAS baissé (l'imposé ne consomme rien).
+    // RESTE neuf pour le tirage auto : le compte n'a PAS baissé (l'imposé ne
+    // compte pas comme « déjà fait »).
     const avail1 = await admin.query(api.scripts.availableCombosForAssignment, {
       campaignId: c.campaignId,
       creatorId: creator.creatorId,

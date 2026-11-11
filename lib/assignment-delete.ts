@@ -3,8 +3,8 @@
  * (Vitest). RÉPLIQUE serveur dans convex/assignments.ts (règle A6 : convex/ ne
  * peut pas importer lib/) — toute évolution doit l'être là-bas.
  *
- * Un hard-delete LIBÈRE le comboKey occupé (unicité créateur+plateforme, cf
- * lib/script-combo-uniqueness) : plus d'assignment = plus d'occupation. Mais il
+ * Un hard-delete LIBÈRE le comboKey (il redevient neuf pour la créatrice, cf
+ * lib/script-combo-uniqueness) : plus d'assignment = plus de passage. Mais il
  * est BORNÉ aux statuts SÛRS — ceux sans empreinte financière/analytique :
  *
  *  - SUPPRIMABLES : todo, in_progress, video_submitted, video_rejected, to_publish

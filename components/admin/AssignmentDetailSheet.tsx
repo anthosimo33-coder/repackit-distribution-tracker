@@ -870,8 +870,6 @@ function AddTargetMenu({
         return assignmentManaged ? tr("compteDeLaCreatrice") : tr("gereParLEquipe");
       case "formatIncompatible":
         return tr("formatIncompatible");
-      case "comboUsed":
-        return tr("scriptDejaPrisSur", { platform: o.platform });
       default:
         return null;
     }

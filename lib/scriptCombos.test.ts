@@ -236,11 +236,13 @@ describe("parseComboKey (rejeu depuis analytics)", () => {
 
 // ─── Cooldown PROJET ────────────────────────────────────────────────────────
 //
-// Simule le chemin serveur : l'exclusion passée au picker est l'UNION de
-// l'unicité à vie (créateur × plateforme) et du cooldown projet à la date visée.
-// C'est exactement ce que fait convex/scripts.assignScriptCampaign, vidéo par
-// vidéo. Les dates sont des instants RÉELS (minuit Paris, comme en prod), pas
-// des entiers arbitraires.
+// Simule l'étage « jamais fait » du chemin serveur : l'exclusion passée au
+// picker est l'UNION de ce que la créatrice a déjà fait (créateur × plateforme)
+// et du cooldown projet à la date visée. Quand cet étage ne rend plus rien, le
+// serveur reprend le moins récemment fait (convex/comboRecency, testé dans
+// lib/script-combo-uniqueness.test.ts) — seul le cooldown y reste un interdit.
+// Les dates sont des instants RÉELS (minuit Paris, comme en prod), pas des
+// entiers arbitraires.
 
 const J0 = Date.UTC(2026, 7, 10, 22, 0, 0); // 11/08 00:00 Paris
 const JOUR = 86_400_000;
@@ -312,12 +314,13 @@ describe("cooldown projet — le même script ne repart pas ailleurs dans la fen
     expect(comboKeysInCooldown(usages, J0 - 4 * JOUR, 4).size).toBe(0);
   });
 
-  it("l'exclusion à vie par créatrice survit à l'expiration du cooldown", () => {
+  it("un script déjà fait passe après les neufs, même cooldown expiré", () => {
     const combos = catalogue();
     const dejaVu = comboKeyOf(combos[0]);
     // Le cooldown projet a expiré (J+10) : plus rien ne bloque de ce côté.
     expect(comboKeysInCooldown([{ comboKey: dejaVu, anchorAt: J0 }], J0 + 10 * JOUR, 4).size).toBe(0);
-    // Mais Kelly l'a DÉJÀ reçu : l'unicité à vie le lui interdit pour toujours.
+    // Kelly l'a DÉJÀ fait : tant qu'il reste des scripts neufs, ils passent
+    // devant (il pourra lui revenir une fois le catalogue fait).
     const repioche = pickOne(combos, {
       targetAt: J0 + 10 * JOUR,
       lifetime: new Set([dejaVu]),
@@ -346,7 +349,7 @@ describe("cooldown projet — le même script ne repart pas ailleurs dans la fen
     const usages: ScheduledComboUsage[] = [
       { comboKey: comboKeyOf(combos[0]), anchorAt: J0 },
     ];
-    // Aucun combo disponible à J+1 → le picker ne rend RIEN (jamais un doublon).
+    // Aucun combo permis à J+1 → le picker ne rend RIEN (jamais dans la fenêtre).
     expect(pickOne(combos, { targetAt: J0 + JOUR, projectUsages: usages })).toBeNull();
     // Et on sait quoi répondre : le combo se libère à J0 + 4 jours.
     expect(firstFreeSlotAfter(usages, J0 + JOUR, 4)).toBe(J0 + 4 * JOUR);

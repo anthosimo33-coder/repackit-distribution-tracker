@@ -31,9 +31,10 @@ import { useConvexError } from "@/lib/use-convex-error";
  * saisir 0 serait sans effet visible. C'est pourquoi la lecture passe par
  * `comboCooldownDaysOf` côté serveur et par `defined ?? null` ici.
  *
- * Ce réglage ne relâche JAMAIS l'unicité à vie (un même combo ne revient pas
- * chez la même créatrice sur la même plateforme) : les deux protections se
- * cumulent, et seule celle-ci est réglable. C'est dit à l'écran.
+ * C'est la SEULE règle qui empêche un script de sortir : depuis le 11/11/2026,
+ * un script déjà fait peut revenir chez la même créatrice (le tirage préfère
+ * seulement ce qu'elle n'a jamais fait, cf convex/comboRecency), et ce délai
+ * vaut aussi entre ses propres vidéos. C'est dit à l'écran.
  */
 export function ComboCooldownSettingsCard() {
   const showError = useConvexError();
@@ -116,7 +117,7 @@ export function ComboCooldownSettingsCard() {
       </div>
 
       <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
-        {tr("ceReglageNeChange")}{" "}<strong>{tr("queLesTiragesAVenir")}</strong>{" "}{tr("unComboDejaAttribueEst")}<strong>{tr("uniciteAVie")}</strong>{" "}{tr("uneCreatriceNeRecoitJamais")}
+        {tr("ceReglageNeChange")}{" "}<strong>{tr("queLesTiragesAVenir")}</strong>{" "}{tr("unComboDejaAttribueEst")}{" "}{tr("scriptDejaFaitPeutRevenir")}
       </p>
 
       <div className="flex justify-end">

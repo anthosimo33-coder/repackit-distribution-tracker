@@ -100,12 +100,17 @@ test.describe("Scénarios — fiche et variables des briques", () => {
       ["flux", `Montre la conv, puis importe-la ${ts}`],
       ["cta", `je vois ça que maintenant 😭 ${ts}`],
     ]);
-    // Sans conversation : seul le hook sans variable part (1 vidéo sur 2).
+    // Sans conversation : seul le hook sans variable part — les 2 vidéos le
+    // portent (un script peut revenir chez la même créatrice depuis le
+    // 11/11/2026 ; avant : 1 vidéo sur 2).
     const sans = await assigner(mixte, juliette.creatorId, `@e2efiche${ts}`, 2);
-    expect(sans.created).toBe(1);
-    const [texteSans] = await textes(mixte, juliette.creatorId);
-    expect(texteSans).toContain("On s'est disputés hier soir");
-    expect(texteSans).not.toContain("{");
+    expect(sans.created).toBe(2);
+    const textesSans = await textes(mixte, juliette.creatorId);
+    expect(textesSans).toHaveLength(2);
+    for (const texteSans of textesSans) {
+      expect(texteSans).toContain("On s'est disputés hier soir");
+      expect(texteSans).not.toContain("{");
+    }
     // Avec la conv : les deux hooks partent, celui à variables REMPLI.
     expect((await assigner(mixte, ines.creatorId, `@e2efiche2${ts}`, 2, theme)).created).toBe(2);
     const textesInes = await textes(mixte, ines.creatorId);

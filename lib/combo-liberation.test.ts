@@ -9,12 +9,14 @@ import { comboKeysInCooldown, type ScheduledComboUsage } from "./scriptCombos";
 /**
  * LIBÉRATION d'un script jamais publié.
  *
- * Les deux protections — unicité à vie (créatrice) et cooldown projet — servent
- * la même chose : ne pas re-servir un contenu DÉJÀ VU. Une assignation
- * abandonnée ou refusée n'a jamais été publiée : rien à protéger.
+ * Deux lectures de ce qui a déjà servi : ce que la créatrice a « déjà fait »
+ * (une préférence du tirage depuis le 11/11/2026 — un script déjà fait passe
+ * après ceux qu'elle n'a jamais faits) et le cooldown projet (un interdit).
+ * Une assignation abandonnée ou refusée n'a jamais été publiée : elle ne
+ * compte dans aucune des deux.
  *
  * La règle de partage à ne pas casser : c'est l'ABANDON qui libère, jamais le
- * simple retard. Un post en retard mais vivant réserve toujours son combo.
+ * simple retard. Un post en retard mais vivant compte toujours.
  */
 const COMBO = "hook1:flux1:cta1";
 const J0 = Date.UTC(2026, 7, 10, 22, 0, 0); // 11/08 minuit Paris
@@ -33,15 +35,16 @@ function usagesVivants<T extends { status: string }>(rows: T[]): T[] {
   return rows.filter((r) => !LIBERANTS.has(r.status));
 }
 
-describe("un combo abandonné redevient tirable", () => {
-  it("unicité à vie : l'abandon libère pour LA MÊME créatrice", () => {
-    const rows = [
-      { status: "cancelled", creatorId: "kelly", comboKey: COMBO, platforms: ["TikTok"] },
+describe("un combo abandonné redevient neuf", () => {
+  it("déjà fait : l'abandon le rend neuf pour LA MÊME créatrice", () => {
+    // Le statut est lu par le module (COMBO_FREEING_STATUSES), pas filtré ici.
+    const rows: AssignmentComboUsage[] = [
+      { status: "cancelled", creatorId: "kelly", comboKey: COMBO, platforms: ["TikTok"], usedAt: J0 },
     ];
     const used = usedComboKeysForCreatorPlatforms({
       creatorId: "kelly",
       platforms: ["TikTok"],
-      existingAssignments: usagesVivants(rows) as AssignmentComboUsage[],
+      existingAssignments: rows,
     });
     expect(used.has(COMBO)).toBe(false);
   });
@@ -57,14 +60,14 @@ describe("un combo abandonné redevient tirable", () => {
   });
 
   it("une vidéo REFUSÉE libère aussi — elle n'est jamais sortie", () => {
-    const rows = [
-      { status: "video_rejected", creatorId: "kelly", comboKey: COMBO, platforms: ["TikTok"] },
+    const rows: AssignmentComboUsage[] = [
+      { status: "video_rejected", creatorId: "kelly", comboKey: COMBO, platforms: ["TikTok"], usedAt: J0 },
     ];
     expect(
       usedComboKeysForCreatorPlatforms({
         creatorId: "kelly",
         platforms: ["TikTok"],
-        existingAssignments: usagesVivants(rows) as AssignmentComboUsage[],
+        existingAssignments: rows,
       }).has(COMBO),
     ).toBe(false);
   });
@@ -72,17 +75,17 @@ describe("un combo abandonné redevient tirable", () => {
 
 describe("le simple RETARD ne libère rien", () => {
   it.each(["todo", "in_progress", "video_submitted", "to_publish"])(
-    "statut vivant %s : le combo reste réservé, unicité ET cooldown",
+    "statut vivant %s : le combo compte, déjà fait ET cooldown",
     (status) => {
-      const rows = [
-        { status, creatorId: "kelly", comboKey: COMBO, platforms: ["TikTok"] },
+      const rows: AssignmentComboUsage[] = [
+        { status, creatorId: "kelly", comboKey: COMBO, platforms: ["TikTok"], usedAt: J0 },
       ];
-      // Unicité à vie : toujours pris.
+      // Déjà fait : toujours compté (il passe après les scripts neufs).
       expect(
         usedComboKeysForCreatorPlatforms({
           creatorId: "kelly",
           platforms: ["TikTok"],
-          existingAssignments: usagesVivants(rows) as AssignmentComboUsage[],
+          existingAssignments: rows,
         }).has(COMBO),
       ).toBe(true);
       // Cooldown : toujours bloqué à la date, même très en retard.

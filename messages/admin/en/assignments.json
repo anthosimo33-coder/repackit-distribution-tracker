@@ -155,7 +155,6 @@
     "gereParLEquipe": "managed by the team",
     "compteDeLaCreatrice": "the creator’s own account",
     "formatIncompatible": "format can't be published on this platform",
-    "scriptDejaPrisSur": "script already used on {platform}",
     "aucunCompteSurUneAutrePlateforme": "No account on another platform for this creator.",
     "ajouterUnComptePublie": "Add an account she also posted on"
   },

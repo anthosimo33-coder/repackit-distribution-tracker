@@ -62,7 +62,7 @@
     "avecConsigne": "💡 Avec consigne",
     "aucuneCreatrice": "— aucune créatrice —",
     "masquerLesIndisponibles": "Masquer les indisponibles",
-    "cetteCreatriceNAAucun": "Cette créatrice n'a aucun compte déclaré — aucune collision d'unicité n'est calculable.",
+    "cetteCreatriceNAAucun": "Cette créatrice n'a aucun compte déclaré — on ne peut pas dire ce qu'elle a déjà fait.",
     "sur": "sur {count} {value}",
     "active": "· {activeCount} {activeCount, plural, one {active} other {actives}}",
     "ajouter": "Ajouter",
@@ -238,7 +238,7 @@
     "libre": "Libre",
     "cooldown": "Cooldown → {date}",
     "fenetreDeCooldownAL": "Fenêtre de cooldown à l'échelle du projet (tous créateurs confondus)",
-    "uniciteAVieCetteCreatrice": "Unicité à vie : cette créatrice a déjà reçu ce hook sur cette plateforme"
+    "dejaFaitParCetteCreatrice": "Déjà fait par cette créatrice sur cette plateforme : il peut lui revenir"
   },
   "ComboCooldownSettingsButton": {
     "cooldown": "Réglages des scripts",
@@ -251,10 +251,9 @@
     "jours": "Jours",
     "unEntierEntreEtOu": "Un entier entre {COMBO_COOLDOWN_DAYS_MIN} et {COMBO_COOLDOWN_DAYS_MAX}, ou vide pour le défaut.",
     "ceReglageNeChange": "Ce réglage ne change",
-    "unComboDejaAttribueEst": ": un combo déjà attribué est figé sur son assignation. Il ne touche pas non plus à l'",
-    "uneCreatriceNeRecoitJamais": "— une créatrice ne reçoit jamais deux fois le même script sur la même plateforme, quel que soit ce nombre.",
+    "unComboDejaAttribueEst": ": un combo déjà attribué est figé sur son assignation.",
+    "scriptDejaFaitPeutRevenir": "Le délai vaut aussi entre les vidéos d'une même créatrice. Un script qu'elle a déjà fait peut lui revenir : le tirage prend d'abord ceux qu'elle n'a jamais faits, puis ceux qu'elle a faits il y a le plus longtemps.",
     "queLesTiragesAVenir": "que les tirages à venir",
-    "uniciteAVie": "unicité à vie",
     "enregistrer": "Enregistrer",
     "defaut": "défaut : {fallback}",
     "nonDefiniJourApplique": "non défini — {fallback} {fallback, plural, one {jour} other {jours}} {fallback, plural, one {appliqué} other {appliqués}}",

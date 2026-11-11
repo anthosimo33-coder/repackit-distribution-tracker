@@ -91,9 +91,10 @@ test.describe("Modifier une brique du combo", () => {
       (b) => b.kind === "flux" && b.active,
     )!;
 
-    // ── ÉDITION OK (A, statut todo) : swap du hook vers un hook LIBRE (ni a0 ni
-    // b0). Viser le combo de b0 serait refusé : unicité comboKey × créateur ×
-    // plateforme (#59 — a0 et b0 sont du même créateur sur la même plateforme).
+    // ── ÉDITION OK (A, statut todo) : swap du hook vers un hook qu'aucune des
+    // deux missions ne porte (ni a0 ni b0), pour que le comboKey neuf se lise
+    // sans ambiguïté. (Viser celui de b0 est permis depuis le 11/11/2026 :
+    // e2e/scripts-combo-reuse.spec.ts.)
     const newHook = hooks.find(
       (h) =>
         h._id !== a0.scriptCombo!.hookBrickId &&

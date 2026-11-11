@@ -52,6 +52,7 @@ import type * as coherenceInputs from "../coherenceInputs.js";
 import type * as collectAvailability from "../collectAvailability.js";
 import type * as comboCooldown from "../comboCooldown.js";
 import type * as comboFreeing from "../comboFreeing.js";
+import type * as comboRecency from "../comboRecency.js";
 import type * as compta from "../compta.js";
 import type * as comptaMath from "../comptaMath.js";
 import type * as compteAvatar from "../compteAvatar.js";
@@ -390,6 +391,7 @@ declare const fullApi: ApiFromModules<{
   collectAvailability: typeof collectAvailability;
   comboCooldown: typeof comboCooldown;
   comboFreeing: typeof comboFreeing;
+  comboRecency: typeof comboRecency;
   compta: typeof compta;
   comptaMath: typeof comptaMath;
   compteAvatar: typeof compteAvatar;

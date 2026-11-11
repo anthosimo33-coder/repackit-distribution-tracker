@@ -165,11 +165,39 @@ describe("planifier", () => {
     expect(sources(planifier(entree(tient))[0])).toContain("2026-10-31 midi use");
   });
 
-  it("un script ne revient pas chez elle avant 7 jours", () => {
+  it("un gagnant tourné ces 7 jours passe après un nouveau script", () => {
     const vids = [...socleJ(), video("J", "parle", "recent", "2026-10-26", { TikTok: 8000 })];
     const [plan] = planifier(entree(vids));
     const ou = plan.creneaux.find((c) => c.source?.kind === "rejeu" && c.source.comboKey === "recent");
     expect(ou?.jour).toBe("2026-11-02");
+    // …mais il n'est plus EXCLU (11/11/2026) : proposé en alternative dès le 1er jour.
+    expect(plan.creneaux[0].source).toEqual({ kind: "nouveau", campaignId: "parle" });
+    expect(plan.creneaux[0].alternatives.map((a) => a.comboKey)).toEqual(["recent"]);
+  });
+
+  // Le parlé n'a plus de nouveau script à tirer : seul un rejeu peut remplir.
+  const sansNouveauParle = CAMPAGNES.map((c) => (c.id === "parle" ? { ...c, tirable: false } : c));
+
+  it("sans nouveau script possible, un gagnant tourné il y a 5 jours revient — plus de pause", () => {
+    const vids = [...socleJ(), video("J", "parle", "recent", "2026-10-26", { TikTok: 8000 })];
+    const [plan] = planifier(entree(vids, { campagnes: sansNouveauParle }));
+    expect(plan.creneaux[0]).toMatchObject({ jour: "2026-10-31", plage: "midi", source: { kind: "rejeu", comboKey: "recent" } });
+  });
+
+  it("les gagnants récents tournent, le moins récemment tourné d'abord — pas toujours le premier", () => {
+    const vids = [
+      ...socleJ(),
+      // « fort » est le premier par la force, mais elle l'a tourné plus tard.
+      video("J", "parle", "fort", "2026-10-27", { TikTok: 20_000 }),
+      video("J", "parle", "moyen", "2026-10-25", { TikTok: 6000 }),
+    ];
+    const [plan] = planifier(entree(vids, { campagnes: sansNouveauParle, jours: SEMAINE.slice(0, 4) }));
+    expect(sources(plan).filter((x) => x.includes("midi"))).toEqual([
+      "2026-10-31 midi moyen",
+      "2026-11-01 midi fort",
+      "2026-11-02 midi moyen",
+      "2026-11-03 midi fort",
+    ]);
   });
 
   it("deux créatrices ne sortent pas le même script le même jour", () => {

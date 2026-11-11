@@ -16,7 +16,6 @@
  */
 
 import { parisDayIndex } from "./calendarStatus";
-import { COMBO_FREEING_STATUSES } from "./comboFreeing";
 
 /**
  * Statuts où la vidéo est sortie : publiée, payée, et `validated` (legacy de
@@ -112,64 +111,23 @@ export function resolvePublishedTargetDate(
 }
 
 /**
- * Le script de l'assignation est-il DÉJÀ pris par la créatrice sur `platform` ?
- *
- * Unicité à vie (combo × créatrice × plateforme) : ajouter une plateforme ne
- * doit pas faire reposter sur elle un script que la créatrice y a déjà (ou y
- * aura). Une assignation abandonnée ou refusée ne compte pas
- * (COMBO_FREEING_STATUSES).
- *
- * ⚠️ Une ligne à combo IMPOSÉ (rejeu, défi) COMPTE ici, alors que le tirage
- * (`usedComboKeysForPlatforms`) l'ignore : le tirage l'écarte pour ne pas
- * appauvrir la rotation, pas parce qu'un doublon serait acceptable — et cette
- * ligne va bel et bien publier ce script sur cette plateforme.
- *
- * L'appelant n'interroge PAS cette règle quand l'assignation elle-même est à
- * combo imposé : un rejeu est un doublon voulu, la création ne le contrôle pas
- * non plus.
- *
- * `sameCombo` = les assignations de la MÊME créatrice portant le MÊME comboKey
- * (index `by_creator_combo`). L'assignation elle-même est exclue.
- */
-export function comboTakenOnPlatform(
-  sameCombo: readonly {
-    _id: string;
-    status: string;
-    targets?: readonly { platform: string }[];
-  }[],
-  input: { excludeId: string; platform: string },
-): boolean {
-  return sameCombo.some(
-    (a) =>
-      a._id !== input.excludeId &&
-      !COMBO_FREEING_STATUSES.has(a.status) &&
-      (a.targets ?? []).some((t) => t.platform === input.platform),
-  );
-}
-
-/**
  * Pourquoi un compte ne peut PAS être AJOUTÉ comme cible (`null` = il peut).
  * Les refus du remplacement (`targetAccountRefusal`), plus :
  *  - `formatIncompatible` : le format de l'assignation ne se publie pas sur
- *    cette plateforme (même contrôle qu'à la création, `assignFormat`) ;
- *  - `comboUsed` : le script est déjà pris sur cette plateforme
- *    (`comboTakenOnPlatform`).
+ *    cette plateforme (même contrôle qu'à la création, `assignFormat`).
+ * Un script que la créatrice a déjà sur cette plateforme n'est plus un refus :
+ * depuis le 11/11/2026, un script peut revenir chez la même créatrice.
  */
-export type TargetAddRefusal =
-  | TargetAccountRefusal
-  | "formatIncompatible"
-  | "comboUsed";
+export type TargetAddRefusal = TargetAccountRefusal | "formatIncompatible";
 
 export function targetAddRefusal(input: {
   available: boolean;
   accountManaged: boolean;
   assignmentManaged: boolean;
   formatAllowed: boolean;
-  comboTaken: boolean;
 }): TargetAddRefusal | null {
   const base = targetAccountRefusal(input);
   if (base !== null) return base;
   if (!input.formatAllowed) return "formatIncompatible";
-  if (input.comboTaken) return "comboUsed";
   return null;
 }

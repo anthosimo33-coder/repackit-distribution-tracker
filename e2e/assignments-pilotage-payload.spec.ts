@@ -39,8 +39,8 @@ async function seed(ts: number, n: number) {
     { id: await brick("hook", `H1 ${ts}`), label: `H1 ${ts}` },
     { id: await brick("hook", `H2 ${ts}`), label: `H2 ${ts}` },
   ];
-  // Deux flux : 2 × 2 = 4 combos distincts, assez pour 3 missions (la règle
-  // d'unicité n'en crée pas plus qu'il n'existe de combos).
+  // Deux flux : 2 × 2 = 4 combos distincts, assez pour 3 missions toutes
+  // différentes (au-delà, le tirage reprendrait un script déjà fait).
   await brick("flux", `F1 ${ts}`);
   await brick("flux", `F2 ${ts}`);
   await brick("cta", `C ${ts}`);
