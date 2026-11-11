@@ -39,7 +39,7 @@ async function makeCampaign(ts: number) {
 }
 
 test.describe("S2 — assignation anti-coordination", () => {
-  test("anti-coord par créateur, combo figé, réassignation, épuisement, isolation, admin", async () => {
+  test("anti-coord par créateur, combo figé, réassignation, catalogue fait puis repris, isolation, admin", async () => {
     test.setTimeout(120_000);
     const ts = Date.now();
     const a = await createCreatorSession(url, {
@@ -151,7 +151,10 @@ test.describe("S2 — assignation anti-coordination", () => {
     const aNew = aRows.filter((x) => !aKeysBefore.has(x.comboKey));
     expect(aNew.length).toBe(5);
 
-    // Épuisement : A a 10/12 ; demander 20 → 2 assignés + shortage.
+    // Catalogue fait (scripts réutilisables, 11/11/2026) : A a fait 10/12 ;
+    // demander 20 → les 2 jamais faits D'ABORD, puis le tirage reprend ceux
+    // qu'elle a faits il y a le plus longtemps. Plus de pénurie (avant : 2
+    // créés + shortage).
     const r3 = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
       creatorId: a.creatorId,
@@ -160,15 +163,19 @@ test.describe("S2 — assignation anti-coordination", () => {
       dueDate: ts + 7 * DAY,
       pricingId,
     });
-    expect(r3.created).toBe(2);
-    expect(r3.shortages).toEqual([
-      { name: `[E2E_TEST] AssignA ${ts}`, requested: 20, assigned: 2 },
-    ]);
+    expect(r3.created).toBe(20);
+    expect(r3.shortages).toEqual([]);
     aRows = await forCampaign(a.creatorId);
-    expect(aRows.length).toBe(12); // tous les combos épuisés
+    expect(aRows.length).toBe(30);
+    // Les 12 scripts sont faits — les 2 neufs sont bien passés avant les reprises.
     expect(new Set(aRows.map((x) => x.comboKey)).size).toBe(12);
+    // Et la reprise TOURNE sur tout le catalogue au lieu de retomber sur le
+    // premier : 30 vidéos sur 12 scripts = chacun 2 ou 3 fois, jamais plus.
+    const parScript = new Map<string, number>();
+    for (const x of aRows) parScript.set(x.comboKey!, (parScript.get(x.comboKey!) ?? 0) + 1);
+    expect([...parScript.values()].every((n) => n === 2 || n === 3)).toBe(true);
 
-    // Au-delà du stock → 0 assigné, shortage.
+    // Et encore au-delà : toujours créé.
     const r4 = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
       creatorId: a.creatorId,
@@ -177,8 +184,8 @@ test.describe("S2 — assignation anti-coordination", () => {
       dueDate: ts + 7 * DAY,
       pricingId,
     });
-    expect(r4.created).toBe(0);
-    expect(r4.shortages[0].assigned).toBe(0);
+    expect(r4.created).toBe(3);
+    expect(r4.shortages).toEqual([]);
 
     // ISOLATION créateur : A voit le script monté, JAMAIS la décomposition.
     const aSample = aRows[0]._id;
