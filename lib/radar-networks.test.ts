@@ -201,7 +201,7 @@ describe("Love8, app de couple suivie depuis le 10/11/2026", () => {
     expect(love8).toMatchObject({ name: "Love8", rivalOf: [] });
     // Les 4 du premier relevé, en tête ; la recherche approfondie du 10/11/2026 en a ajouté 19.
     expect(SEED_ACCOUNTS.love8.slice(0, 4)).toEqual(["bontlelove8", "johan_love8", "saraf.love8", "lour.love8"]);
-    expect(SEED_ACCOUNTS.love8).toHaveLength(23);
+    expect(SEED_ACCOUNTS.love8).toHaveLength(25);
     // Chaque compte de départ, sur sa vraie vidéo : étiquetée Love8, donc visible dans la file.
     const vraies = [
       { handle: "bontlelove8", caption: "❤️😫! @Love8  . . . #love8 #foryoupage #trendingvideo #fyp #couple " },
@@ -289,8 +289,8 @@ describe("Astra AI et Retain Cards, apps de révision suivies depuis le 10/11/20
 
   it("pages de hashtag déroulées en entier : toutes les langues, sans recruteurs ni homonymes", () => {
     // 209 et 86 au premier relevé ; la recherche approfondie en a retiré 3 et 2, puis ajouté 59 et 16.
-    expect(SEED_ACCOUNTS.astraai).toHaveLength(265);
-    expect(SEED_ACCOUNTS.retaincards).toHaveLength(100);
+    expect(SEED_ACCOUNTS.astraai).toHaveLength(269);
+    expect(SEED_ACCOUNTS.retaincards).toHaveLength(115);
     // Astra AI hors des langues du premier relevé : le mot d'étude est dans la légende, ou le pseudo est « learnwith… ».
     const astraAilleurs = [
       { handle: "belajarbarengbening", caption: "Gen Z kalau belajar sat set #astraai #tipskuliah #mahasiswa " },
@@ -669,18 +669,52 @@ describe("les apps ajoutées le 06/11/2026", () => {
   });
 });
 
+/**
+ * Recherche FRANCOPHONE du 11/11/2026 (« on a que 127 comptes de créateurs français ? » → « cherche-en plus ») :
+ * 46 chargements de pages de hashtag d'app, 3 340 auteurs vus, 400 comptes créateurs nouveaux toutes langues,
+ * dont 37 francophones — les seuls entrés ici.
+ */
+describe("comptes de départ : les 37 francophones de la recherche du 11/11/2026", () => {
+  const liste = (slug: string) => SEED_ACCOUNTS[slug] ?? [];
+  const NOUVEAUX: Record<string, number> = { retaincards: 15, stalkie: 5, knowunity: 4, astraai: 4, love8: 2, theick: 2, whatbrandonthinks: 1, shady: 1, vocaai: 1, palima: 1, thecringe: 1 };
+
+  it("37 comptes sur 11 apps, ajoutés en fin de liste", () => {
+    expect(Object.values(NOUVEAUX).reduce((a, b) => a + b, 0)).toBe(37);
+    // Bio « Je révise avec Retain Cards », bio « Ambassadeur Stalkie », bio « Ambassadrice ASTRA Ai ».
+    expect(liste("retaincards").slice(-15)).toContain("etudie.avec.thoma");
+    expect(liste("stalkie").slice(-5)).toContain("jeanna5696");
+    expect(liste("astraai").slice(-4)).toContain("van.learns");
+    // Bio « ambassadrice theick.io », « Ambassadrice » + 12 vidéos #love8app sur 12, bio « J'ai trouvé une nouvelle manière de réviser ! Knowie… ».
+    expect(liste("theick").slice(-2)).toEqual(expect.arrayContaining(["milaa.secretaccount", "iliona.theick"]));
+    expect(liste("love8").slice(-2)).toContain("laure_love8");
+    expect(liste("knowunity").slice(-4)).toContain("kayllis8");
+    // What Brandon Thinks n'avait aucun compte de départ.
+    expect(liste("whatbrandonthinks")).toEqual(["johan.wbt"]);
+  });
+
+  it("n'entrent pas : les homonymes, la marque probable, ceux qui publient dans une autre langue", () => {
+    const tous = Object.values(SEED_ACCOUNTS).flat();
+    // « Marie Shady » est une personne, « ShadyTime » un compte de sport, « Katch » un streamer.
+    for (const h of ["marie.shady", "shadytime6", "k4tch3"]) expect(tous).not.toContain(h);
+    // 22 600 abonnés et une bio écrite comme la marque : compte de Retain Cards probable.
+    expect(tous).not.toContain("astuces_revisions_");
+    // En France, mais en birman, en arabe ou en anglais : pas des créatrices francophones.
+    for (const h of ["numnumlove8", "englishwithbouchra7", "kalil_bch", "ellagirlhacks0", "nily_stv"]) expect(tous).not.toContain(h);
+  });
+});
+
 /** Recherche approfondie du 10/11/2026 : 85 pages de hashtag, 2 331 comptes vus, une page vidéo lue par compte. */
 describe("comptes de départ après la recherche approfondie", () => {
   const tous = Object.values(SEED_ACCOUNTS).flat();
   const liste = (slug: string) => SEED_ACCOUNTS[slug] ?? [];
 
-  it("1 100 comptes sur 38 apps, chacun une seule fois", () => {
-    expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(38);
-    expect(tous).toHaveLength(1100);
-    expect(new Set(tous).size).toBe(1100);
+  it("1 137 comptes sur 39 apps, chacun une seule fois (1 100 sur 38 avant la recherche francophone du 11/11)", () => {
+    expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(39);
+    expect(tous).toHaveLength(1137);
+    expect(new Set(tous).size).toBe(1137);
     expect(liste("fluencify")).toHaveLength(124);
-    expect(liste("stalkie")).toHaveLength(61);
-    expect(liste("theick")).toHaveLength(38);
+    expect(liste("stalkie")).toHaveLength(66);
+    expect(liste("theick")).toHaveLength(40);
     // Des apps sans liste jusque-là.
     expect(liste("wingaiapp")).toHaveLength(10);
     expect(liste("plugai")).toHaveLength(21);
