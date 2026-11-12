@@ -524,7 +524,16 @@
     "instagram": "Instagram @{handle}",
     "instagramMeilleur": "Instagram @{handle} · {x} · {vues} vues",
     "horsSujet": "ses vidéos ne citent jamais {app}",
-    "horsSujetAide": "Ses dernières vidéos lues (9 au moins) ne citent pas {app} : il n'est plus relevé. Le réactiver le garde pour de bon."
+    "horsSujetAide": "Ses dernières vidéos lues (9 au moins) ne citent pas {app} : il n'est plus relevé. Le réactiver le garde pour de bon.",
+    "appsClassements": "Apps trouvées dans les classements App Store",
+    "appsClassementsAide": "Des apps dont le hashtag TikTok porte au moins deux comptes créateurs. À relire avant de suivre : un nom courant désigne parfois autre chose. Suivre une app rattache ces comptes à son réseau.",
+    "appsClassementsAvancement": "{checked} contrôles faits pour {seen} apps vues dans les classements",
+    "appsClassementsArret": "dernier passage arrêté : {raison}",
+    "appsClassementsPreuve": "{n, plural, one {# compte créateur} other {# comptes créateurs}} sur #{tag} ({videos} vidéos)",
+    "preuvePseudo": "son pseudo",
+    "preuveBio": "sa bio",
+    "preuveVideos": "ses vidéos",
+    "ficheAppStore": "Fiche App Store"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} abonnés",

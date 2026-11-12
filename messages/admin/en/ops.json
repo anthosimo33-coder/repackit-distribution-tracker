@@ -524,7 +524,16 @@
     "instagram": "Instagram @{handle}",
     "instagramMeilleur": "Instagram @{handle} · {x} · {vues} views",
     "horsSujet": "its videos never mention {app}",
-    "horsSujetAide": "Its latest videos read (at least 9) do not mention {app}: it is no longer tracked. Turning it back on keeps it for good."
+    "horsSujetAide": "Its latest videos read (at least 9) do not mention {app}: it is no longer tracked. Turning it back on keeps it for good.",
+    "appsClassements": "Apps found in the App Store charts",
+    "appsClassementsAide": "Apps whose TikTok hashtag carries at least two creator accounts. Review before following: a common name sometimes means something else. Following an app adds these accounts to its network.",
+    "appsClassementsAvancement": "{checked} checks done for {seen} apps seen in the charts",
+    "appsClassementsArret": "last run stopped: {raison}",
+    "appsClassementsPreuve": "{n, plural, one {# creator account} other {# creator accounts}} on #{tag} ({videos} videos)",
+    "preuvePseudo": "handle",
+    "preuveBio": "bio",
+    "preuveVideos": "videos",
+    "ficheAppStore": "App Store page"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} followers",

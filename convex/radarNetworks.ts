@@ -997,21 +997,26 @@ export const listFormats = permissionQuery("radar.use")({
 /** Les apps repérées chez les comptes (citées par au moins deux), les plus citées d'abord. */
 export async function listCandidatesCore(ctx: ProjectQueryCtx) {
   const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id as string, a.name]));
-  const rows = await ctx.db
-    .query("radarAppCandidates")
-    .withIndex("by_status_count", (q) => q.eq("status", "new").gte("authorCount", 2))
-    .order("desc")
-    .take(30);
-  return rows.map((c) => ({
+  // Les comptes et les sites cités par les comptes suivis. Les apps des classements ont leur liste (radarStore.listStoreCandidates).
+  const cited = async (kind: "mention" | "domain") =>
+    (
+      await ctx.db
+        .query("radarAppCandidates")
+        .withIndex("by_kind_status_count", (q) => q.eq("kind", kind).eq("status", "new").gte("authorCount", 2))
+        .order("desc")
+        .take(30)
+    ).map((c) => ({ c, kind }));
+  const rows = [...(await cited("mention")), ...(await cited("domain"))].sort((a, b) => b.c.authorCount - a.c.authorCount).slice(0, 30);
+  return rows.map(({ c, kind }) => ({
     id: c._id,
-    kind: c.kind,
+    kind,
     label: c.label,
     authorCount: c.authorCount,
     fromApps: c.fromApps.map((id) => apps.get(id)).filter((n): n is string => !!n),
     examples: c.examples,
-    patterns: patternsOfCandidate(c),
+    patterns: patternsOfCandidate({ kind, label: c.label }),
     // Le nom et les motifs proposés à l'écran pour la suivre (le pseudo sans son slogan).
-    name: suggestedAppName(c),
+    name: suggestedAppName({ kind, label: c.label }),
     firstSeenAt: c.firstSeenAt,
     lastSeenAt: c.lastSeenAt,
   }));

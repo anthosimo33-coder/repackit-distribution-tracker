@@ -102,6 +102,10 @@ crons.interval("radar-rejudge-paused", { hours: 6 }, internal.radarNetworks.reju
 crons.interval("radar-families", { hours: 6 }, internal.radarFamilies.runFamilies, {});
 // Vidéos devenues invisibles (convex/radarAvailability) : 40 pages publiques toutes les 2 heures, aucun crédit.
 crons.interval("radar-visibility", { hours: 2 }, internal.radarAvailability.runChecks, {});
+// Apps des classements App Store (convex/radarStore) : 12 listes toutes les 3 heures, puis le contrôle de leurs hashtags
+// sur les pages publiques de TikTok (90 pages par heure, aucun crédit).
+crons.interval("radar-store-charts", { hours: 3 }, internal.radarStore.runStoreCharts, {});
+crons.hourly("radar-store-checks", { minuteUTC: 5 }, internal.radarStore.runStoreChecks, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

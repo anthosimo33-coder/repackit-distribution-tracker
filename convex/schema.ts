@@ -4257,6 +4257,12 @@ export default defineSchema({
     alertProjectId: v.optional(v.id("projects")), // canal Telegram de l'alerte
     alertedMonth: v.optional(v.string()), // « 2026-11 » : alerte 80 % déjà partie
     discoveryCursor: v.number(), // prochaine recherche de la rotation
+    storeCursor: v.optional(v.number()), // prochaine liste des classements App Store (convex/radarStore)
+    lastStoreChartsAt: v.optional(v.number()),
+    lastStoreChecksAt: v.optional(v.number()),
+    lastStoreStop: v.optional(v.string()), // pourquoi le dernier contrôle s'est arrêté avant la fin (TikTok ne répondait plus)
+    storeSeen: v.optional(v.number()), // apps vues dans les classements depuis le début
+    storeChecked: v.optional(v.number()), // contrôles TikTok faits depuis le début
     curveDay: v.optional(v.string()), // jour (Paris) du compteur d'admissions
     curveAdmitted: v.number(), // vidéos admises dans la courbe ce jour-là
     creditsRemaining: v.optional(v.number()), // solde ScrapeCreators au dernier appel
@@ -4466,8 +4472,9 @@ export default defineSchema({
   // mentionné (@…) ou un domaine (« stalkie.io »). Proposée à l'équipe dès que
   // deux comptes la citent ; suivie, elle devient une radarApps.
   radarAppCandidates: defineTable({
-    key: v.string(), // « @<id TikTok> » ou le domaine
-    kind: v.union(v.literal("mention"), v.literal("domain")),
+    key: v.string(), // « @<id TikTok> », le domaine, ou « store:<id App Store> »
+    // « store » : une app des classements App Store dont le hashtag porte des comptes créateurs (convex/radarStore).
+    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store")),
     label: v.string(),
     authors: v.array(v.string()), // pseudos qui la citent (50 au plus)
     authorCount: v.number(),
@@ -4476,10 +4483,45 @@ export default defineSchema({
     status: v.union(v.literal("new"), v.literal("ignored"), v.literal("followed")),
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
+    // Une app des classements : sa fiche, le hashtag qui la prouve, et pourquoi chaque compte est un compte créateur.
+    store: v.optional(
+      v.object({
+        storeId: v.string(),
+        artist: v.string(),
+        genre: v.string(),
+        released: v.string(),
+        tag: v.string(),
+        tagVideos: v.number(),
+        tagViews: v.number(),
+        creators: v.array(v.object({ handle: v.string(), why: v.union(v.literal("handle"), v.literal("bio"), v.literal("half")) })),
+      }),
+    ),
   })
     .index("by_key", ["key"])
     .index("by_status_count", ["status", "authorCount"])
+    .index("by_kind_status_count", ["kind", "status", "authorCount"])
     .index("by_last", ["lastSeenAt"]),
+
+  // Apps vues dans les classements App Store (convex/radarStore). Chacune attend son contrôle TikTok : `nextCheckAt`
+  // range la file (les apps récentes d'abord), `outcome` dit ce que le dernier contrôle a conclu.
+  radarStoreApps: defineTable({
+    storeId: v.string(),
+    name: v.string(),
+    artist: v.string(),
+    genre: v.string(),
+    released: v.string(), // « 2025-08-14 », vide si le classement ne la donne pas
+    countries: v.array(v.string()),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    nextCheckAt: v.number(),
+    checkedAt: v.optional(v.number()),
+    outcome: v.optional(v.union(v.literal("network"), v.literal("none"), v.literal("known"), v.literal("unreadable"))),
+    tag: v.optional(v.string()),
+    tagVideos: v.optional(v.number()),
+    creators: v.optional(v.number()),
+  })
+    .index("by_store", ["storeId"])
+    .index("by_due", ["nextCheckAt"]),
 
   // Crédits consommés, par jour (Paris) et par poste : la dépense du mois.
   radarUsage: defineTable({

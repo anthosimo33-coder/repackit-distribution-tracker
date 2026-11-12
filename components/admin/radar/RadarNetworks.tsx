@@ -22,6 +22,10 @@ import { networkSearchPhase, type NetworkSearchOutcome, type NetworkSearchState 
 type Networks = FunctionReturnType<typeof api.radarNetworks.listNetworks>;
 export type AppRow = Networks["apps"][number];
 type Candidate = FunctionReturnType<typeof api.radarNetworks.listCandidates>[number];
+type StoreList = FunctionReturnType<typeof api.radarStore.listStoreCandidates>;
+type StoreApp = StoreList["apps"][number];
+/** Ce qu'il faut d'une app repérée pour la suivre : son nom et ses motifs proposés, et si on la coche « concurrente » d'office. */
+type Followable = { id: Id<"radarAppCandidates">; name: string; patterns: string[]; rival: boolean };
 
 const GROUPS: AppRow["group"][] = ["rival", "otherRival", "other"];
 
@@ -38,8 +42,9 @@ export function RadarNetworks() {
   const loc = useIntlLocale();
   const data = useProjectQuery(api.radarNetworks.listNetworks, {});
   const candidates = useProjectQuery(api.radarNetworks.listCandidates, {});
+  const store = useProjectQuery(api.radarStore.listStoreCandidates, {});
   const [openApp, setOpenApp] = useState<Id<"radarApps"> | null>(null);
-  const [adding, setAdding] = useState<Candidate | true | false>(false);
+  const [adding, setAdding] = useState<Followable | true | false>(false);
   // L'horloge des recherches en cours : une recherche tombée en route cesse de
   // « tourner » au bout de 15 min, et les « il y a X min » avancent.
   const [now, setNow] = useState(() => Date.now());
@@ -71,7 +76,12 @@ export function RadarNetworks() {
         <AddAppForm key={adding === true ? "new" : adding.id} projectSlug={data.projectSlug} candidate={adding === true ? undefined : adding} onDone={() => setAdding(false)} />
       )}
 
-      {candidates && candidates.length > 0 && <Candidates rows={candidates} onFollow={(c) => setAdding(c)} />}
+      {candidates && candidates.length > 0 && <Candidates rows={candidates} onFollow={(c) => setAdding({ id: c.id, name: c.name, patterns: c.patterns, rival: true })} />}
+
+      {/* Une app des classements n'est la concurrente de personne tant qu'on ne l'a pas dit. */}
+      {store && (store.apps.length > 0 || store.seen > 0) && (
+        <StoreCandidates data={store} onFollow={(c) => setAdding({ id: c.id, name: c.name, patterns: c.patterns, rival: false })} />
+      )}
 
       {data.apps.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 px-6 py-12 text-center">
@@ -509,14 +519,97 @@ function Candidates({ rows, onFollow }: { rows: Candidate[]; onFollow: (c: Candi
   );
 }
 
-function AddAppForm({ projectSlug, onDone, candidate }: { projectSlug: string; onDone: () => void; candidate?: Candidate }) {
+/** Pourquoi un compte est tenu pour un compte créateur de l'app (convex/radarStoreMath.creatorEvidence). */
+const PREUVES = { handle: "preuvePseudo", bio: "preuveBio", half: "preuveVideos" } as const;
+
+/**
+ * Les apps trouvées dans les classements de l'App Store dont le hashtag TikTok
+ * porte des comptes créateurs (convex/radarStore), celles qui en ont le plus
+ * d'abord. À relire avant de suivre : un nom courant désigne parfois autre chose.
+ */
+function StoreCandidates({ data, onFollow }: { data: StoreList; onFollow: (c: StoreApp) => void }) {
+  const tr = useTranslations("admin.ops.RadarNetworks");
+  const loc = useIntlLocale();
+  const showError = useConvexError();
+  const ignore = useProjectMutation(api.radarNetworks.ignoreCandidate);
+  return (
+    <section aria-labelledby="radar-apps-classements" className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+      <h2 id="radar-apps-classements" className="text-base font-semibold">
+        {tr("appsClassements")}
+      </h2>
+      <p className="text-sm text-slate-600">{tr("appsClassementsAide")}</p>
+      <p className="text-xs text-slate-500" data-testid="radar-classements-avancement">
+        {tr("appsClassementsAvancement", { checked: formatNumber(data.checked, loc), seen: formatNumber(data.seen, loc) })}
+        {data.stopped !== null && ` · ${tr("appsClassementsArret", { raison: data.stopped })}`}
+      </p>
+      {data.apps.length > 0 && (
+        <ul className="divide-y divide-slate-200">
+          {data.apps.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5" data-testid="radar-app-classement">
+              <div className="min-w-0 flex-[1_1_300px]">
+                <p className="truncate font-semibold text-slate-900">
+                  {c.name}
+                  <span className="font-normal text-slate-500">
+                    {c.genre && ` · ${c.genre}`}
+                    {c.year && ` · ${c.year}`}
+                  </span>
+                </p>
+                <p className="text-xs text-slate-500">
+                  {tr("appsClassementsPreuve", { n: c.creators.length, tag: c.tag, videos: formatNumber(c.tagVideos, loc) })}
+                  {" · "}
+                  {c.creators.slice(0, 4).map((x, i) => (
+                    <span key={x.handle}>
+                      {i > 0 && ", "}
+                      <a href={x.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        @{x.handle}
+                      </a>{" "}
+                      ({tr(PREUVES[x.why])})
+                    </span>
+                  ))}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <a
+                  href={c.storeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
+                >
+                  {tr("ficheAppStore")}
+                </a>
+                <button type="button" onClick={() => onFollow(c)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white">
+                  {tr("suivreCetteApp")}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await ignore({ candidateId: c.id });
+                    } catch (err) {
+                      toast.error(showError(err, tr("changementImpossible")));
+                    }
+                  }}
+                  className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
+                >
+                  {tr("ignorer")}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AddAppForm({ projectSlug, onDone, candidate }: { projectSlug: string; onDone: () => void; candidate?: Followable }) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const showError = useConvexError();
   const addApp = useProjectMutation(api.radarNetworks.addApp);
   const follow = useProjectMutation(api.radarNetworks.followCandidate);
   const [name, setName] = useState(candidate ? candidate.name : "");
   const [patterns, setPatterns] = useState(candidate ? candidate.patterns.join(", ") : "");
-  const [rival, setRival] = useState(true);
+  const [rival, setRival] = useState(candidate ? candidate.rival : true);
 
   return (
     <form
