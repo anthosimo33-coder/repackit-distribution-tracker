@@ -66,6 +66,7 @@ import {
   shouldPromote,
 } from "./radarNetworkMath";
 import { LANG_BY_HAND, OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
+import { screenLang } from "./radarTextLang";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
@@ -416,8 +417,11 @@ export const applyAccountRead = internalMutation({
     const bio = videos.find((s) => s.authorBio)?.authorBio;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
     const ig = acc.igHandle ? null : igHandleFromBio(bio);
-    // Sa langue : celle déclarée à la main, sinon la plus fréquente de ses légendes.
-    const lang = accountLang(acc.handle, videos.map((s) => s.lang), LANG_BY_HAND);
+    // Sa langue : celle déclarée à la main, sinon la plus fréquente de ses légendes ; et quand TikTok n'en donne
+    // aucune (des légendes faites de hashtags), celle du texte à l'écran de ses vidéos (convex/radarTextLang).
+    const lang =
+      accountLang(acc.handle, videos.map((s) => s.lang), LANG_BY_HAND) ??
+      screenLang(recent.map((r) => r.hook), videos.map((s) => s.region));
     const lastPostAt = Math.max(acc.lastPostAt ?? 0, recent[0]?.publishedAt ?? 0) || undefined;
     const week = recent.filter((r) => now - r.publishedAt <= 7 * DAY);
     let best: Doc<"radarTracked">["best7d"];
@@ -541,6 +545,48 @@ async function rejudgePausedCore(ctx: MutationCtx): Promise<{ moved: number; res
   }
   return { moved, resumed };
 }
+
+/**
+ * e2e : le relevé d'un compte semé, avec les vidéos données ici (ce que TikTok aurait rendu). Rend ce que le
+ * relevé a écrit sur le compte, relu en base.
+ */
+export const e2eApplyAccountRead = e2eMutation({
+  args: {
+    handle: v.string(),
+    videos: v.array(
+      v.object({ videoId: v.string(), ageH: v.number(), views: v.number(), caption: v.string(), lang: v.string(), hook: v.optional(v.string()), region: v.optional(v.string()) }),
+    ),
+  },
+  handler: async (ctx, { handle, videos }): Promise<{ lang: string | null; status: "active" | "paused" } | null> => {
+    const acc = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+    if (!acc) return null;
+    const now = Date.now();
+    await ctx.runMutation(internal.radarNetworks.applyAccountRead, {
+      accountId: acc._id,
+      now,
+      videos: videos.map((x) => ({
+        videoId: x.videoId,
+        url: videoUrl(handle, x.videoId),
+        authorId: handle,
+        authorHandle: handle,
+        authorFans: acc.fans,
+        caption: x.caption,
+        lang: x.lang,
+        ...(x.region ? { region: x.region } : {}),
+        publishedAt: now - x.ageH * 3_600_000,
+        isAd: false,
+        views: x.views,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        saves: 0,
+        ...(x.hook ? { hook: x.hook } : {}),
+      })),
+    });
+    const after = await ctx.db.get(acc._id);
+    return after ? { lang: after.lang ?? null, status: after.status } : null;
+  },
+});
 
 /** e2e : rejuge tout de suite (la tâche passe toutes les 6 h), sans créer les apps de départ. */
 export const e2eRejudgePaused = e2eMutation({

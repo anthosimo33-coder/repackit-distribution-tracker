@@ -272,7 +272,8 @@ export function declaredLang(handle: string, byHand: Readonly<Record<string, rea
  * plus fréquente (« autre » ne compte pas : aucune langue reconnue), et il n'en a pas si aucune légende n'en a.
  * Elle trompe dans deux cas, vus le 12/11/2026 : des légendes faites de hashtags n'ont aucune langue, et trois
  * mots d'anglais classent en anglais un compte dont tout le texte à l'écran est en français. La langue déclarée
- * à la main l'emporte donc toujours, relevé après relevé.
+ * à la main l'emporte donc toujours, relevé après relevé. Et quand ni l'une ni l'autre ne donne de langue, le
+ * relevé lit celle du texte à l'écran de ses vidéos (convex/radarTextLang.screenLang).
  */
 export function accountLang(handle: string, videoLangs: readonly string[], byHand: Readonly<Record<string, readonly string[]>>): string | undefined {
   const declared = declaredLang(handle, byHand);
