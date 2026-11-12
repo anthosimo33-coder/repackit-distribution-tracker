@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { auth } from "./auth";
 import { mcpEndpoint } from "./mcpHttp";
+import { exportHandler } from "./swarmExport";
 import {
   enregistrement,
   jeton,
@@ -15,6 +16,7 @@ import {
  * serveur MCP (convex/mcpHttp.ts) et son connecteur OAuth (convex/mcpOAuthHttp.ts).
  * Sur /mcp, GET et DELETE répondent 405 — le transport est sans état, seul POST
  * porte des messages ; les déclarer évite un 404 muet à un client qui les tente.
+ * /swarm/export : l'export du Radar lu chaque jour par Swarm (convex/swarmExport.ts).
  */
 const http = httpRouter();
 auth.addHttpRoutes(http);
@@ -46,4 +48,5 @@ for (const [path, handler] of [
   http.route({ path, method: "POST", handler });
   http.route({ path, method: "OPTIONS", handler: preflight });
 }
+http.route({ path: "/swarm/export", method: "GET", handler: exportHandler });
 export default http;
