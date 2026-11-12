@@ -264,6 +264,8 @@ import type * as radarSignals from "../radarSignals.js";
 import type * as radarSignalsMath from "../radarSignalsMath.js";
 import type * as radarSources from "../radarSources.js";
 import type * as radarSourcesMath from "../radarSourcesMath.js";
+import type * as radarStore from "../radarStore.js";
+import type * as radarStoreMath from "../radarStoreMath.js";
 import type * as radarTextLang from "../radarTextLang.js";
 import type * as recruitTrial from "../recruitTrial.js";
 import type * as reminderGrouping from "../reminderGrouping.js";
@@ -606,6 +608,8 @@ declare const fullApi: ApiFromModules<{
   radarSignalsMath: typeof radarSignalsMath;
   radarSources: typeof radarSources;
   radarSourcesMath: typeof radarSourcesMath;
+  radarStore: typeof radarStore;
+  radarStoreMath: typeof radarStoreMath;
   radarTextLang: typeof radarTextLang;
   recruitTrial: typeof recruitTrial;
   reminderGrouping: typeof reminderGrouping;
