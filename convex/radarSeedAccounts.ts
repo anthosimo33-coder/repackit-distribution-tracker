@@ -99,6 +99,10 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
   // + 3 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   // + 1 francophone de la recherche du 11/11/2026 (en fin de liste, voir l'en-tête).
   shady: ["maii8589", "charlottebarry_8", "duda.shody", "dakota_welle", "marai_shady", "angies.diary1", "lilyshadyapp", "baguetteli", "appshadyonly", "dorcsyy_shady", "pharelwithshady", "shady_dorcsyy", "misshadyapp"],
+  // Shortfy et TrendSaaS (thème « argent », 12/11/2026) : comptes dont au moins deux vidéos de la semaine citent
+  // l'app (#shortfy « 1000 € par jours ! », « Le nom du site c'est TrendSaaS.ai »). Écartés : @zinedine.gsbb et
+  // @nael59972, une seule vidéo chacun.
+  shortfy: ["emma.viral80", "toma.ia"],
   // + 3 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   snitchy: ["lilimystery", "lscarla3", "enjoysecrets", "les.secrets.de.sak", "nanousecrets", "ilham.enquetes", "laure_snitchy", "juliettesnitchy", "detective.sn1tchy", "emma_4033", "snjulica", "carlasrk5", "laure_secrett", "snchases99"],
   // + 38 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
@@ -115,6 +119,11 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
   // + 2 francophones de la recherche du 11/11/2026 (en fin de liste, voir l'en-tête).
   theick: ["anafssecretaccount", "guilherme.l282", "matildesecretaccount", "thesecretaccount020", "eneassecretaccoun", "valeriasecretaccountttt", "guasecretacc", "lulussecretacc_", "choluji", "candesecretaccount_", "lour.secretacc", "danielmrtin", "mai.closefriends", "catarinasecretaccount", "maraisecret", "the.ickapp", "loukasecretaccount", "niiniinhaaaa", "ilonasecretaccountt", "ilionasecretaccount", "venesecretaccount", "milaasecretaccount", "pharelensecret", "aleksecretacc", "hana.ssc", "johansecretacc", "johansecretaccount", "katharinassecretacc", "laure._.theick", "loolaa6385", "maraisecretaccoun", "marti.theick", "martinasharessuvida07", "martutheick", "maya_theick", "morasecretaccount8", "secret.maddy.17", "victorsecretaccount0", "milaa.secretaccount", "iliona.theick"],
   // + 1 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
+  // TrendSaaS : recherche large du 12/11/2026 (21 recherches, #trendsaas, 45 transcriptions, 868 vidéos lues) —
+  // 25 vidéos de 16 comptes le citent, tous neufs (depuis début octobre) et petits (0 à 428 abonnés, 9 178 vues
+  // au plus). Entrent les 7 dont au moins deux vidéos le citent (« pq j'apprends ça que mtn frr #trendsaas »,
+  // « Site : trendsaas.ai ») ; les 9 autres n'en ont qu'une.
+  trendsaas: ["intrvbl_31000", "martine00000", "creationmedia_", "diegobni1mp", "sofian.klm92", "n.styy__", "tlmsaasia"],
   umax: ["reemhealth"],
   // + 29 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   // + 1 francophone de la recherche du 11/11/2026 (en fin de liste, voir l'en-tête).

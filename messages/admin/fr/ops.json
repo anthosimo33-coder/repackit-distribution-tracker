@@ -233,6 +233,7 @@
     "aucuneVue": "Aucune",
     "preset": {
       "tout": "Tout",
+      "argent": "Argent, side hustle · 7 j",
       "horsDomaine": "Autres apps · 7 j",
       "concurrents": "Concurrents · 90 j",
       "latam": "Brésil + Amérique latine"
@@ -291,12 +292,16 @@
     },
     "groupe": {
       "periode": "Période",
+      "theme": "Thème",
       "origine": "Origine",
       "langue": "Langue",
       "taille": "Taille du compte",
       "statut": "Statut",
       "app": "App",
       "plateforme": "Plateforme"
+    },
+    "theme": {
+      "argent": "Argent, side hustle"
     },
     "origine": {
       "concurrent": "Concurrents",
@@ -342,6 +347,7 @@
       "q": "Recherche",
       "age": "Période",
       "seuil": "Vues ÷ abonnés",
+      "theme": "Thème",
       "origine": "Origine",
       "langue": "Langue",
       "taille": "Taille du compte",
@@ -368,7 +374,7 @@
     "poste": {
       "search": {
         "titre": "Chercher les formats qui montent",
-        "aide": "Recherches TikTok dans 5 langues, environ 30 vidéos par recherche.",
+        "aide": "Recherches TikTok dans 5 langues, environ 30 vidéos par recherche : les tournures d'app, et chaque jour celles du thème argent (side hustle, revenus en ligne).",
         "unite": "recherches/jour"
       },
       "curve": {

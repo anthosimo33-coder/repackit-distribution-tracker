@@ -59,8 +59,8 @@ function writeSavedViews(views: SavedView[]) {
   }
 }
 
-/** Les quatre filtres de la barre ; les autres sont derrière « Plus de filtres ». */
-const MAIN_GROUPS: GroupKey[] = ["app", "langue", "origine"];
+/** Les filtres de la barre (après la période) ; les autres sont derrière « Plus de filtres ». */
+const MAIN_GROUPS: GroupKey[] = ["theme", "app", "langue", "origine"];
 const MORE_GROUPS: GroupKey[] = ["plateforme", "taille", "statut"];
 
 /**

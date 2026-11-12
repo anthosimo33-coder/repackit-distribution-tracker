@@ -84,6 +84,19 @@ describe("rattachement d'un compte à une app", () => {
     expect(findApp("Voici toutes les applications qu'il faut installer", "arpegesauvage", SEED_APPS)).toBeUndefined();
   });
 
+  it("Shortfy et TrendSaaS (thème « argent », 12/11/2026) : suivies, non concurrentes, reconnues dans leurs vraies légendes", () => {
+    expect([app("shortfy").rivalOf, app("trendsaas").rivalOf]).toEqual([[], []]);
+    expect(findApp("1000 € par jours ! #shortfy #ia #buisness #pourtoiii", "emma.viral80", SEED_APPS)?.name).toBe("Shortfy");
+    expect(findApp("Pourquoi personne nous apprend ça à l’école? 😭 #Argent #shortfy #TikTokFrance", "zinedine.gsbb", SEED_APPS)?.name).toBe("Shortfy");
+    expect(findApp("Le nom du site c’est TrendSaaS.ai pour les ptits curieux 😎 #argent #entrepreneur", "intrvbl_31000", SEED_APPS)?.name).toBe("TrendSaaS");
+    // Les légendes de son réseau (recherche du 12/11/2026) : le dièse, le site, la variante « trendsaasia ».
+    expect(findApp("pq j’apprends ça que mtn frr😭 #argent #trendsaas #tiktokfrance", "sofian.klm92", SEED_APPS)?.name).toBe("TrendSaaS");
+    expect(findApp("Jvais vite aller charbonner moi #trendsaas .ai", "n.styy__", SEED_APPS)?.name).toBe("TrendSaaS");
+    expect(findApp("6 ANS DE SMIC JE VIS CETTE FOLIE !!! 🤯🤯 #trendsaasia #fyp #foryou #business #saas", "tlmsaasia", SEED_APPS)?.name).toBe("TrendSaaS");
+    // Une vidéo d'argent qui ne cite aucune des deux n'est rangée sous aucune.
+    expect(findApp("Si quieres hacer tu propio aplicación utiliza newly #dinero #ganadinero", "alex.maneja23", SEED_APPS)).toBeUndefined();
+  });
+
   it("les apps de départ : 11 concurrentes de Snytch (FollowOtter à part, les jeux d'enquête déclassés), 8 de BLUSH (WRizz et Wing AI depuis le 10/11), puis les autres", () => {
     expect(SEED_APPS.filter((a) => a.rivalOf.includes("snytch")).map((a) => a.name)).toEqual([
       "The Ick", "CheatLove", "RecentFollow", "FollowSpy", "FollowOtter", "Lurk", "Katch", "Susly", "Snitch", "Crush Tracker", "Sunsay",
@@ -708,10 +721,12 @@ describe("comptes de départ après la recherche approfondie", () => {
   const tous = Object.values(SEED_ACCOUNTS).flat();
   const liste = (slug: string) => SEED_ACCOUNTS[slug] ?? [];
 
-  it("1 137 comptes sur 39 apps, chacun une seule fois (1 100 sur 38 avant la recherche francophone du 11/11)", () => {
-    expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(39);
-    expect(tous).toHaveLength(1137);
-    expect(new Set(tous).size).toBe(1137);
+  it("1 146 comptes sur 41 apps, chacun une seule fois (1 137 sur 39 avant Shortfy et TrendSaaS le 12/11, 1 100 sur 38 avant la recherche francophone du 11/11)", () => {
+    expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(41);
+    expect(tous).toHaveLength(1146);
+    expect(new Set(tous).size).toBe(1146);
+    expect(liste("shortfy")).toEqual(["emma.viral80", "toma.ia"]);
+    expect(liste("trendsaas")).toHaveLength(7);
     expect(liste("fluencify")).toHaveLength(124);
     expect(liste("stalkie")).toHaveLength(66);
     expect(liste("theick")).toHaveLength(40);
