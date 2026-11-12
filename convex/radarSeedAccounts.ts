@@ -150,3 +150,18 @@ export const OFF_TOPIC_BY_HAND: readonly string[] = [
   // Boutiques d'écouteurs « airbuds ».
   "techzoneelectronix", "fawadmobile.ak", "fawad.mobile.zone75", "hamzamartofficialpk", "bilal_mobile_pakistan",
 ];
+
+/**
+ * Langue DÉCLARÉE À LA MAIN de comptes suivis, quand celle que TikTok donne à leurs légendes trompe : la synchro
+ * la pose et le relevé la garde (radarNetworkMath.accountLang). Sans langue, un compte n'est dans aucune langue
+ * de l'onglet Créateurs. Le 12/11/2026, cinq des 37 francophones entrés la veille n'étaient pas sous « Français »,
+ * alors que le texte à l'écran de leurs vidéos relevées est en français (« Mes notes l'année dernière vs cette
+ * année », « Imagine une app où tu dois fouiller un téléphone… ») :
+ *  - learnwith_tesnime (Astra AI), kayllis8 et study_with_louise (Knowunity), sandrashh5o4 (Stalkie) : des
+ *    légendes faites de hashtags (« #lycee #bac #knowunity »), auxquelles TikTok ne donne aucune langue ;
+ *  - hajarxp7fem (Stalkie) : classée en anglais pour trois mots de légende (« My favorite game »).
+ * La clé est une langue de l'onglet (radarCreatorsMath.CREATOR_LANGS).
+ */
+export const LANG_BY_HAND: Readonly<Record<string, readonly string[]>> = {
+  fr: ["learnwith_tesnime", "kayllis8", "study_with_louise", "sandrashh5o4", "hajarxp7fem"],
+};

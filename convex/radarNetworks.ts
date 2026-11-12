@@ -43,6 +43,7 @@ import {
   isHotFormat,
   hookTemplate,
   igHandleFromBio,
+  accountLang,
   accountVerdict,
   canRejudge,
   formatSuccess,
@@ -64,7 +65,7 @@ import {
   networkPasses,
   shouldPromote,
 } from "./radarNetworkMath";
-import { OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
+import { LANG_BY_HAND, OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
@@ -415,8 +416,8 @@ export const applyAccountRead = internalMutation({
     const bio = videos.find((s) => s.authorBio)?.authorBio;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
     const ig = acc.igHandle ? null : igHandleFromBio(bio);
-    const langs = videos.map((s) => s.lang).filter((l) => l !== "autre");
-    const lang = langs.sort((a, b) => langs.filter((x) => x === b).length - langs.filter((x) => x === a).length)[0];
+    // Sa langue : celle déclarée à la main, sinon la plus fréquente de ses légendes.
+    const lang = accountLang(acc.handle, videos.map((s) => s.lang), LANG_BY_HAND);
     const lastPostAt = Math.max(acc.lastPostAt ?? 0, recent[0]?.publishedAt ?? 0) || undefined;
     const week = recent.filter((r) => now - r.publishedAt <= 7 * DAY);
     let best: Doc<"radarTracked">["best7d"];

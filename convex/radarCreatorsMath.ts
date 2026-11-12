@@ -9,7 +9,8 @@
  * tous des ambassadrices d'une autre app : ce sont elles, la liste.
  *
  * La langue est celle que TikTok donne aux légendes du compte (la plus fréquente
- * de son dernier relevé, `radarTracked.lang`). Les auteurs des vidéos trouvées
+ * de son dernier relevé, `radarTracked.lang`), ou celle déclarée à la main quand
+ * TikTok n'en donne pas ou se trompe (radarSeedAccounts.LANG_BY_HAND). Les auteurs des vidéos trouvées
  * par la recherche (une vingtaine en français) n'y sont pas : ce sont des vidéos
  * virales sans rapport avec une app, pas des créatrices à recruter.
  */

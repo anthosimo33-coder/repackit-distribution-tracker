@@ -31,9 +31,9 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind } from "./radarDiscoveryQueries";
-import { SEED_APPS, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
-import { OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
+import { LANG_BY_HAND, OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
 import {
   BUDGET_VERSION,
   DISCOVERY_RUNS_PER_DAY,
@@ -156,8 +156,33 @@ export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
     const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
     if (handPause(t)) await ctx.db.patch(t!._id, { status: "paused", pausedReason: "offTopic" });
   }
+  await syncDeclaredLangs(ctx);
   return created;
 }
+
+/**
+ * Pose la langue déclarée à la main des comptes suivis qui ne l'ont pas (radarNetworkMath.needsDeclaredLang) :
+ * sans elle, un compte dont TikTok ne reconnaît pas la langue n'est dans aucune langue de l'onglet Créateurs.
+ * Idempotent ; rend le nombre de comptes écrits.
+ */
+export async function syncDeclaredLangs(ctx: MutationCtx, byHand: Readonly<Record<string, readonly string[]>> = LANG_BY_HAND): Promise<number> {
+  let set = 0;
+  for (const [lang, handles] of Object.entries(byHand)) {
+    for (const handle of handles) {
+      const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+      if (!needsDeclaredLang(t, lang)) continue;
+      await ctx.db.patch(t!._id, { lang });
+      set++;
+    }
+  }
+  return set;
+}
+
+/** e2e : pose une langue déclarée à des comptes donnés ici (la vraie liste n'est pas semée en e2e). */
+export const e2eSyncDeclaredLangs = e2eMutation({
+  args: { lang: v.string(), handles: v.array(v.string()) },
+  handler: (ctx, { lang, handles }) => syncDeclaredLangs(ctx, { [lang]: handles }),
+});
 
 /** Comptes d'un doublon déplacés par passage (la suite au passage suivant, toutes les heures). */
 const MERGE_BATCH = 25;
