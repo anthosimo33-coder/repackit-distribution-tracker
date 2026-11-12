@@ -30,7 +30,7 @@ import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx 
 import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
-import { DISCOVERY_ROTATION, isRelationFind } from "./radarDiscoveryQueries";
+import { DISCOVERY_ROTATION, isRelationFind, signalThemes } from "./radarDiscoveryQueries";
 import { SEED_APPS, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
 import { LANG_BY_HAND, OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
@@ -928,6 +928,8 @@ async function signalRows(ctx: ProjectQueryCtx, rows: readonly Doc<"radarSignals
       tracked: r.trackedAccountId !== undefined,
       // Trouvée par une recherche « app pour couple » : la seule découverte qui entre dans Aujourd'hui.
       niche: isRelationFind(r.foundBy),
+      // Les thèmes de la découverte (« argent » : side hustle, revenus en ligne), filtre de l'écran et de `signaux`.
+      themes: signalThemes(r.foundBy, r.caption),
       inCurve: r.nextCheckAt !== undefined,
       // Plus visible sur TikTok (convex/radarAvailability) : hors d'Aujourd'hui, et le lecteur le dit.
       unavailable: r.unavailable ?? null,

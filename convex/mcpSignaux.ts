@@ -19,6 +19,7 @@ import { listAdsCore } from "./radarSources";
 import { LANG_BUCKETS, viewsPerHour } from "./radarSignalsMath";
 import {
   STATUSES,
+  THEMES,
   applyFilters,
   defaultFilters,
   facets,
@@ -81,6 +82,7 @@ export const OUTIL_SIGNAUX: McpTool = {
       origine: { type: "string", description: "« concurrents » (app concurrente DU PROJET, ex. The Ick pour Snytch, What Brandon Thinks pour BLUSH) ou « autres » (toutes les autres apps).", enum: ["concurrents", "autres"] },
       plateforme: { type: "string", description: "tiktok ou instagram (les Reels des comptes suivis dont la bio TikTok donne l'Instagram).", enum: ["tiktok", "instagram"] },
       app: { type: "string", description: "Une app suivie ou citée, par son nom (même partiel : « brandon », « ick ») — outil `reseaux` pour la liste." },
+      theme: { type: "string", description: "« argent » : side hustle, revenus en ligne, business à côté — vidéos trouvées par les recherches du thème dans tout TikTok (5 marchés), ou dont la légende porte un hashtag du thème (#sidehustle, #rendaextra…).", enum: [...THEMES] },
       langue: { type: "array", description: `Langues (ou) : ${LANG_BUCKETS.join(", ")} — pt = Brésil, es-am = espagnol d'Amérique, es-es = Espagne.`, items: { type: "string" } },
       taille: { type: "array", description: `Taille du compte (ou) : ${Object.keys(TAILLES).join(", ")}.`, items: { type: "string" } },
       seuil: { type: "integer", description: "Vues ÷ abonnés au moins : 0 (défaut), 10, 50 ou 200." },
@@ -104,6 +106,10 @@ export function filtresDepuis(args: Record<string, unknown>): Filters {
     f.age = PERIODES[args.periode];
   }
   if (args.plateforme === "tiktok" || args.plateforme === "instagram") f.sel.plateforme = [args.plateforme];
+  if (typeof args.theme === "string") {
+    if (!(THEMES as readonly string[]).includes(args.theme)) throw new ToolError(`« theme » : ${THEMES.join(", ")}.`);
+    f.sel.theme = [args.theme];
+  }
   if (args.origine === "concurrents") f.sel.origine = ["concurrent"];
   else if (args.origine === "autres") f.sel.origine = ["autre"];
   f.sel.langue = liste(args.langue).filter((l) => (LANG_BUCKETS as readonly string[]).includes(l));
@@ -161,6 +167,7 @@ export async function appelerSignaux(
           ageHeures: Math.round((now - s.publishedAt) / 3_600_000),
           langue: s.lang,
           ...(s.app ? { app: s.app } : {}),
+          ...(s.themes.length ? { themes: s.themes } : {}),
           ...(s.competitor ? { concurrent: s.competitor } : {}),
           ...(s.multiplier !== null ? { foisMediane: Math.round(s.multiplier * 10) / 10 } : {}),
           statut: s.status,

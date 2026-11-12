@@ -160,6 +160,12 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "quittr", name: "Quittr", rivalOf: [], strong: ["quittr"], searches: ["quittr", "#quittr"] },
   { slug: "umax", name: "Umax", rivalOf: [], strong: ["umaxapp", "@umax"], weak: ["umax"], context: LOOKS_CONTEXT, searches: ["umax app", "#umax"] },
   { slug: "creed", name: "Creed", rivalOf: [], strong: ["creedapp", "creed.app"], weak: ["creed"], context: FAITH_CONTEXT, searches: ["creed app oração", "creed app prayer"] },
+  // Thème « argent » (12/11/2026) : les deux apps « gagne de l'argent » que cite le fondateur. Shortfy (vidéos
+  // IA « YouTube Kids », « 1 000 € par jour ») pousse des comptes dédiés : 5 vidéos, 4,3 M vues la semaine du
+  // 12/11 sous #shortfy. TrendSaaS (idées de SaaS + prompt) : 3 vidéos en 3 mois sur TikTok, 9 177 vues au plus
+  // — sous le seuil de la découverte ; sa croissance passe par la pub, que le Radar cherche ici sous son nom.
+  { slug: "shortfy", name: "Shortfy", rivalOf: [], strong: ["shortfy"], searches: ["shortfy", "#shortfy", "shortfy.io"] },
+  { slug: "trendsaas", name: "TrendSaaS", rivalOf: [], strong: ["trendsaas"], searches: ["trendsaas", "trendsaas.ai"] },
 ];
 
 /**

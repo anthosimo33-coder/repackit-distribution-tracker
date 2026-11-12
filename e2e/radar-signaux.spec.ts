@@ -21,7 +21,7 @@ const HOUR = 3_600_000;
 function semis(ts: number) {
   const m = `e2esig${ts}`;
   const now = Date.now();
-  const s = (n: number, handle: string, fans: number, views: number, ageH: number, lang: string, caption: string, snapshots?: { h: number; views: number }[]) => ({
+  const s = (n: number, handle: string, fans: number, views: number, ageH: number, lang: string, caption: string, snapshots?: { h: number; views: number }[], foundBy?: string[]) => ({
     videoId: `${m}${n}`,
     handle: `${handle}_${ts}`,
     fans,
@@ -30,6 +30,7 @@ function semis(ts: number) {
     caption: `${caption} ${m}`,
     publishedAt: now - ageH * HOUR,
     ...(snapshots ? { snapshots: snapshots.map((p) => ({ at: now - ageH * HOUR + p.h * HOUR, views: p.views })) } : {}),
+    ...(foundBy ? { foundBy } : {}),
   });
   return {
     marqueur: m,
@@ -39,8 +40,9 @@ function semis(ts: number) {
         { h: 21, views: 168_850 },
       ]),
       s(2, "cleversonmgallego", 3_389, 415_872, 84, "pt", "E se a internet caísse amanhã?"),
-      s(3, "thefern.app", 64, 58_679, 14, "en", "I made a social media app that teaches you to invest"),
-      s(4, "alex.maneja23", 2_445, 49_713, 116, "es-es", "Si quieres hacer tu propia aplicación"),
+      // Thème « argent » : trouvée par une recherche du thème, ou légende avec un hashtag du thème (vraie légende du 12/11/2026).
+      s(3, "thefern.app", 64, 58_679, 14, "en", "I made a social media app that teaches you to invest", undefined, ["make money online·us"]),
+      s(4, "alex.maneja23", 2_445, 49_713, 116, "es-es", "Si quieres hacer tu propia aplicación #dinero #ganadinero"),
       s(5, "s.ecrettacc.vero", 3_332, 5_939_334, 1_226, "en", "This is actually insane theick.io"),
     ],
   };
@@ -59,6 +61,17 @@ test.describe("Nouveau Radar — Signaux", () => {
       await page.goto(adminPath(`/radar?q=${marqueur}`));
       await expect(page.getByRole("link", { name: /^Explorer/ })).toHaveAttribute("aria-current", "page");
       // 7 jours par défaut : la vidéo The Ick (51 jours) n'y est pas.
+      await expect(compte).toHaveText("4 vidéos");
+
+      // Le thème « argent » (12/11/2026) : la recherche du thème, ou un hashtag du thème.
+      await page.getByRole("button", { name: /^Thème/ }).click();
+      await page.getByRole("checkbox", { name: /^Argent, side hustle/ }).check();
+      await expect(compte).toHaveText("2 vidéos");
+      await expect(page).toHaveURL(/[?&]th=argent(&|$)/);
+      await expect(ligne("thefern.app")).toBeVisible();
+      await expect(ligne("alex.maneja23")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Retirer le filtre Thème : Argent, side hustle" }).click();
       await expect(compte).toHaveText("4 vidéos");
 
       // OU dans un groupe : deux langues cochées dans le menu Langue.
@@ -142,24 +155,24 @@ test.describe("Nouveau Radar — Signaux", () => {
       // Pas de clé ScrapeCreators en e2e : la collecte se dit en pause.
       await expect(page.getByRole("status").filter({ hasText: /Collecte en pause/ })).toBeVisible();
       await expect(page.getByTestId("radar-etat")).toHaveText("Collecte en pause : pas de clé ScrapeCreators");
-      // Défaut : recherche 20/jour (1,13 $) + courbe 100 vidéos/jour (16,92 $) + 2 000 relevés de
-      // comptes/jour (112,80 $) + réseaux (22,56 $) + Instagram 300/jour (16,92 $)
-      // + transcriptions 50/jour (2,82 $) + pubs (2,82 $) + 2 $ d'analyse IA = 177,97 $ prévus sur 300 $.
+      // Défaut : recherche 100/jour (5,64 $, dont le thème « argent » depuis le 12/11/2026) + courbe 100
+      // vidéos/jour (16,92 $) + 2 000 relevés de comptes/jour (112,80 $) + réseaux (22,56 $) + Instagram
+      // 300/jour (16,92 $) + transcriptions 50/jour (2,82 $) + pubs (2,82 $) + 2 $ d'analyse IA = 182,48 $ prévus sur 300 $.
       const verdict = page.getByTestId("radar-budget-verdict");
-      await expect(verdict).toContainText("122,03");
+      await expect(verdict).toContainText("117,52");
 
       await page.getByRole("radio", { name: /^400,00\s\$$/ }).click();
-      await expect(verdict).toContainText("222,03");
+      await expect(verdict).toContainText("217,52");
       await page.getByRole("switch", { name: "Couper : Suivre la courbe des vidéos repérées" }).click();
-      // Sans la courbe : 161,05 $ prévus.
-      await expect(verdict).toContainText("238,95");
+      // Sans la courbe : 165,56 $ prévus.
+      await expect(verdict).toContainText("234,44");
       await page.getByRole("button", { name: "Enregistrer le budget" }).click();
       await expect(page.getByText("Budget enregistré.")).toBeVisible();
 
       await page.reload();
       await expect(page.getByRole("radio", { name: /^400,00\s\$$/ })).toHaveAttribute("aria-checked", "true");
       await expect(page.getByRole("switch", { name: "Rallumer : Suivre la courbe des vidéos repérées" })).toHaveAttribute("aria-checked", "false");
-      await expect(verdict).toContainText("238,95");
+      await expect(verdict).toContainText("234,44");
     } finally {
       await admin.mutation(api.radarSignals.e2eResetRadarBudget, { secret: E2E_SECRET });
     }
@@ -226,6 +239,14 @@ test.describe("Nouveau Radar — Signaux", () => {
       // Le compteur d'une langue ne dépend pas des autres cases de son groupe.
       expect(fr_pt.compteurs.langue).toMatchObject({ fr: 1, pt: 1, en: 1, "es-es": 1 });
       expect(fr_pt.budget.collecteActive).toBe(false);
+
+      // Le thème « argent » : les deux vidéos du thème, par vues ÷ abonnés, avec leur thème.
+      const argent = await appel({ recherche: marqueur, theme: "argent" });
+      expect(argent.videos.map((v: { compte: string; themes?: string[] }) => [v.compte, v.themes])).toEqual([
+        [`thefern.app_${ts}`, ["argent"]],
+        [`alex.maneja23_${ts}`, ["argent"]],
+      ]);
+      expect(argent.compteurs.theme).toEqual({ argent: 2 });
 
       const concurrents = await appel({ recherche: marqueur, origine: "concurrents", periode: "90j" });
       expect(concurrents.videos.map((v: { compte: string; concurrent: string }) => [v.compte, v.concurrent])).toEqual([[`s.ecrettacc.vero_${ts}`, "The Ick"]]);

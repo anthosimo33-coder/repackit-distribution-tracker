@@ -8,13 +8,23 @@ import {
   keepSignal,
   langBucket,
   nextCheckpointAt,
+  foundByLabel,
   nextQueries,
   normalizeBudget,
   allowanceUsd,
   parseScVideo,
   plannedUsd,
 } from "../convex/radarSignalsMath";
-import { DISCOVERY_QUERIES, DISCOVERY_ROTATION, discoveryRotation, isRelationFind } from "../convex/radarDiscoveryQueries";
+import {
+  DISCOVERY_QUERIES,
+  DISCOVERY_ROTATION,
+  MONEY_HASHTAGS,
+  MONEY_QUERIES,
+  discoveryRotation,
+  hashtagsOf,
+  isRelationFind,
+  signalThemes,
+} from "../convex/radarDiscoveryQueries";
 import {
   applyFilters,
   chips,
@@ -156,20 +166,34 @@ describe("tri à la découverte et courbe", () => {
 
   it("fait tourner les recherches sans en sauter ni en répéter", () => {
     expect(DISCOVERY_QUERIES).toHaveLength(60);
-    // L'ordre de passage : les 7 tournures de niche, puis 13 des 53 autres, et ainsi de suite.
+    expect(MONEY_QUERIES).toHaveLength(76);
+    // Un tour : les 7 tournures de niche, les 76 du thème argent, puis 13 des 53 autres, et ainsi de suite.
     const niche = ["app pour couple", "app para casal", "app para parejas", "app para parejas", "app for couples", "achei um app", "app that tells you"].sort();
-    expect(DISCOVERY_ROTATION).toHaveLength(5 * 7 + 53);
+    expect(DISCOVERY_ROTATION).toHaveLength(5 * (7 + 76) + 53);
     expect(DISCOVERY_ROTATION.slice(0, 7).map((x) => x.query).sort()).toEqual(niche);
-    expect(DISCOVERY_ROTATION.slice(20, 27).map((x) => x.query).sort()).toEqual(niche);
-    // À 20 recherches par jour : chaque tournure de niche chaque jour, aucune autre deux fois dans le tour.
-    const jour1 = DISCOVERY_ROTATION.slice(0, 20).map((x) => `${x.query}·${x.region}`);
-    const jour2 = DISCOVERY_ROTATION.slice(20, 40).map((x) => `${x.query}·${x.region}`);
-    expect(jour1.filter((q) => jour2.includes(q))).toHaveLength(7);
-    const autres = DISCOVERY_ROTATION.filter((x) => !niche.includes(x.query)).map((x) => `${x.query}·${x.region}`);
+    expect(DISCOVERY_ROTATION.slice(7, 83)).toEqual(MONEY_QUERIES);
+    // Un tour fait 7 + 76 + 13 = 96 recherches.
+    expect(DISCOVERY_ROTATION.slice(96, 103).map((x) => x.query).sort()).toEqual(niche);
+    expect(DISCOVERY_ROTATION.slice(103, 179)).toEqual(MONEY_QUERIES);
+    // À 100 recherches par jour, d'où que reparte le curseur : la niche et l'argent chaque jour.
+    const label = (x: { query: string; region: string }) => `${x.query}·${x.region}`;
+    const quotidiennes = new Set([...DISCOVERY_QUERIES.filter((x) => niche.includes(x.query)), ...MONEY_QUERIES].map(label));
+    expect(quotidiennes.size).toBe(7 + 76);
+    for (const depart of [0, 1, 50, 96, 300, 400, DISCOVERY_ROTATION.length - 1]) {
+      const jour = new Set(nextQueries(depart, 100, DISCOVERY_ROTATION).queries.map(label));
+      expect([...quotidiennes].filter((q) => !jour.has(q))).toEqual([]);
+    }
+    const autres = DISCOVERY_ROTATION.filter((x) => DISCOVERY_QUERIES.includes(x) && !niche.includes(x.query)).map(label);
     expect(new Set(autres).size).toBe(53);
     expect(autres).toHaveLength(53);
-    // Sans tournure de niche, la rotation est la liste telle quelle.
-    expect(discoveryRotation(DISCOVERY_QUERIES.filter((x) => !niche.includes(x.query)))).toHaveLength(53);
+    // Sans tournure de niche ni quotidienne, la rotation est la liste telle quelle ; sans thème, celle d'avant le 12/11.
+    const horsNiche = DISCOVERY_QUERIES.filter((x) => !niche.includes(x.query));
+    expect(discoveryRotation(horsNiche)).toEqual(horsNiche);
+    expect(discoveryRotation(DISCOVERY_QUERIES)).toHaveLength(5 * 7 + 53);
+    // Le thème seul (sans niche) passe aussi à chaque tour.
+    const seul = discoveryRotation(horsNiche, 13, MONEY_QUERIES);
+    expect(seul).toHaveLength(5 * 76 + 53);
+    expect(seul.slice(89, 165)).toEqual(MONEY_QUERIES);
     const a = nextQueries(55, 10, DISCOVERY_QUERIES);
     expect(a.queries.map((x) => x.query)).toEqual([...DISCOVERY_QUERIES.slice(55), ...DISCOVERY_QUERIES.slice(0, 5)].map((x) => x.query));
     expect(a.cursor).toBe(5);
@@ -177,14 +201,55 @@ describe("tri à la découverte et courbe", () => {
   });
 });
 
+describe("thème « argent » (12/11/2026)", () => {
+  it("dans les 5 marchés, chaque tournure unique, aucune déjà dans la rotation des apps", () => {
+    const parMarche = (r: string) => MONEY_QUERIES.filter((x) => x.region === r);
+    expect(["FR", "BR", "MX", "ES", "US"].map((r) => parMarche(r).length)).toEqual([15, 14, 15, 16, 16]);
+    expect(parMarche("FR").every((x) => x.lang === "fr") && parMarche("BR").every((x) => x.lang === "pt") && parMarche("US").every((x) => x.lang === "en")).toBe(true);
+    expect([...parMarche("MX"), ...parMarche("ES")].every((x) => x.lang === "es")).toBe(true);
+    const labels = MONEY_QUERIES.map(foundByLabel);
+    expect(new Set(labels).size).toBe(76);
+    const apps = new Set(DISCOVERY_QUERIES.map(foundByLabel));
+    expect(labels.filter((l) => apps.has(l))).toEqual([]);
+  });
+
+  it("range dans le thème ce que ses recherches ramènent, et ce qui porte un hashtag du thème", () => {
+    // Les `foundBy` tels que la découverte les écrit : la tournure, puis le marché.
+    expect(signalThemes(["side hustle·us"], "")).toEqual(["argent"]);
+    expect(signalThemes(["renda extra·br"], "")).toEqual(["argent"]);
+    expect(signalThemes(["this app·us", "argent en ligne·fr"], "")).toEqual(["argent"]);
+    // Une tournure d'app, ou une tournure du thème dans un marché où elle ne tourne pas, ne suffit pas.
+    expect(signalThemes(["this app·us", "réseau Rizz App"], "my favorite app")).toEqual([]);
+    expect(signalThemes(["renda extra·us"], "")).toEqual([]);
+    // Légendes réelles relevées par le Radar (12/11/2026) : Fluencify, Newly.
+    expect(signalThemes(["réseau Fluencify"], "Why am I only finding out about this NOW? Let me see where this takes me! 😭🥹\n\n#UGCJourney #UGCCreator #MakeMoneyOnline #Fluencify #ContentCreator")).toEqual(["argent"]);
+    expect(signalThemes([], "Como se cadastrar na fluencify e começar a ganhar em dolar 💵 #ugccreator #techugc #ugc #fluencify\n#creatorsearchinsights ")).toEqual(["argent"]);
+    expect(signalThemes([], "Si quieres hacer tu propio aplicación utiliza newly#españa🇪🇸 #parati #trucostiktok #dinero #ganadinero ")).toEqual(["argent"]);
+    // Casse et accents ne comptent pas.
+    expect(signalThemes([], "#GagnerDeLArgent")).toEqual(["argent"]);
+    expect(signalThemes([], "#ganharemdólar")).toEqual(["argent"]);
+    // Le mot sans dièse, #ugc seul, #workfromhome, un hashtag qui commence pareil : non.
+    expect(signalThemes([], "side hustle tips, make money online")).toEqual([]);
+    expect(signalThemes([], "#ugc #workfromhome #fyp #sidehustler")).toEqual([]);
+    // Une vidéo d'app ordinaire (The Ick, 06/11/2026) reste hors du thème.
+    expect(signalThemes(["this app·us"], "This is actually insane #theick")).toEqual([]);
+  });
+
+  it("lit les hashtags d'une légende, collés ou non au texte", () => {
+    expect(hashtagsOf("utiliza newly#españa🇪🇸 #parati #Revenu_Passif")).toEqual(["espana", "parati", "revenu_passif"]);
+    expect(hashtagsOf("aucun hashtag")).toEqual([]);
+    expect([...MONEY_HASHTAGS].every((t) => t === t.toLowerCase() && !/[#\s]/.test(t) && t === t.normalize("NFD").replace(/\p{M}/gu, ""))).toBe(true);
+  });
+});
+
 describe("budget", () => {
   const d = normalizeBudget(null);
   const usage = (poste: string, credits: number, day = "2026-11-06") => ({ poste, credits, day });
 
-  it("prévoit 177,97 $ au plus par défaut sous un plafond de 300 $ : 20 recherches/jour, courbe, comptes, réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
+  it("prévoit 182,48 $ au plus par défaut sous un plafond de 300 $ : 100 recherches/jour, courbe, comptes, réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
     expect(d.capUsd).toBe(300);
-    expect(plannedUsd(d)).toBeCloseTo((20 * 30 + 100 * 3 * 30 + 2_000 * 30 + 12_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
-    expect(plannedUsd(d)).toBeCloseTo(177.968, 3);
+    expect(plannedUsd(d)).toBeCloseTo((100 * 30 + 100 * 3 * 30 + 2_000 * 30 + 12_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
+    expect(plannedUsd(d)).toBeCloseTo(182.48, 2);
   });
 
   it("des réglages d'avant la v4 prennent les postes relevés, les postes branchés et le plafond par défaut ; ceux de la v4 sont respectés", () => {
@@ -202,8 +267,8 @@ describe("budget", () => {
     // Les réglages réels de la prod au 06/11/2026 (v1, plafond 60 $).
     const m = normalizeBudget(v1);
     expect(m.capUsd).toBe(300);
-    // La découverte passe à 20 recherches/jour (v6) : les tournures de niche chaque jour, les autres en rotation.
-    expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 20, on: true });
+    // La découverte passe à 100 recherches/jour (v7) : la niche et le thème argent chaque jour, les autres en rotation.
+    expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 100, on: true });
     expect(m.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 100, on: true });
     expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 2_000, on: true });
     expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 12_000, on: true });
@@ -238,9 +303,13 @@ describe("budget", () => {
     expect(b.capUsd).toBe(300);
     expect(b.postes.find((p) => p.key === "ai")).toEqual({ key: "ai", qty: 2, on: true });
     expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(true);
-    // D'une v4, la découverte prend aussi son défaut (20/jour) ; en v6, une quantité réglée est bornée.
-    expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 20, on: true });
-    expect(normalizeBudget({ postes: [{ key: "search", qty: 1_000, on: true }], budgetVersion: 6 }).postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 300, on: true });
+    // D'une v4, la découverte prend aussi son défaut (100/jour) ; en v7, une quantité réglée est bornée.
+    expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 100, on: true });
+    const search = (qty: number, budgetVersion: number) => normalizeBudget({ postes: [{ key: "search", qty, on: true }], budgetVersion }).postes.find((p) => p.key === "search");
+    expect(search(1_000, 7)).toEqual({ key: "search", qty: 300, on: true });
+    // La prod était en v6 à 20/jour : elle passe à 100 ; une quantité réglée après (v7) est gardée.
+    expect(search(20, 6)).toEqual({ key: "search", qty: 100, on: true });
+    expect(search(40, 7)).toEqual({ key: "search", qty: 40, on: true });
     expect(b.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 88, on: false });
     expect(b.cutOrder).toEqual(["curve", "ai", "search", "transcript", "ads", "insta", "network", "tiktok"]);
     expect(b.alert80).toBe(false);
@@ -270,9 +339,10 @@ describe("budget", () => {
 
   it("donne à un passage sa part du jour, bornée par ce qui reste aujourd'hui", () => {
     const s = budgetState(d, []);
-    expect(allowance(d, s, "search", 0, 4)).toBe(5);
-    expect(allowance(d, s, "search", 17, 4)).toBe(3);
-    expect(allowance(d, s, "search", 20, 4)).toBe(0);
+    // 100 recherches/jour en 4 passages : 25 par passage, bornées par le reste du jour.
+    expect(allowance(d, s, "search", 0, 4)).toBe(25);
+    expect(allowance(d, s, "search", 90, 4)).toBe(10);
+    expect(allowance(d, s, "search", 100, 4)).toBe(0);
     // 100 vidéos × 3 relevés = 300/jour → 13 par heure ; 2 000 relevés de comptes → 84 par heure.
     expect(allowance(d, s, "curve", 0, 24)).toBe(13);
     expect(allowance(d, s, "tiktok", 0, 24)).toBe(84);
@@ -342,7 +412,10 @@ const sig = (handle: string, fans: number, views: number, ageH: number, lang: st
   app: extra.app ?? extra.competitor ?? null,
   status: extra.status ?? "nouveau",
   multiplier: extra.multiplier ?? null,
+  ...(extra.themes ? { themes: extra.themes } : {}),
 });
+
+const NEWLY = "Si quieres hacer tu propio aplicación utiliza newly#españa🇪🇸 #parati #trucostiktok #dinero #ganadinero ";
 
 /** Les vraies vidéos du test du 06/11/2026 (pseudos, abonnés, vues, âge). */
 const DATA = [
@@ -357,7 +430,8 @@ const DATA = [
   sig("fannyfloress_", 3_191, 64_042, 84, "es-am"),
   sig("dressai.co", 238, 25_478, 159, "fr", { caption: "DressAI est ENFIN disponible sur l'App Store" }),
   sig("bobstyle2.0", 639, 13_232, 144, "fr", { caption: "Le catalogue est énorme et ça s'appelle DressCode" }),
-  sig("alex.maneja23", 2_445, 49_713, 116, "es-es"),
+  // Légende réelle (relevée le 12/11/2026) : #dinero #ganadinero, thème « argent » par la vraie règle.
+  sig("alex.maneja23", 2_445, 49_713, 116, "es-es", { caption: NEWLY, themes: signalThemes([], NEWLY) }),
   sig("elo.stalk", 77, 38_383, 45, "fr", { competitor: null }),
   sig("s.ecrettacc.vero", 3_332, 5_939_334, 1_226, "en", { competitor: "The Ick", caption: "This is actually insane #theick" }),
   sig("joscissecretaccount2", 14, 8_704, 623, "en", { competitor: "The Ick" }),
@@ -488,6 +562,19 @@ describe("filtres de l'écran Signaux", () => {
     const old = fromSearchParams(new URLSearchParams("a=Appli%20disparue"));
     expect(old.sel.app).toEqual(["Appli disparue"]);
     expect(facets(DATA, old, NOW).groups.find((g) => g.key === "app")!.options.find((o) => o.value === "Appli disparue")).toMatchObject({ checked: true, disabled: false });
+  });
+
+  it("le thème « argent » : un filtre comme les autres, dans l'adresse et en vue enregistrée (12/11/2026)", () => {
+    const f = toggle(defaultFilters(), "theme", "argent");
+    expect(applyFilters(DATA, f, NOW).map((s) => s.handle)).toEqual(["alex.maneja23"]);
+    expect(opt(defaultFilters(), "theme", "argent")).toMatchObject({ count: 1, disabled: false });
+    expect(chips(f)).toEqual([{ kind: "group", key: "theme", value: "argent" }]);
+    expect(toSearchParams(f).toString()).toBe("th=argent");
+    expect(fromSearchParams(new URLSearchParams("th=argent,inconnu")).sel.theme).toEqual(["argent"]);
+    const vue = PRESETS.find((p) => p.id === "argent")!.patch({ ...defaultFilters(), age: "90" });
+    expect(sameFilters(vue, f)).toBe(true);
+    // Combiné à une langue : ET entre groupes.
+    expect(count(toggle(f, "langue", "fr"))).toBe(0);
   });
 
   it("l'adresse garde tout et seulement ce qui s'écarte du défaut", () => {

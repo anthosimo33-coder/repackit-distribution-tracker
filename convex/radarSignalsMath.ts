@@ -318,7 +318,7 @@ export const POSTES: readonly PosteDef[] = [
  * courbe et plafond passent au cran au-dessus. Des réglages plus anciens relus
  * prennent pour ces postes, et pour le plafond, les valeurs par défaut.
  */
-export const BUDGET_VERSION = 6;
+export const BUDGET_VERSION = 7;
 // v4 : Instagram, transcriptions et pubs branchés (éteints tant qu'ils ne l'étaient pas).
 // v5 : l'analyse IA branchée (familles de hooks) ; le plafond et les autres postes d'une v4 sont gardés.
 const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
@@ -326,6 +326,8 @@ const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
   { before: 5, postes: ["ai"] },
   // v6 : découverte à 20 recherches/jour (les tournures de niche chaque jour, les autres en rotation).
   { before: 6, postes: ["search"] },
+  // v7 : 100 recherches/jour, le thème « argent » passant chaque jour (12/11/2026).
+  { before: 7, postes: ["search"] },
 ];
 /** Le plafond se garde à partir de cette version. */
 const CAP_KEPT_FROM = 4;
@@ -353,8 +355,9 @@ export type BudgetSettings = {
 // 50 transcriptions/jour ; pubs 1 500 crédits/mois (concurrentes tous les 3 jours,
 // les autres chaque semaine). Prévu au plus : ~178 $/mois sous un plafond de 300 $.
 // Analyse IA : ~1 $ par mois prévu (Claude Haiku, quelques centaines de hooks), 2 $ au plus.
-// Découverte : 20 recherches/jour depuis le 09/11/2026 (60 avant) — 170 de ses 190 signaux étaient hors niche.
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 20, curve: 100, tiktok: 2_000, network: 12_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
+// Découverte : 20 recherches/jour du 09/11/2026 (60 avant) — 170 de ses 190 signaux étaient hors niche ;
+// 100 depuis le 12/11/2026 : les 76 recherches du thème « argent » (side hustle) chaque jour, en plus (~4,50 $/mois).
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 100, curve: 100, tiktok: 2_000, network: 12_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
   capUsd: 300,

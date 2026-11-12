@@ -233,6 +233,7 @@
     "aucuneVue": "None",
     "preset": {
       "tout": "All",
+      "argent": "Money, side hustle · 7 d",
       "horsDomaine": "Other apps · 7 d",
       "concurrents": "Competitors · 90 d",
       "latam": "Brazil + Latin America"
@@ -291,12 +292,16 @@
     },
     "groupe": {
       "periode": "Period",
+      "theme": "Topic",
       "origine": "Origin",
       "langue": "Language",
       "taille": "Account size",
       "statut": "Status",
       "app": "App",
       "plateforme": "Platform"
+    },
+    "theme": {
+      "argent": "Money, side hustle"
     },
     "origine": {
       "concurrent": "Competitors",
@@ -342,6 +347,7 @@
       "q": "Search",
       "age": "Period",
       "seuil": "Views ÷ followers",
+      "theme": "Topic",
       "origine": "Origin",
       "langue": "Language",
       "taille": "Account size",
@@ -368,7 +374,7 @@
     "poste": {
       "search": {
         "titre": "Find rising formats",
-        "aide": "TikTok searches in 5 languages, about 30 videos per search.",
+        "aide": "TikTok searches in 5 languages, about 30 videos per search: app phrasings, and every day the money topic (side hustle, online income).",
         "unite": "searches/day"
       },
       "curve": {

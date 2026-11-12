@@ -18,6 +18,15 @@ export type SignalStatus = "nouveau" | "enregistre" | "adapte" | "ignore";
 export const STATUSES: readonly SignalStatus[] = ["nouveau", "enregistre", "adapte", "ignore"];
 export const DEFAULT_STATUT: readonly SignalStatus[] = ["nouveau", "enregistre", "adapte"];
 
+/**
+ * Les thèmes de la découverte : un sujet que le Radar cherche dans tout TikTok,
+ * hors des apps suivies. « argent » = side hustle, revenus en ligne, business à
+ * côté (12/11/2026) ; la règle qui range une vidéo dans un thème est dans
+ * convex/radarDiscoveryQueries (`signalThemes`, serveur seul).
+ */
+export const THEMES = ["argent"] as const;
+export type ThemeKey = (typeof THEMES)[number];
+
 /** Ce dont les filtres ont besoin d'un signal (sous-ensemble de listSignalsCore). */
 export type FilterableSignal = {
   handle: string;
@@ -30,6 +39,8 @@ export type FilterableSignal = {
   competitor: string | null;
   /** L'app que la vidéo pousse (réseau suivi, ou légende qui la cite). */
   app: string | null;
+  /** Les thèmes de la découverte où elle entre (absent = aucun). */
+  themes?: readonly string[];
   platform: "tiktok" | "instagram";
   /** Vues ÷ médiane du compte (comptes suivis), sinon null. */
   multiplier?: number | null;
@@ -38,9 +49,10 @@ export type FilterableSignal = {
   status: SignalStatus;
 };
 
-export type GroupKey = "origine" | "plateforme" | "langue" | "app" | "taille" | "statut";
+export type GroupKey = "theme" | "origine" | "plateforme" | "langue" | "app" | "taille" | "statut";
 /** `values` vide = valeurs tirées des données (les apps suivies changent). */
 export const GROUPS: readonly { key: GroupKey; values: readonly string[] }[] = [
+  { key: "theme", values: THEMES },
   { key: "origine", values: ["concurrent", "autre"] },
   { key: "plateforme", values: ["tiktok", "instagram"] },
   { key: "langue", values: LANG_BUCKETS },
@@ -71,7 +83,7 @@ export const DEFAULT_AGE: AgeKey = "7";
 export const DEFAULT_SORT: SortKey = "mediane";
 
 export function defaultFilters(): Filters {
-  return { sel: { origine: [], plateforme: [], langue: [], app: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: DEFAULT_SORT };
+  return { sel: { theme: [], origine: [], plateforme: [], langue: [], app: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: DEFAULT_SORT };
 }
 
 const HOUR = 3_600_000;
@@ -80,6 +92,7 @@ const DAY = 24 * HOUR;
 export const tailleOf = (fans: number) => (fans < 1_000 ? "xs" : fans < 10_000 ? "s" : fans < 50_000 ? "m" : "l");
 
 export function valuesOf(s: FilterableSignal, key: GroupKey): string[] {
+  if (key === "theme") return [...(s.themes ?? [])];
   if (key === "origine") return [s.competitor ? "concurrent" : "autre"];
   if (key === "plateforme") return [s.platform];
   if (key === "langue") return [s.lang];
@@ -214,9 +227,10 @@ export function suggestions(signals: readonly FilterableSignal[], f: Filters, no
 
 // ─── Vues enregistrées ───────────────────────────────────────────────────────
 
-export type PresetId = "tout" | "horsDomaine" | "concurrents" | "latam";
+export type PresetId = "tout" | "argent" | "horsDomaine" | "concurrents" | "latam";
 export const PRESETS: readonly { id: PresetId; patch: (f: Filters) => Filters }[] = [
   { id: "tout", patch: (f) => clearAll(f) },
+  { id: "argent", patch: (f) => ({ ...clearAll(f), sel: { ...clearAll(f).sel, theme: ["argent"] } }) },
   { id: "horsDomaine", patch: (f) => ({ ...clearAll(f), sel: { ...clearAll(f).sel, origine: ["autre"] } }) },
   { id: "concurrents", patch: (f) => ({ ...clearAll(f), age: "90", sel: { ...clearAll(f).sel, origine: ["concurrent"] } }) },
   { id: "latam", patch: (f) => ({ ...clearAll(f), age: "30", sel: { ...clearAll(f).sel, langue: ["pt", "es-am"] } }) },
@@ -229,7 +243,7 @@ export function sameFilters(a: Filters, b: Filters): boolean {
 
 // ─── Adresse de la page ──────────────────────────────────────────────────────
 
-const PARAM: Record<GroupKey, string> = { origine: "o", plateforme: "p", langue: "l", app: "a", taille: "t", statut: "st" };
+const PARAM: Record<GroupKey, string> = { theme: "th", origine: "o", plateforme: "p", langue: "l", app: "a", taille: "t", statut: "st" };
 
 /** Les filtres dans l'adresse ; un filtre au défaut n'y figure pas. */
 export function toSearchParams(f: Filters, base?: URLSearchParams): URLSearchParams {
