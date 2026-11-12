@@ -4373,6 +4373,9 @@ export default defineSchema({
     hookKey: v.optional(v.string()), // GABARIT du hook, cf radarNetworkMath.hookTemplate
     musicId: v.optional(v.string()),
     musicTitle: v.optional(v.string()),
+    // Miniature au dernier relevé : URL signée par TikTok, qui expire. Swarm la
+    // recopie chez lui pendant sa synchronisation (convex/swarmExport.ts).
+    coverUrl: v.optional(v.string()),
   })
     .index("by_account_published", ["accountId", "publishedAt"])
     .index("by_video", ["videoId"])

@@ -238,7 +238,12 @@ export const applyIgRead = internalMutation({
       const hk = hookTemplate(r.hook);
       const known = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", videoId)).first();
       if (known) {
-        await ctx.db.patch(known._id, { views: Math.max(known.views, r.views), snapshots: addSnapshot(known.snapshots, now, r.views), lastSeenAt: now });
+        await ctx.db.patch(known._id, {
+          views: Math.max(known.views, r.views),
+          snapshots: addSnapshot(known.snapshots, now, r.views),
+          lastSeenAt: now,
+          ...(r.coverUrl ? { coverUrl: r.coverUrl } : {}),
+        });
       } else {
         await ctx.db.insert("radarTrackedVideos", {
           accountId,
@@ -248,6 +253,7 @@ export const applyIgRead = internalMutation({
           publishedAt: r.publishedAt,
           views: r.views,
           snapshots: [{ at: now, views: r.views }],
+          ...(r.coverUrl ? { coverUrl: r.coverUrl } : {}),
           lastSeenAt: now,
           ...(r.hook ? { hook: r.hook } : {}),
           ...(hk ? { hookKey: hk } : {}),

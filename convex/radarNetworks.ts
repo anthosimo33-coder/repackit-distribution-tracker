@@ -375,11 +375,14 @@ export const applyAccountRead = internalMutation({
         ...(s.musicTitle ? { musicTitle: s.musicTitle } : {}),
       };
       const known = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", s.videoId)).first();
+      // La miniature est signée et expire : on garde celle du dernier relevé.
+      const cover = s.coverUrl ? { coverUrl: s.coverUrl } : {};
       if (known) {
         await ctx.db.patch(known._id, {
           views: Math.max(known.views, s.views),
           snapshots: addSnapshot(known.snapshots, now, s.views),
           lastSeenAt: now,
+          ...cover,
           // Vidéo relevée avant qu'on lise hook et son, ou avant les gabarits : on complète.
           ...(known.caption === undefined || known.hookKey !== extra.hookKey ? extra : {}),
         });
@@ -393,6 +396,7 @@ export const applyAccountRead = internalMutation({
           snapshots: [{ at: now, views: s.views }],
           lastSeenAt: now,
           ...extra,
+          ...cover,
         });
         fresh.push(s);
       }
