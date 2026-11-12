@@ -377,8 +377,21 @@ export function isOffTopic(
   videos: readonly { caption?: string; hook?: string; platform?: string }[],
   handle: string,
   rule: AppRule,
+  bio?: string | null,
 ): boolean {
-  return accountVerdict(matchedBy, videos, handle, rule, []).kind === "offTopic";
+  return accountVerdict(matchedBy, videos, handle, rule, [], bio).kind === "offTopic";
+}
+
+/**
+ * La bio du compte nomme-t-elle l'app ? Un compte qui écrit « J'utilise : shortfy.io » ou « Ambassadeur
+ * shortfy.io » dans sa bio fait partie du réseau, même quand ses vidéos ne l'écrivent plus. Le 12/11/2026,
+ * @gasp_viral (Shortfy) avait été mis en pause « hors sujet » : ses 10 dernières vidéos ne nomment Shortfy qu'à
+ * l'oral, ni légende ni texte à l'écran. Ce jour-là, 3 comptes en pause « hors sujet » sur 202 avaient une bio qui
+ * nomme leur app (lui, « Planning all my trips with @Palima », « Download Sweatcoin ») ; 385 des 1 005 comptes
+ * actifs entrés par une légende sont dans le même cas.
+ */
+export function bioNamesApp(bio: string | null | undefined, rule: AppRule): boolean {
+  return !!bio && citesNormalized(normalize(bio), rule);
 }
 
 /** Vidéos qui citent une AUTRE app suivie avant d'y ranger le compte, et combien de fois plus que la sienne. */
@@ -403,7 +416,8 @@ export type AccountVerdict<T> = { kind: "keep" } | { kind: "move"; to: T; cited:
  *    Master (10/11/2026) ;
  *  - sinon, aucune vidéo lue (9 au moins) ne cite la sienne → `offTopic` ;
  *  - sinon → `keep`.
- * Les comptes choisis à la main ou de la liste de départ ne sont jamais jugés.
+ * Les comptes choisis à la main ou de la liste de départ ne sont jamais jugés, ni ceux dont la BIO nomme leur
+ * app (`bioNamesApp`) : ils restent dans son réseau.
  * `others` : les autres apps suivies (pas la sienne).
  */
 export function accountVerdict<T extends AppRule>(
@@ -412,8 +426,10 @@ export function accountVerdict<T extends AppRule>(
   handle: string,
   own: AppRule,
   others: readonly T[],
+  bio?: string | null,
 ): AccountVerdict<T> {
   if (matchedBy !== "caption") return { kind: "keep" };
+  if (bioNamesApp(bio, own)) return { kind: "keep" };
   const read = videos.filter((v) => !v.platform && (v.caption !== undefined || v.hook !== undefined));
   let ownCount = 0;
   // Par autre app : vidéos qui la citent (pseudo compris), dont celles dont le TEXTE la cite.

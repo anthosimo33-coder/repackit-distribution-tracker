@@ -21,6 +21,7 @@ import {
   OFF_TOPIC_MIN_VIDEOS,
   SECOND_LOOK_MS,
   accountVerdict,
+  bioNamesApp,
   effectiveRivalOf,
   withRivalChoice,
   seedRemoval,
@@ -476,6 +477,54 @@ describe("compte qui ne cite jamais son app : plus relevé (09/11/2026)", () => 
   });
 });
 
+describe("une bio qui nomme l'app garde le compte dans son réseau (12/11/2026)", () => {
+  // @gasp_viral le 12/11/2026 : ses 10 dernières vidéos ne nomment Shortfy qu'à l'oral.
+  const GASP = [
+    "Pourquoi personne nous apprend ça à l’école ?!🤯#ia #argent #business",
+    "Pourquoi personne ne m’a appris ça ??! 🤯#ia #argent #business",
+    "Comment ça je découvre ça que maintenant ?!?#ia #argent #business",
+    "C’est une dinguerie ce qu’elle fait 🤯#ia #argent #business",
+    "Enregistrez là au cas où 🤝#ia #argent #business",
+    "Heureusement que je l’ai enregistré, ne me remerciez pas🙌#ia #argent #business",
+    "Sans doute le business le plus rentable 🤯#businesstips #ia",
+    "J’ai enregistré pour vous #ia #argent #business",
+    "Il vit en 2070 #ia #argent #business",
+    "Personne n’en parle #ia #argent #business",
+  ].map((caption) => ({ caption }));
+  const shortfy = app("shortfy");
+
+  it("la bio nomme l'app : le site, le nom, une mention", () => {
+    expect(bioNamesApp("J'utilise : shortfy.io", shortfy)).toBe(true);
+    expect(bioNamesApp("Ambassadeur shortfy.io 📈\n📨 : contact@exemple.fr", shortfy)).toBe(true);
+    expect(bioNamesApp("L'IA que j'utilise c'est Shortfy ! 🤖", shortfy)).toBe(true);
+    expect(bioNamesApp("Exploring the world 🌍\nPlanning all my trips with @Palima 🌴", app("palima"))).toBe(true);
+  });
+
+  it("elle ne la nomme pas : une autre app, rien, une bio vide", () => {
+    // Les ambassadrices de Wilgo rangées sous Shortfy pour un dièse recopié.
+    expect(bioNamesApp("📚Study together\nJe t'aide à avoir 18 de moyenne\nAmbassadrice WILGO", shortfy)).toBe(false);
+    expect(bioNamesApp("Que du concret. Je teste des business", shortfy)).toBe(false);
+    expect(bioNamesApp("", shortfy)).toBe(false);
+    expect(bioNamesApp(undefined, shortfy)).toBe(false);
+    expect(bioNamesApp(null, shortfy)).toBe(false);
+  });
+
+  it("@gasp_viral : 10 vidéos sans le nom, hors sujet sans sa bio, gardé avec", () => {
+    expect(isOffTopic("caption", GASP, "gasp_viral", shortfy)).toBe(true);
+    expect(isOffTopic("caption", GASP, "gasp_viral", shortfy, "J'utilise : shortfy.io")).toBe(false);
+    expect(accountVerdict("caption", GASP, "gasp_viral", shortfy, SEED_APPS.filter((a) => a.slug !== "shortfy"), "J'utilise : shortfy.io")).toEqual({ kind: "keep" });
+    // Une bio qui nomme une AUTRE app ne protège pas.
+    expect(isOffTopic("caption", GASP, "gasp_viral", shortfy, "Ambassadrice WILGO")).toBe(true);
+  });
+
+  it("sa bio l'emporte sur ce que citent ses vidéos : il ne change pas de réseau", () => {
+    const others = SEED_APPS.filter((a) => a.slug !== "followspy");
+    // Sans bio, ce compte part chez FollowOtter (ses vidéos la citent toutes).
+    expect(accountVerdict("caption", LILY_GIRLTEA, "lily.girltea", app("followspy"), others).kind).toBe("move");
+    expect(accountVerdict("caption", LILY_GIRLTEA, "lily.girltea", app("followspy"), others, "the app is followspy 🔎")).toEqual({ kind: "keep" });
+  });
+});
+
 describe("un format réussi se lit sur ses reprises (09/11/2026)", () => {
   it("« new obsession » : 1,8 M au mieux, mais 3 reprises réussies sur 23 → pas réussi", () => {
     const reprises = [257.3, 12, 4.1, ...Array.from({ length: 20 }, () => 1)].map((multiplier) => ({ multiplier }));
@@ -721,11 +770,16 @@ describe("comptes de départ après la recherche approfondie", () => {
   const tous = Object.values(SEED_ACCOUNTS).flat();
   const liste = (slug: string) => SEED_ACCOUNTS[slug] ?? [];
 
-  it("1 146 comptes sur 41 apps, chacun une seule fois (1 137 sur 39 avant Shortfy et TrendSaaS le 12/11, 1 100 sur 38 avant la recherche francophone du 11/11)", () => {
+  it("1 155 comptes sur 41 apps, chacun une seule fois (1 146 avant la recherche approfondie de Shortfy du 12/11, 1 137 sur 39 avant Shortfy et TrendSaaS, 1 100 sur 38 avant la recherche francophone du 11/11)", () => {
     expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(41);
-    expect(tous).toHaveLength(1146);
-    expect(new Set(tous).size).toBe(1146);
-    expect(liste("shortfy")).toEqual(["emma.viral80", "toma.ia"]);
+    expect(tous).toHaveLength(1155);
+    expect(new Set(tous).size).toBe(1155);
+    // Shortfy : 2 du 12/11 au matin + 9 de la recherche approfondie du soir (une vidéo à 4,2 M de vues, bio « Shortfy.io »,
+    // nom « laure_shortfy »…). Pas les comptes où il n'a fait que passer, ni la marque, ni l'homonyme turc.
+    expect(liste("shortfy")).toHaveLength(11);
+    expect(liste("shortfy").slice(0, 2)).toEqual(["emma.viral80", "toma.ia"]);
+    expect(liste("shortfy")).toEqual(expect.arrayContaining(["potron.me", "erin.shortfy0", "xzfly0", "zinedine..gsb"]));
+    for (const h of ["juan.tikitaka", "wewekilsss3", "lukacommemodric", "shortfy.io", "shortfy", "zinedine.gsb"]) expect(tous).not.toContain(h);
     expect(liste("trendsaas")).toHaveLength(7);
     expect(liste("fluencify")).toHaveLength(124);
     expect(liste("stalkie")).toHaveLength(66);
@@ -783,10 +837,13 @@ describe("comptes de départ après la recherche approfondie", () => {
 describe("comptes mis en pause à la main", () => {
   const tous = Object.values(SEED_ACCOUNTS).flat();
 
-  it("41 comptes, chacun une fois, aucun dans les listes de départ", () => {
-    expect(OFF_TOPIC_BY_HAND).toHaveLength(41);
-    expect(new Set(OFF_TOPIC_BY_HAND).size).toBe(41);
+  it("44 comptes (41 le 10/11, 3 ambassadrices de Wilgo sous Shortfy le 12/11), chacun une fois, aucun dans les listes de départ", () => {
+    expect(OFF_TOPIC_BY_HAND).toHaveLength(44);
+    expect(new Set(OFF_TOPIC_BY_HAND).size).toBe(44);
     for (const h of OFF_TOPIC_BY_HAND) expect(h).toMatch(/^[a-z0-9._]+$/);
+    // Elles ont recopié la légende d'une vidéo Shortfy, dièse compris : la légende cite Shortfy, pas leur bio.
+    expect(findApp("Au moins je vous le dit #buisness #shortfy #pourtoiii #fyp", "sarah.wilgo", SEED_APPS)?.name).toBe("Shortfy");
+    expect(OFF_TOPIC_BY_HAND.slice(-3)).toEqual(["studywithsathyne", "sarah.wilgo", "emily.wilgo"]);
     expect(OFF_TOPIC_BY_HAND.filter((h) => tous.includes(h) || SEED_REMOVED.includes(h))).toEqual([]);
     // 1,5 M d'abonnés sous Bible Chat, 0 citation sur ses 10 dernières vidéos ; une boutique d'écouteurs sous Airbuds.
     expect(OFF_TOPIC_BY_HAND).toContain("ntando_bash");

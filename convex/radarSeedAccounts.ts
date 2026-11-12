@@ -102,7 +102,17 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
   // Shortfy et TrendSaaS (thème « argent », 12/11/2026) : comptes dont au moins deux vidéos de la semaine citent
   // l'app (#shortfy « 1000 € par jours ! », « Le nom du site c'est TrendSaaS.ai »). Écartés : @zinedine.gsbb et
   // @nael59972, une seule vidéo chacun.
-  shortfy: ["emma.viral80", "toma.ia"],
+  // + 9 de la recherche approfondie de Shortfy du 12/11/2026 au soir : #shortfy (246 vidéos) et #shortfyio (84)
+  // déroulés jusqu'à ne plus rien rendre, 955 vidéos lues (légende et texte à l'écran), 67 profils relus, 589
+  // variantes de pseudo sondées. 22 comptes créateurs, tous francophones : 13 que le Radar suivait déjà (entrés
+  // par une légende, @zinedine.gsbb compris, 26 vidéos depuis) et ces 9. Y entre un compte dont le pseudo, le nom
+  // ou la bio nomme Shortfy, ou dont au moins 3 des 10 dernières vidéos le citent : @potron.me (une vidéo à
+  // 4,2 M de vues, « Shortfy.io » à l'écran, rien dans la légende), @erin.shortfy0, @xzfly0 (bio « Shortfy.io »),
+  // @laure._studyy (nom « laure_shortfy »), @isma.ytb, @bobbyprcs, @ismaprcs, et deux autres comptes de Zinedine.
+  // N'entrent pas : les comptes où Shortfy n'a fait que passer (@juan.tikitaka, 16 vidéos de foot à l'automne
+  // 2025, @wewekilsss3, @lukacommemodric), le compte de la marque @shortfy.io (aucune vidéo publique), les
+  // homonymes (@shortfy est turc), et les ambassadrices de Wilgo — voir OFF_TOPIC_BY_HAND.
+  shortfy: ["emma.viral80", "toma.ia", "potron.me", "erin.shortfy0", "laure._studyy", "isma.ytb", "xzfly0", "bobbyprcs", "ismaprcs", "zinedine..gsb", "zinedine.ia"],
   // + 3 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   snitchy: ["lilimystery", "lscarla3", "enjoysecrets", "les.secrets.de.sak", "nanousecrets", "ilham.enquetes", "laure_snitchy", "juliettesnitchy", "detective.sn1tchy", "emma_4033", "snjulica", "carlasrk5", "laure_secrett", "snchases99"],
   // + 38 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
@@ -152,12 +162,18 @@ export const SEED_REMOVED: readonly string[] = ["nadegellg", "luca.lss", "chiara
  *  - 5 boutiques et revendeurs de téléphones rangés sous Airbuds : « airbuds » y désigne des écouteurs.
  * Des 61 comptes proposés, 20 n'y sont pas : 8 citent l'app dans au moins 5 de leurs dernières vidéos (ce sont
  * des créateurs), 1 est un compte de la marque (floteens), 11 ne sont pas tranchés.
+ *
+ * Le 12/11/2026, trois de plus sous Shortfy : des ambassadrices de Wilgo (app de révision, bio « Ambassadrice
+ * WILGO ») qui ont recopié la légende d'une vidéo Shortfy à 718 000 vues, dièses compris (« Au moins je vous le
+ * dit #buisness #shortfy #pourtoiii #fyp »). Une vidéo chacune ; elles ne parlent pas de Shortfy.
  */
 export const OFF_TOPIC_BY_HAND: readonly string[] = [
   // Gros comptes généralistes.
   "_szonjaaa._", "_yeahbert24", "anaylunagarcia", "annetll", "arganaca", "awadesandia62", "banginout009", "birdtart01", "calithekid_", "camii_.grwm_", "cedesugc", "celesste_apps", "dorriecherry", "ezgityp", "fix.with.zabit", "haileygracieee", "happylittledesign", "herasuns", "johnniehartmann", "larrylegend145", "lotte_1862", "maggiemurphyxo", "massi2elegant", "nashgotnyash", "ntando_bash", "praiize", "profsnider", "queenofvitality", "renduh", "salsa6ell", "samy.aasmr", "sarahandjk", "soya_ning", "tylerbtopg", "valeatoire", "z_zeika",
   // Boutiques d'écouteurs « airbuds ».
   "techzoneelectronix", "fawadmobile.ak", "fawad.mobile.zone75", "hamzamartofficialpk", "bilal_mobile_pakistan",
+  // Ambassadrices de Wilgo rangées sous Shortfy pour un dièse recopié.
+  "studywithsathyne", "sarah.wilgo", "emily.wilgo",
 ];
 
 /**

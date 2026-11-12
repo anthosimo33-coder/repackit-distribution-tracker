@@ -45,6 +45,7 @@ import {
   igHandleFromBio,
   accountLang,
   accountVerdict,
+  bioNamesApp,
   canRejudge,
   formatSuccess,
   nextReadAtFor,
@@ -406,7 +407,9 @@ export const applyAccountRead = internalMutation({
     // aucune (sur ses dernières vidéos lues), il n'est plus relevé.
     const apps = await ctx.db.query("radarApps").collect();
     const own = app;
-    const verdict = own ? accountVerdict(acc.matchedBy, recent, acc.handle, own, otherActiveApps(apps, own._id)) : { kind: "keep" as const };
+    // Sa bio, lue à ce relevé (sinon celle déjà connue) : si elle nomme son app, le compte reste dans son réseau.
+    const bio = videos.find((s) => s.authorBio)?.authorBio;
+    const verdict = own ? accountVerdict(acc.matchedBy, recent, acc.handle, own, otherActiveApps(apps, own._id), bio ?? acc.bio) : { kind: "keep" as const };
     if (own && verdict.kind === "move") {
       await moveAccount(ctx, acc, own, verdict.to, recent);
       app = verdict.to;
@@ -414,7 +417,6 @@ export const applyAccountRead = internalMutation({
     const appId = app?._id ?? acc.appId;
     const offTopic = verdict.kind === "offTopic" && !acc.keptByHand;
     const fans = videos[0]?.authorFans ?? acc.fans;
-    const bio = videos.find((s) => s.authorBio)?.authorBio;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
     const ig = acc.igHandle ? null : igHandleFromBio(bio);
     // Sa langue : celle déclarée à la main, sinon la plus fréquente de ses légendes ; et quand TikTok n'en donne
@@ -532,12 +534,12 @@ async function rejudgePausedCore(ctx: MutationCtx): Promise<{ moved: number; res
       .withIndex("by_account_published", (q) => q.eq("accountId", t._id))
       .order("desc")
       .take(MEDIAN_WINDOW);
-    const verdict = accountVerdict(t.matchedBy, recent, t.handle, own, otherActiveApps(apps, own._id));
+    const verdict = accountVerdict(t.matchedBy, recent, t.handle, own, otherActiveApps(apps, own._id), t.bio);
     if (verdict.kind === "move") {
       await moveAccount(ctx, t, own, verdict.to, recent);
       moved++;
-    } else if (recent.some((r) => !r.platform && videoCitesApp({ caption: r.caption ?? "", hook: r.hook, handle: t.handle }, own))) {
-      // Elle cite maintenant son app (ses motifs ont changé). Des vidéos purgées
+    } else if (bioNamesApp(t.bio, own) || recent.some((r) => !r.platform && videoCitesApp({ caption: r.caption ?? "", hook: r.hook, handle: t.handle }, own))) {
+      // Sa bio nomme son app, ou une vidéo la cite maintenant (ses motifs ont changé). Des vidéos purgées
       // ne suffisent pas à le relancer : il faut une citation.
       resumed++;
     } else continue;
