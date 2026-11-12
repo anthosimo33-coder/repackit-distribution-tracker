@@ -24,7 +24,11 @@ jobs:
   # requis « skipped » est traité comme satisfait par GitHub, donc un unitaire
   # rouge laisserait passer le merge.
   test:
-    timeout-minutes: 30
+    # 45 min, plus 30. Le 12/11/2026, la suite e2e (665 tests, un seul worker) a été coupée à 30 min avec 590
+    # tests passés : la machine tournait un quart moins vite que la veille, et un test instable avait pris 4 min
+    # avant sa reprise. Une suite verte dure de 19 à 27 min : à 30, le moindre aléa annule le check requis, et une
+    # exécution ANNULÉE ne déclenche aucune alerte — la PR reste bloquée sans que personne le voie.
+    timeout-minutes: 45
     # Image FIGÉE, pas `ubuntu-latest`. Le 08/11/2026, `ubuntu-latest` est passé
     # en 26.04 et `playwright install --with-deps chromium` (1.59.1) a refusé :
     # « Playwright does not support chromium on ubuntu26.04-x64 » — toutes les PR

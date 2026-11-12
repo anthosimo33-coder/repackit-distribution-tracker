@@ -261,6 +261,37 @@ export function handPause(t: { status: "active" | "paused"; keptByHand?: boolean
 }
 
 /**
+ * La langue déclarée à la main d'un compte (radarSeedAccounts.LANG_BY_HAND : langue → pseudos), s'il en a une.
+ */
+export function declaredLang(handle: string, byHand: Readonly<Record<string, readonly string[]>>): string | undefined {
+  return Object.keys(byHand).find((lang) => byHand[lang].includes(handle));
+}
+
+/**
+ * La langue d'un compte suivi, à son relevé. TikTok donne une langue à chaque légende ; celle du compte est la
+ * plus fréquente (« autre » ne compte pas : aucune langue reconnue), et il n'en a pas si aucune légende n'en a.
+ * Elle trompe dans deux cas, vus le 12/11/2026 : des légendes faites de hashtags n'ont aucune langue, et trois
+ * mots d'anglais classent en anglais un compte dont tout le texte à l'écran est en français. La langue déclarée
+ * à la main l'emporte donc toujours, relevé après relevé. Et quand ni l'une ni l'autre ne donne de langue, le
+ * relevé lit celle du texte à l'écran de ses vidéos (convex/radarTextLang.screenLang).
+ */
+export function accountLang(handle: string, videoLangs: readonly string[], byHand: Readonly<Record<string, readonly string[]>>): string | undefined {
+  const declared = declaredLang(handle, byHand);
+  if (declared !== undefined) return declared;
+  const langs = videoLangs.filter((l) => l !== "autre");
+  const count = (lang: string) => langs.filter((x) => x === lang).length;
+  return [...langs].sort((a, b) => count(b) - count(a))[0];
+}
+
+/**
+ * La synchro pose la langue déclarée d'un compte suivi qui ne l'a pas : jamais relevé, sans langue, ou classé
+ * ailleurs par TikTok. Elle passe toutes les heures : une fois posée, elle ne réécrit rien.
+ */
+export function needsDeclaredLang(t: { lang?: string } | null, lang: string): boolean {
+  return t !== null && t.lang !== lang;
+}
+
+/**
  * Le rejugement automatique des comptes en pause « hors sujet » ne touche pas ceux mis en pause à la main : une
  * seule légende qui cite l'app (la vidéo sponsorisée qui les avait fait entrer) suffirait à les relancer.
  */
