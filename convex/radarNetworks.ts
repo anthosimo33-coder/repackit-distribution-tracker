@@ -54,7 +54,8 @@ import {
   videoCitesApp,
   medianViews,
   multiplierOf,
-  networkPages,
+  needsDeepSearch,
+  nextSearchPage,
   networkRefreshMs,
   nextReadAt,
   normalize,
@@ -94,7 +95,11 @@ import { escapeTelegram, notifyConfig } from "./notifyApi";
 
 const DAY = 86_400_000;
 /** La tâche réseau tourne 4 fois par jour, celle des comptes 24 fois. */
-const NETWORK_RUNS_PER_DAY = 4;
+// Un passage par heure (toutes les 6 heures jusqu'au 13/11/2026), et chacun peut prendre ce qui reste du jour :
+// une recherche complète coupée au milieu faute de part reprendrait du début au passage suivant.
+const NETWORK_RUNS_PER_DAY = 1;
+/** Durée au plus d'un passage de recherche des réseaux (une tâche est coupée à 10 minutes). */
+const NETWORK_MAX_MS = 8 * 60_000;
 const ACCOUNT_RUNS_PER_DAY = 24;
 /** Relevés menés de front, et durée au plus d'un passage (une tâche est coupée à 10 minutes). */
 const ACCOUNT_READ_POOL = 8;
@@ -106,7 +111,7 @@ const videoUrl = (handle: string, videoId: string) => `https://www.tiktok.com/@$
 
 // ─── Lectures des tâches (types de retour DÉCLARÉS, cf radarSignals) ─────────
 
-type DueApp = { id: Id<"radarApps">; name: string; searches: string[]; rival: boolean };
+type DueApp = { id: Id<"radarApps">; name: string; searches: string[]; rival: boolean; deep: boolean };
 type DueAccount = { id: Id<"radarTracked">; handle: string };
 
 export const dueApps = internalQuery({
@@ -118,7 +123,7 @@ export const dueApps = internalQuery({
       // Une recherche demandée à l'écran tourne déjà : la tâche ne la double pas.
       .filter((a) => networkSearchPhase(a.networkSearch, now) !== "running")
       .sort((x, y) => Number(y.rivalOf.length > 0) - Number(x.rivalOf.length > 0) || (x.networkSearchedAt ?? 0) - (y.networkSearchedAt ?? 0))
-      .map((a) => ({ id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0 }));
+      .map((a) => ({ id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0, deep: needsDeepSearch(a) }));
   },
 });
 
@@ -129,7 +134,7 @@ export const appToSearch = internalQuery({
     const a = await ctx.db.get(appId);
     if (!a) return null;
     if (a.status !== "active") return "paused";
-    return { id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0 };
+    return { id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0, deep: needsDeepSearch(a) };
   },
 });
 
@@ -257,8 +262,8 @@ export const startNetworkSearch = internalMutation({
  * pour une concurrente, une semaine sinon) ; sinon elle reprend au passage suivant.
  */
 export const finishNetworkSearch = internalMutation({
-  args: { appId: v.id("radarApps"), now: v.number(), outcome: networkSearchOutcomeValidator, error: v.optional(v.string()), searched: v.boolean() },
-  handler: async (ctx, { appId, now, outcome, error, searched }): Promise<void> => {
+  args: { appId: v.id("radarApps"), now: v.number(), outcome: networkSearchOutcomeValidator, error: v.optional(v.string()), searched: v.boolean(), deep: v.optional(v.boolean()) },
+  handler: async (ctx, { appId, now, outcome, error, searched, deep }): Promise<void> => {
     const app = await ctx.db.get(appId);
     if (!app) return;
     const p = app.networkSearch ?? { requestedAt: now, step: 0, steps: 0, attached: 0, signals: 0 };
@@ -267,6 +272,8 @@ export const finishNetworkSearch = internalMutation({
     await ctx.db.patch(appId, {
       networkSearch: { ...base, ...(p.startedAt !== undefined ? { startedAt: p.startedAt } : {}), finishedAt: now, outcome, ...(error ? { error: error.slice(0, 200) } : {}) },
       ...(searched ? { networkSearchedAt: now } : {}),
+      // Sa recherche complète est allée au bout : les suivantes seront courtes.
+      ...(searched && deep ? { deepSearchedAt: now } : {}),
     });
   },
 });
@@ -744,7 +751,7 @@ export const runNetworkSearch = internalAction({
     let attached = 0;
     for (const app of due) {
       // Chaque recherche de l'app passe deux fois : sans région, puis par la France (radarNetworkMath.NETWORK_REGIONS).
-      const passes = networkPasses(app.searches);
+      const passes = networkPasses(app.searches, app.deep);
       await ctx.runMutation(internal.radarNetworks.startNetworkSearch, { appId: app.id, now: Date.now(), steps: passes.length });
       let complete = true;
       let noCredits = false;
@@ -754,15 +761,17 @@ export const runNetworkSearch = internalAction({
       let crashed = false;
       let appAttached = 0;
       try {
-        for (const [i, { kind, value, region }] of passes.entries()) {
+        for (const [i, { kind, value, region, sort }] of passes.entries()) {
           let cursor: number | undefined;
-          for (let page = 0; page < networkPages(app.rival); page++) {
-            if (credits >= left) {
+          // Recherche complète : tant que les pages ramènent de nouveaux comptes ; de routine : 2 ou 3 pages.
+          const read = { page: 0, dry: 0 };
+          while (nextSearchPage(read, app.deep, app.rival)) {
+            if (credits >= left || Date.now() - now > NETWORK_MAX_MS) {
               stop = true;
               complete = false;
               break;
             }
-            const r = await scNetworkPage(kind, value, cursor, region ?? undefined);
+            const r = await scNetworkPage(kind, value, cursor, region ?? undefined, sort);
             calls++;
             appCalls++;
             credits += r.credits;
@@ -787,6 +796,8 @@ export const runNetworkSearch = internalAction({
               step: i + 1,
             });
             appAttached += found.attached;
+            read.page++;
+            read.dry = found.attached > 0 ? 0 : read.dry + 1;
             cursor = r.value.cursor;
             if (cursor === undefined || r.value.videos.length === 0) break;
           }
@@ -807,6 +818,7 @@ export const runNetworkSearch = internalAction({
         now: Date.now(),
         outcome,
         searched: complete,
+        deep: app.deep,
         ...(outcome !== "done" && outcome !== "budget" && appError ? { error: appError } : {}),
       });
       attached += appAttached;

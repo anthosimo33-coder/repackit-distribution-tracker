@@ -4261,6 +4261,12 @@ export default defineSchema({
     lastStoreChartsAt: v.optional(v.number()),
     lastStoreChecksAt: v.optional(v.number()),
     lastStoreStop: v.optional(v.string()), // pourquoi le dernier contrôle s'est arrêté avant la fin (TikTok ne répondait plus)
+    // Place de marché de campagnes (convex/radarMarket) : campagnes connues, lues, jugées ; dernier passage et son arrêt.
+    marketSeen: v.optional(v.number()),
+    marketRead: v.optional(v.number()),
+    marketJudged: v.optional(v.number()),
+    lastMarketAt: v.optional(v.number()),
+    lastMarketStop: v.optional(v.string()),
     storeSeen: v.optional(v.number()), // apps vues dans les classements depuis le début
     storeChecked: v.optional(v.number()), // contrôles TikTok faits depuis le début
     curveDay: v.optional(v.string()), // jour (Paris) du compteur d'admissions
@@ -4296,6 +4302,8 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("paused")),
     source: v.union(v.literal("seed"), v.literal("manual")),
     networkSearchedAt: v.optional(v.number()),
+    // Sa recherche COMPLÈTE est faite (radarNetworkMath.needsDeepSearch) : les suivantes sont courtes.
+    deepSearchedAt: v.optional(v.number()),
     // La recherche du réseau en cours, ou la dernière (cf radarNetworkMath.NetworkSearchState).
     networkSearch: v.optional(networkSearchValidator),
     adsSearchedAt: v.optional(v.number()), // bibliothèques de pubs TikTok et Meta
@@ -4486,9 +4494,10 @@ export default defineSchema({
   // mentionné (@…) ou un domaine (« stalkie.io »). Proposée à l'équipe dès que
   // deux comptes la citent ; suivie, elle devient une radarApps.
   radarAppCandidates: defineTable({
-    key: v.string(), // « @<id TikTok> », le domaine, ou « store:<id App Store> »
+    key: v.string(), // « @<id TikTok> », le domaine, « store:<id App Store> » ou « market:<produit> »
     // « store » : une app des classements App Store dont le hashtag porte des comptes créateurs (convex/radarStore).
-    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store")),
+    // « market » : une app ou un logiciel qui paie des créateurs sur une place de marché de campagnes (convex/radarMarket).
+    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store"), v.literal("market")),
     label: v.string(),
     authors: v.array(v.string()), // pseudos qui la citent (50 au plus)
     authorCount: v.number(),
@@ -4510,11 +4519,67 @@ export default defineSchema({
         creators: v.array(v.object({ handle: v.string(), why: v.union(v.literal("handle"), v.literal("bio"), v.literal("half")) })),
       }),
     ),
+    // Un produit payé à la vue : sa nature, ses campagnes additionnées, et la campagne où le lire.
+    market: v.optional(
+      v.object({
+        source: v.string(),
+        productKind: v.union(v.literal("app"), v.literal("software")),
+        handle: v.string(), // son pseudo, quand une campagne le donne
+        org: v.string(), // la marque ou l'agence qui paie
+        campaignUrl: v.string(),
+        campaigns: v.number(),
+        creators: v.number(),
+        views: v.number(),
+        spentCents: v.number(),
+        rateCents: v.optional(v.number()), // ce que rapportent 1 000 vues
+      }),
+    ),
   })
     .index("by_key", ["key"])
     .index("by_status_count", ["status", "authorCount"])
     .index("by_kind_status_count", ["kind", "status", "authorCount"])
     .index("by_last", ["lastSeenAt"]),
+
+  // Les petits réseaux (convex/radarNaming) : par jour, ce que les recherches des tournures qui nomment un produit
+  // ont rendu — le témoin de la méthode (les apps déjà suivies qu'elles retrouvent).
+  radarNamingStats: defineTable({
+    day: v.string(), // « 2026-11-13 », jour de Paris
+    videos: v.number(), // vidéos lues
+    small: v.number(), // dont celles de petits comptes
+    known: v.array(v.object({ slug: v.string(), videos: v.number(), authors: v.array(v.string()) })),
+  }).index("by_day", ["day"]),
+
+  // Campagnes d'une place de marché où des marques paient des créateurs à la vue (convex/radarMarket). Chacune est
+  // lue sur sa page publique (`nextReadAt` range la file), puis une IA dit quel produit elle promeut (`stage`).
+  radarMarketCampaigns: defineTable({
+    source: v.string(),
+    campaignId: v.string(),
+    url: v.string(),
+    firstSeenAt: v.number(),
+    nextReadAt: v.number(),
+    // new : pas encore lue ; read : lue, pas encore jugée ; judged : son produit est dit.
+    stage: v.union(v.literal("new"), v.literal("read"), v.literal("judged")),
+    readAt: v.optional(v.number()),
+    name: v.optional(v.string()),
+    org: v.optional(v.string()),
+    description: v.optional(v.string()),
+    launchedAt: v.optional(v.number()),
+    rateCents: v.optional(v.number()),
+    creators: v.optional(v.number()),
+    views: v.optional(v.number()),
+    spentCents: v.optional(v.number()),
+    handles: v.optional(v.array(v.string())), // comptes TikTok de ses meilleurs clips
+    judgedAt: v.optional(v.number()),
+    kind: v.optional(v.union(v.literal("app"), v.literal("software"), v.literal("game"), v.literal("other"))),
+    product: v.optional(v.string()),
+    productHandle: v.optional(v.string()),
+    // La clé de l'app repérée qu'elle nourrit (radarMarketMath.marketCandidateKey), pour une app ou un logiciel.
+    candidateKey: v.optional(v.string()),
+  })
+    .index("by_campaign", ["source", "campaignId"])
+    .index("by_due", ["nextReadAt"])
+    .index("by_stage", ["stage"])
+    .index("by_candidate", ["candidateKey"]),
 
   // Apps vues dans les classements App Store (convex/radarStore). Chacune attend son contrôle TikTok : `nextCheckAt`
   // range la file (les apps récentes d'abord), `outcome` dit ce que le dernier contrôle a conclu.

@@ -533,7 +533,17 @@
     "preuvePseudo": "handle",
     "preuveBio": "bio",
     "preuveVideos": "videos",
-    "ficheAppStore": "App Store page"
+    "ficheAppStore": "App Store page",
+    "appsMarche": "Apps and software paying creators",
+    "appsMarcheAide": "Products with a campaign paying creators per view on Content Rewards. The campaign is the proof: what it pays, how many creators post for it. Following a product adds the accounts of its top clips.",
+    "appsMarcheAvancement": "{judged} campaigns read out of {seen} known",
+    "appsMarchePreuve": "{n, plural, =0 {no creator yet} one {# creator} other {# creators}} · {vues} views · {verse} paid out",
+    "marcheTarif": "{tarif} per 1,000 views",
+    "marcheCampagnes": "{n} campaigns",
+    "marcheApp": "mobile app",
+    "marcheLogiciel": "software",
+    "marchePayePar": "paid by {org}",
+    "voirCampagne": "View campaign"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} followers",

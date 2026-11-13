@@ -8,7 +8,11 @@ import {
   canAttach,
   capFree,
   networkFoundBy,
+  DEEP_DRY_PAGES,
+  DEEP_PAGES,
+  needsDeepSearch,
   networkPasses,
+  nextSearchPage,
 } from "../convex/radarNetworkMath";
 import { networkPageRequest } from "../convex/scrapeCreatorsApi";
 import { isRelationFind } from "../convex/radarDiscoveryQueries";
@@ -18,6 +22,48 @@ import { isRelationFind } from "../convex/radarDiscoveryQueries";
  * français ? » — la recherche du réseau d'une app n'indiquait aucun pays à TikTok, et les deux apps où il y a le
  * plus de Françaises (Retain Cards, Astra AI) étaient au plafond de 100 comptes.
  */
+describe("recherche complète d'une app, à son entrée dans le Radar (13/11/2026)", () => {
+  it("une app qui n'a pas eu sa recherche complète la reçoit ; ensuite, des recherches courtes", () => {
+    expect(needsDeepSearch({})).toBe(true);
+    expect(needsDeepSearch({ deepSearchedAt: 1_794_000_000_000 })).toBe(false);
+  });
+
+  it("chaque mot-clé repasse trié par date, dans chaque région ; un hashtag non", () => {
+    expect(networkPasses(["shortfy", "#shortfy"], true)).toEqual([
+      { kind: "keyword", value: "shortfy", region: null },
+      { kind: "keyword", value: "shortfy", region: "FR" },
+      { kind: "hashtag", value: "shortfy", region: null },
+      { kind: "hashtag", value: "shortfy", region: "FR" },
+      { kind: "keyword", value: "shortfy", region: null, sort: "date" },
+      { kind: "keyword", value: "shortfy", region: "FR", sort: "date" },
+    ]);
+    // De routine : rien ne change.
+    expect(networkPasses(["shortfy", "#shortfy"])).toHaveLength(4);
+    expect(networkPasses(["shortfy", "#shortfy"], false).some((p) => p.sort)).toBe(false);
+  });
+
+  it("on lit tant que les pages ramènent de nouveaux comptes : 15 pages au plus, arrêt après 2 pages d'affilée sans", () => {
+    expect([DEEP_PAGES, DEEP_DRY_PAGES]).toEqual([15, 2]);
+    expect(nextSearchPage({ page: 0, dry: 0 }, true, false)).toBe(true);
+    expect(nextSearchPage({ page: 9, dry: 1 }, true, false)).toBe(true);
+    expect(nextSearchPage({ page: 9, dry: 2 }, true, false)).toBe(false);
+    expect(nextSearchPage({ page: 14, dry: 0 }, true, false)).toBe(true);
+    expect(nextSearchPage({ page: 15, dry: 0 }, true, true)).toBe(false);
+  });
+
+  it("de routine : 2 pages (3 pour une concurrente), que la page ramène des comptes ou non", () => {
+    expect(nextSearchPage({ page: 1, dry: 1 }, false, false)).toBe(true);
+    expect(nextSearchPage({ page: 2, dry: 0 }, false, false)).toBe(false);
+    expect(nextSearchPage({ page: 2, dry: 5 }, false, true)).toBe(true);
+    expect(nextSearchPage({ page: 3, dry: 0 }, false, true)).toBe(false);
+  });
+
+  it("triée par date, la requête d'un mot-clé demande les plus récentes ; celle d'un hashtag ne change pas", () => {
+    expect(networkPageRequest("keyword", "shortfy", 30, "FR", "date").params).toEqual({ query: "shortfy", date_posted: "last-3-months", sort_by: "date-posted", region: "FR", cursor: "30" });
+    expect(networkPageRequest("hashtag", "shortfy", undefined, undefined, "date")).toEqual({ path: "/v1/tiktok/search/hashtag", params: { hashtag: "shortfy" } });
+  });
+});
+
 describe("recherche du réseau d'une app : la passe France", () => {
   it("chaque recherche passe deux fois : sans région, puis par la France", () => {
     expect(NETWORK_REGIONS).toEqual([null, "FR"]);

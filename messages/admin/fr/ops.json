@@ -533,7 +533,17 @@
     "preuvePseudo": "son pseudo",
     "preuveBio": "sa bio",
     "preuveVideos": "ses vidéos",
-    "ficheAppStore": "Fiche App Store"
+    "ficheAppStore": "Fiche App Store",
+    "appsMarche": "Apps et logiciels qui paient des créateurs",
+    "appsMarcheAide": "Des produits dont une campagne paie des créateurs à la vue sur Content Rewards. La preuve est la campagne : ce qu'elle paie, combien de créateurs y publient. Suivre un produit rattache les comptes de ses meilleurs clips.",
+    "appsMarcheAvancement": "{judged} campagnes lues sur {seen} connues",
+    "appsMarchePreuve": "{n, plural, =0 {aucun créateur encore} one {# créateur} other {# créateurs}} · {vues} vues · {verse} versés",
+    "marcheTarif": "{tarif} pour 1 000 vues",
+    "marcheCampagnes": "{n} campagnes",
+    "marcheApp": "app mobile",
+    "marcheLogiciel": "logiciel",
+    "marchePayePar": "payé par {org}",
+    "voirCampagne": "Voir la campagne"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} abonnés",
