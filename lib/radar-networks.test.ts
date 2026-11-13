@@ -21,7 +21,9 @@ import {
   OFF_TOPIC_MIN_VIDEOS,
   SECOND_LOOK_MS,
   accountVerdict,
+  accountCountry,
   appNet,
+  NET_COUNTRIES_MAX,
   pooled,
   sameAppNet,
   bioNamesApp,
@@ -1163,5 +1165,43 @@ describe("les 5 apps des classements confirmées le 13/11/2026", () => {
     const n = (slug: string) => (SEED_ACCOUNTS[slug] ?? []).length;
     expect([n("koroai"), n("dianeai"), n("pingoai"), n("bitepal"), n("bpmapp")]).toEqual([4, 5, 5, 5, 2]);
     expect(SEED_ACCOUNTS.bpmapp).toContain("laure_acc");
+  });
+});
+
+describe("le pays d'un compte et d'un réseau (13/11/2026)", () => {
+  it("le pays d'un compte est celui que TikTok donne le plus souvent à ses vidéos", () => {
+    expect(accountCountry(["GB", "US", "GB", undefined, null])).toBe("GB");
+    // Minuscules et blancs acceptés ; ce qui n'est pas un code à deux lettres ne compte pas.
+    expect(accountCountry([" fr ", "FR", "FRA", "12", "", "us"])).toBe("FR");
+    // La langue ne décide de rien : un compte anglophone qui publie de France est en France.
+    expect(accountCountry(["FR", "FR", "US"], "US")).toBe("FR");
+  });
+
+  it("à égalité le pays déjà connu reste ; sans vidéo située aussi", () => {
+    expect(accountCountry(["GB", "US"], "US")).toBe("US");
+    expect(accountCountry(["GB", "US"], "FR")).toBe("GB");
+    expect(accountCountry(["GB", "US"])).toBe("GB");
+    expect(accountCountry([], "MX")).toBe("MX");
+    expect(accountCountry([undefined, "", "??"], "MX")).toBe("MX");
+    expect(accountCountry([])).toBeUndefined();
+  });
+
+  it("le réseau d'une app dit d'où ses comptes ACTIFS publient, les pays les plus représentés d'abord", () => {
+    const c = (handle: string, country: string | undefined, status: "active" | "paused" = "active") => ({ handle, status, ...(country ? { country } : {}) });
+    const net = appNet([c("a", "FR"), c("b", "GB"), c("c", "FR"), c("d", "US", "paused"), c("e", undefined), c("f", "BE")]);
+    // À nombre égal, l'ordre des codes ; le compte en pause et le compte sans pays ne comptent pas.
+    expect(net.countries).toEqual([{ code: "FR", accounts: 2 }, { code: "BE", accounts: 1 }, { code: "GB", accounts: 1 }]);
+    expect(appNet([c("a", undefined), c("b", "US", "paused")]).countries).toBeUndefined();
+    // Cinq pays au plus.
+    expect(NET_COUNTRIES_MAX).toBe(5);
+    expect(appNet(["FR", "GB", "US", "ES", "MX", "BR", "DE"].map((code, i) => c(`h${i}`, code))).countries?.map((x) => x.code)).toEqual(["BR", "DE", "ES", "FR", "GB"]);
+  });
+
+  it("un pays qui change fait réécrire le résumé", () => {
+    const fr = appNet([{ handle: "a", status: "active", country: "FR" }]);
+    const gb = appNet([{ handle: "a", status: "active", country: "GB" }]);
+    expect(sameAppNet(fr, fr)).toBe(true);
+    expect(sameAppNet(fr, gb)).toBe(false);
+    expect(sameAppNet(appNet([{ handle: "a", status: "active" }]), fr)).toBe(false);
   });
 });

@@ -200,7 +200,31 @@ export type AppNet = {
   active: number;
   posts7d: number;
   best?: { handle: string; url: string; views: number; multiplier: number; publishedAt: number };
+  /** Les pays d'où ses comptes publient, les plus représentés d'abord (5 au plus). */
+  countries?: { code: string; accounts: number }[];
 };
+
+const COUNTRY_CODE = /^[A-Z]{2}$/;
+/** Pays gardés dans le résumé d'un réseau. */
+export const NET_COUNTRIES_MAX = 5;
+
+/**
+ * Le pays d'où un compte publie : celui que TikTok donne le plus souvent à ses vidéos (le « pays de création »
+ * de chaque vidéo, lu au relevé). Jusqu'au 13/11/2026 le Radar ne rangeait un compte que par LANGUE : un compte
+ * qui publie en anglais depuis la France passait pour américain, et l'espagnol ne distinguait que l'Espagne du
+ * reste. À égalité, le pays déjà connu reste ; sans aucune vidéo située, aussi.
+ */
+export function accountCountry(regions: readonly (string | undefined | null)[], previous?: string): string | undefined {
+  const counts = new Map<string, number>();
+  for (const r of regions) {
+    const code = (r ?? "").trim().toUpperCase();
+    if (COUNTRY_CODE.test(code)) counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+  if (counts.size === 0) return previous;
+  const top = Math.max(...counts.values());
+  const best = [...counts].filter(([, n]) => n === top).map(([code]) => code);
+  return previous && best.includes(previous) ? previous : best[0];
+}
 
 /**
  * Le résumé d'un réseau : comptes, comptes actifs, publications de la semaine, meilleure vidéo (le plus fort
@@ -209,18 +233,26 @@ export type AppNet = {
  * rangé sur l'app (`radarApps.net`) et refait quand ses comptes changent, puis chaque heure.
  */
 export function appNet(
-  accounts: readonly { handle: string; status: "active" | "paused"; posts7d?: number; best7d?: { url: string; views: number; multiplier: number; publishedAt: number } }[],
+  accounts: readonly { handle: string; status: "active" | "paused"; posts7d?: number; country?: string; best7d?: { url: string; views: number; multiplier: number; publishedAt: number } }[],
 ): AppNet {
   let best: AppNet["best"];
+  const byCountry = new Map<string, number>();
   for (const t of accounts) {
     const b = t.best7d;
     if (b && (!best || b.multiplier > best.multiplier)) best = { handle: t.handle, url: b.url, views: b.views, multiplier: b.multiplier, publishedAt: b.publishedAt };
+    // Les comptes encore relevés disent où l'app est poussée aujourd'hui.
+    if (t.status === "active" && t.country) byCountry.set(t.country, (byCountry.get(t.country) ?? 0) + 1);
   }
+  const countries = [...byCountry]
+    .map(([code, n]) => ({ code, accounts: n }))
+    .sort((a, b) => b.accounts - a.accounts || a.code.localeCompare(b.code))
+    .slice(0, NET_COUNTRIES_MAX);
   return {
     accounts: accounts.length,
     active: accounts.filter((t) => t.status === "active").length,
     posts7d: accounts.reduce((sum, t) => sum + (t.posts7d ?? 0), 0),
     ...(best ? { best } : {}),
+    ...(countries.length ? { countries } : {}),
   };
 }
 
@@ -230,7 +262,8 @@ export function sameAppNet(a: AppNet | undefined, b: AppNet): boolean {
   const x = a.best;
   const y = b.best;
   const sameBest = x === undefined || y === undefined ? x === y : x.handle === y.handle && x.url === y.url && x.views === y.views && x.multiplier === y.multiplier && x.publishedAt === y.publishedAt;
-  return a.accounts === b.accounts && a.active === b.active && a.posts7d === b.posts7d && sameBest;
+  const sameCountries = JSON.stringify(a.countries ?? []) === JSON.stringify(b.countries ?? []);
+  return a.accounts === b.accounts && a.active === b.active && a.posts7d === b.posts7d && sameBest && sameCountries;
 }
 
 /**

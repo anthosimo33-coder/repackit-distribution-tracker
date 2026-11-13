@@ -383,9 +383,11 @@ export const STORE_BREAKER = 5;
  * L'app est-elle déjà suivie ? Oui quand un de ses hashtags EST un motif d'une app suivie (« retaincards »,
  * « retain.cards » sans son extension). L'égalité, pas l'inclusion : « cal » est dans « calai » et c'est une autre
  * app — le formulaire de suivi, lui, refusera un motif contenu dans celui d'une app suivie.
+ * Le « app » collé ne compte ni d'un côté ni de l'autre : depuis le 13/11/2026 une app des classements est suivie
+ * sous son hashtag prouvé (« hushapp »), et « hushapp » comme « hush » la désignent.
  */
 export function alreadyFollowed(tags: readonly string[], apps: readonly { strong: readonly string[] }[]): boolean {
-  const known = new Set(apps.flatMap((a) => a.strong.flatMap((s) => [compactName(s), compactName(s.replace(/\.[a-z]+$/, ""))])));
+  const known = new Set(apps.flatMap((a) => a.strong.flatMap((s) => [compactName(s), compactName(s.replace(/\.[a-z]+$/, ""))].map(tagCore))));
   return tags.some((t) => known.has(tagCore(t)));
 }
 

@@ -278,6 +278,10 @@ describe("Radar — classements App Store : le contrôle d'une app", () => {
     expect(alreadyFollowed(["drawly"], [{ strong: ["liven"] }])).toBe(false);
     // L'égalité, pas l'inclusion : « cal » est dans « calai », « e2e » dans tout ce qui commence pareil.
     expect(alreadyFollowed(["cal", "calapp"], [{ strong: ["calai"] }])).toBe(false);
+    // Suivie sous son hashtag prouvé (« hushapp ») : « hush » comme « hushapp » la désignent, « hushai » non.
+    expect(alreadyFollowed(["hushapp"], [{ strong: ["hushapp"] }])).toBe(true);
+    expect(alreadyFollowed(["hush"], [{ strong: ["hushapp"] }])).toBe(true);
+    expect(alreadyFollowed(["hushai"], [{ strong: ["hushapp"] }])).toBe(false);
   });
 
   it("ses deux hashtags sont lus, puis les profils des auteurs — une seule fois chacun", async () => {

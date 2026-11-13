@@ -96,11 +96,11 @@ test.describe("Radar — apps trouvées dans les classements App Store", () => {
       await expect(ligne(reseau)).toHaveCount(1);
       await expect(ligne(autre)).toHaveCount(0);
 
-      // Suivre : le formulaire arrive rempli (le motif est le nom de l'app, sans « app »), sans la cocher « concurrente » ;
+      // Suivre : le formulaire arrive rempli (le motif est le hashtag prouvé, tel quel), sans la cocher « concurrente » ;
       // ses comptes créateurs rejoignent son réseau.
       await ligne(reseau).getByRole("button", { name: "Suivre", exact: true }).click();
       await expect(page.getByLabel("Nom de l'app")).toHaveValue(reseau.marque);
-      await expect(page.getByLabel("Motifs qui la citent")).toHaveValue(reseau.tag);
+      await expect(page.getByLabel("Motifs qui la citent")).toHaveValue(`${reseau.tag}app`);
       await expect(page.getByRole("checkbox", { name: "Concurrente de ce projet" })).not.toBeChecked();
       await page.getByRole("button", { name: "Suivre l'app" }).click();
       await expect(page.getByText(`${reseau.marque} suivie : 2 comptes rejoignent son réseau.`)).toBeVisible();

@@ -156,27 +156,37 @@ export function parseFreeVideo(html: string, handle: string, fallbackLang?: stri
   };
 }
 
-/** Ce qu'on sait déjà d'une vidéo du compte : son texte à l'écran et son son, tels que rangés. */
-export type KnownVideo = { videoId: string; hook?: string; musicId?: string; musicTitle?: string };
+/** Ce qu'on sait déjà d'une vidéo du compte : son texte à l'écran et son son, tels que rangés, et si son pays est connu. */
+export type KnownVideo = { videoId: string; hook?: string; musicId?: string; musicTitle?: string; region?: string };
+/** Vidéos déjà rangées relues en entier pour situer un compte dont on ne connaît pas encore le pays. */
+export const FREE_REGION_PAGES = 2;
 /** Une vidéo connue et plus toute neuve : seules ses vues (et sa miniature, qui expire) sont rafraîchies. */
 export type LightVideo = { videoId: string; views: number; coverUrl?: string };
 
 /**
  * Ce qu'il faut lire en entier, et ce qui ne reçoit que ses vues : une vidéo inconnue, ou de moins de 48 heures,
- * est lue sur sa page ; les autres sont déjà rangées, leurs vues suffisent.
+ * est lue sur sa page ; les autres sont déjà rangées, leurs vues suffisent. `wantRegion` : le compte n'a pas encore
+ * de pays — ses deux vidéos rangées les plus récentes dont on ignore le pays sont relues elles aussi (le pays d'une
+ * vidéo ne se lit que sur sa page).
  */
-export function freePlan(listed: readonly FreeListed[], known: readonly KnownVideo[], now: number): { detail: FreeListed[]; light: LightVideo[] } {
-  const have = new Set(known.map((k) => k.videoId));
+export function freePlan(listed: readonly FreeListed[], known: readonly KnownVideo[], now: number, wantRegion = false): { detail: FreeListed[]; light: LightVideo[] } {
+  const have = new Map(known.map((k) => [k.videoId, k]));
   const detail: FreeListed[] = [];
   const light: LightVideo[] = [];
+  let forRegion = wantRegion ? FREE_REGION_PAGES : 0;
   for (const v of listed) {
-    if (!have.has(v.videoId) || now - v.publishedAt < FREE_FRESH_MS) detail.push(v);
+    const k = have.get(v.videoId);
+    const fresh = now - v.publishedAt < FREE_FRESH_MS;
+    const locate = !!k && !fresh && !k.region && forRegion > 0;
+    if (locate) forRegion--;
+    if (!k || fresh || locate) detail.push(v);
     else light.push({ videoId: v.videoId, views: v.views, ...(v.coverUrl ? { coverUrl: v.coverUrl } : {}) });
   }
   return { detail, light };
 }
 
-export type FreePage = { ok: true; text: string } | { ok: false; kind: "absent" | "suspect" };
+/** `reason` : ce que TikTok a répondu quand il n'a pas servi la page (« HTTP 429 »), pour le dire à l'arrêt. */
+export type FreePage = { ok: true; text: string } | { ok: false; kind: "absent" | "suspect"; reason?: string };
 
 /** Attente avant le second essai d'une page refusée. */
 export const FREE_RETRY_MS = 2_500;
@@ -202,7 +212,7 @@ export type FreeRead =
    *  absent : le profil n'existe plus à cette adresse · suspect : TikTok n'a pas servi le profil ·
    *  private / empty : rien à lire sur le profil · detail : la page d'une vidéo inconnue ne s'est pas lue.
    */
-  | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail"; pages: number };
+  | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail"; pages: number; reason?: string };
 
 /**
  * Le relevé gratuit d'un compte, de bout en bout. `page` lit une adresse ; `known` dit ce qu'on a déjà de ces
@@ -214,30 +224,37 @@ export async function freeRead(
   io: { page: (url: string) => Promise<FreePage>; known: (videoIds: string[]) => Promise<KnownVideo[]> },
   now: number,
   fallbackLang?: string,
+  // Le compte n'a pas encore de pays : on en profite pour situer deux de ses vidéos déjà rangées.
+  wantRegion = false,
 ): Promise<FreeRead> {
   let pages = 1;
   const p = await io.page(freeProfileUrl(handle));
-  if (!p.ok) return { ok: false, why: p.kind, pages };
+  if (!p.ok) return { ok: false, why: p.kind, pages, ...(p.reason ? { reason: p.reason } : {}) };
   const profile = parseFreeProfile(p.text);
-  if (!profile) return { ok: false, why: "suspect", pages };
+  if (!profile) return { ok: false, why: "suspect", pages, reason: "page sans profil" };
   if (profile.private) return { ok: false, why: "private", pages };
   if (profile.videos.length === 0) return { ok: false, why: "empty", pages };
   const known = await io.known(profile.videos.map((v) => v.videoId));
   const byId = new Map(known.map((k) => [k.videoId, k]));
-  const plan = freePlan(profile.videos, known, now);
+  const plan = freePlan(profile.videos, known, now, wantRegion);
   const videos: SignalInput[] = [];
   const light = [...plan.light];
   for (const listed of plan.detail) {
     pages++;
     const page = await io.page(freeVideoUrl(handle, listed.videoId));
     const parsed = page.ok ? parseFreeVideo(page.text, handle, fallbackLang) : null;
-    // Supprimée entre la liste et sa page : elle n'est plus à relever.
-    if (parsed === "gone" || (!page.ok && page.kind === "absent")) continue;
     const before = byId.get(listed.videoId);
+    const asLight = (): void => void light.push({ videoId: listed.videoId, views: listed.views, ...(listed.coverUrl ? { coverUrl: listed.coverUrl } : {}) });
+    if (parsed === "gone" || (!page.ok && page.kind === "absent")) {
+      // Une vidéo rangée et plus toute neuve n'était relue que pour situer le compte : sans sa page, ses vues
+      // suffisent, comme à tout autre relevé. Sinon, supprimée entre la liste et sa page : elle n'est plus à relever.
+      if (before && now - listed.publishedAt >= FREE_FRESH_MS) asLight();
+      continue;
+    }
     if (!parsed) {
       // Une vidéo qu'on n'a pas encore ne peut pas entrer à moitié : le compte passe au relevé payant.
       if (!before) return { ok: false, why: "detail", pages };
-      light.push({ videoId: listed.videoId, views: listed.views, ...(listed.coverUrl ? { coverUrl: listed.coverUrl } : {}) });
+      asLight();
       continue;
     }
     // Les abonnés et la bio du profil font foi ; une vidéo déjà rangée garde son texte à l'écran et son son.
@@ -259,10 +276,54 @@ export async function freeRead(
 export type FreeState = { on: boolean; ok: number; fallback: number; streak: number; stopped: string | null };
 export const freeStart = (): FreeState => ({ on: true, ok: 0, fallback: 0, streak: 0, stopped: null });
 
-/** Note l'issue d'un relevé gratuit. Seul un profil que TikTok n'a pas servi compte pour le coupe-circuit. */
-export function freeNote(state: FreeState, outcome: "ok" | "absent" | "suspect" | "private" | "empty" | "detail"): FreeState {
+/** Note l'issue d'un relevé gratuit. Seul un profil que TikTok n'a pas servi compte pour le coupe-circuit, qui dit pourquoi. */
+export function freeNote(state: FreeState, outcome: "ok" | "absent" | "suspect" | "private" | "empty" | "detail", reason?: string): FreeState {
   if (outcome === "ok") return { ...state, ok: state.ok + 1, streak: 0 };
   const streak = outcome === "suspect" ? state.streak + 1 : 0;
   const off = streak >= FREE_BREAKER;
-  return { ...state, fallback: state.fallback + 1, streak, on: state.on && !off, stopped: off ? `${FREE_BREAKER} profils refusés d'affilée` : state.stopped };
+  const stopped = `${FREE_BREAKER} profils refusés d'affilée${reason ? ` (${reason})` : ""}`;
+  return { ...state, fallback: state.fallback + 1, streak, on: state.on && !off, stopped: off ? stopped : state.stopped };
+}
+
+/**
+ * LA VOIE GRATUITE d'un passage. Le 13/11/2026, premier passage en production : 8 comptes relevés de front, 6
+ * profils refusés d'affilée, aucun lu — alors que le même code, du poste de travail, en lit 31 sur 32 à ce rythme.
+ * Les serveurs sont donc servis moins volontiers. Ce que TikTok leur sert sans arrêt, c'est le contrôle des
+ * classements (convex/radarStore) : UNE page à la fois, 0,3 à 0,7 seconde entre deux. La voie gratuite prend ce
+ * rythme : un compte après l'autre, une pause avant chaque page, pendant FREE_LANE_MAX_MS au plus.
+ * Ce qu'elle ne relève pas (refus, page qui manque, temps écoulé, coupe-circuit) part au relevé payant, dans la
+ * limite du budget : un compte n'attend jamais plus qu'avant.
+ */
+export const FREE_LANE_MAX_MS = 5 * 60_000;
+
+/** Une pause AVANT chaque page (le rythme auquel les serveurs sont servis). */
+export function paced(page: (url: string) => Promise<FreePage>, pause: () => Promise<void>): (url: string) => Promise<FreePage> {
+  return async (url) => {
+    await pause();
+    return page(url);
+  };
+}
+
+/**
+ * Déroule la voie gratuite : chaque compte est relevé à son tour tant qu'elle est ouverte (`alive` : le temps
+ * imparti) et que le coupe-circuit n'a pas sauté. Rend l'état du passage et les comptes à relever en payant —
+ * ceux dont le relevé gratuit n'a pas abouti, et tous ceux qu'elle n'a pas eu le temps de prendre.
+ */
+export async function runFreeLane<A>(
+  accounts: readonly A[],
+  read: (account: A) => Promise<{ ok: true } | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail"; reason?: string }>,
+  alive: () => boolean,
+): Promise<{ state: FreeState; toPay: A[] }> {
+  let state = freeStart();
+  const toPay: A[] = [];
+  for (const account of accounts) {
+    if (!state.on || !alive()) {
+      toPay.push(account);
+      continue;
+    }
+    const r = await read(account);
+    state = freeNote(state, r.ok ? "ok" : r.why, r.ok ? undefined : r.reason);
+    if (!r.ok) toPay.push(account);
+  }
+  return { state, toPay };
 }

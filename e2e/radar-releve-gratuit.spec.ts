@@ -37,8 +37,8 @@ test.describe("Radar — relevé gratuit d'un compte", () => {
       secret: E2E_SECRET,
       apps: [{ slug: `${p}a`, name: `E2E Vidéos ${ts}`, rivalOf: [], strong: [`${p}a`] }],
       accounts: [
-        // 1 : une vidéo déjà rangée, vieille de 9 jours, 400 vues à son dernier relevé.
-        { handle: h(1), appSlug: `${p}a`, fans: 100, medianViews: 400, posts7d: 0, lang: "fr", bio: `ancienne bio ${m}`, videos: [{ videoId: ancienne, ageH: 216, views: 400, hook: "Texte déjà rangé", caption: `#${p}a` }] },
+        // 1 : une vidéo déjà rangée, vieille de 9 jours, 400 vues à son dernier relevé ; son pays est déjà connu.
+        { handle: h(1), appSlug: `${p}a`, fans: 100, medianViews: 400, posts7d: 0, lang: "fr", country: "FR", bio: `ancienne bio ${m}`, videos: [{ videoId: ancienne, ageH: 216, views: 400, hook: "Texte déjà rangé", caption: `#${p}a` }] },
         // 2 et 3 : rien de rangé encore.
         { handle: h(2), appSlug: `${p}a`, fans: 50, medianViews: 300, posts7d: 0, lang: "fr", bio: `bio deux ${m}` },
         { handle: h(3), appSlug: `${p}a`, fans: 60, medianViews: 300, posts7d: 0, lang: "fr", bio: `bio trois ${m}` },
@@ -87,10 +87,10 @@ test.describe("Radar — relevé gratuit d'un compte", () => {
           { url: url.video(1, neuve), html: video(h(1), neuve, ts - 5 * HOUR, 9_000, "Le nom du site c'est koro") },
           { url: url.video(1, hier), html: video(h(1), hier, ts - 30 * HOUR, 1_100, "Pourquoi personne nous apprend ça") },
         ]),
-      ).toEqual({ read: "free", pages: 3, detail: 2, light: 1, status: "active", fans: 1_840, videosSeen: 3 });
+      ).toEqual({ read: "free", pages: 3, detail: 2, light: 1, status: "active", fans: 1_840, videosSeen: 3, country: "FR" });
 
       // ── Compte 2 : le profil est refusé → relevé payant, rien d'écrit ───────
-      expect(await releve(2, [{ url: url.profil(2), refused: true }])).toEqual({ read: "suspect", pages: 1, detail: 0, light: 0, status: "active", fans: 50, videosSeen: 9 });
+      expect(await releve(2, [{ url: url.profil(2), refused: true }])).toEqual({ read: "suspect", pages: 1, detail: 0, light: 0, status: "active", fans: 50, videosSeen: 9, country: null });
       // ── Compte 3 : la page d'une vidéo inconnue est refusée → relevé payant ─
       expect(
         await releve(3, [
@@ -98,7 +98,7 @@ test.describe("Radar — relevé gratuit d'un compte", () => {
           { url: url.video(3, neuve3), html: video(h(3), neuve3, ts - 4 * HOUR, 9_000, "Texte") },
           { url: url.video(3, hier3), refused: true },
         ]),
-      ).toEqual({ read: "detail", pages: 3, detail: 0, light: 0, status: "active", fans: 60, videosSeen: 9 });
+      ).toEqual({ read: "detail", pages: 3, detail: 0, light: 0, status: "active", fans: 60, videosSeen: 9, country: null });
 
       // ── L'écran : la fiche du compte 1 ───────────────────────────────────────
       await page.goto(adminPath("/radar?onglet=createurs"));

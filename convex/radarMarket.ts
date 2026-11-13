@@ -23,6 +23,7 @@ import { ensureSettings, readSettings } from "./radarSignals";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { FAMILY_MODEL, haikuCostUsd } from "./radarFamiliesMath";
 import { alreadyFollowed } from "./radarStoreMath";
+import { candidateFiche, marketAbout } from "./radarFicheMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
 import {
   fetchMarketPage,
@@ -161,11 +162,15 @@ async function refreshMarketCandidate(ctx: MutationCtx, key: string, now: number
       views: totals.views,
       spentCents: totals.spentCents,
       ...(totals.rateCents !== null ? { rateCents: totals.rateCents } : {}),
+      // Ce que la campagne dit du produit : la matière de sa fiche (convex/radarFiche).
+      ...(marketAbout(lead.description) ? { about: marketAbout(lead.description) } : {}),
     },
   };
   const got = await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", key)).first();
   if (got) {
     await ctx.db.patch(got._id, fields);
+    // Déjà une app suivie : les chiffres de ses campagnes y suivent.
+    if (got.appId && (await ctx.db.get(got.appId))) await ctx.db.patch(got.appId, candidateFiche(fields));
     return "updated";
   }
   await ctx.db.insert("radarAppCandidates", { key, kind: "market", fromApps: [], status: "new", firstSeenAt: now, ...fields });
@@ -336,6 +341,8 @@ export async function listMarketCandidatesCore(ctx: ProjectQueryCtx) {
           // Le nom et les motifs proposés pour la suivre.
           name: c.label,
           patterns,
+          // Pourquoi le suivi d'office ne l'a pas pris (convex/radarAuto), s'il l'a regardé.
+          note: c.autoNote ?? null,
           productKind: m.productKind,
           org: m.org,
           campaignUrl: m.campaignUrl,

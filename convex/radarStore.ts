@@ -38,7 +38,6 @@ import {
   storeFeedUrl,
   storePauseMs,
   storeUrl,
-  tagCore,
   type StoreEntry,
   type TagVerdict,
 } from "./radarStoreMath";
@@ -241,9 +240,11 @@ export async function listStoreCandidatesCore(ctx: ProjectQueryCtx) {
         ? [
             {
               id: c._id,
-              // Le nom et le motif proposés pour la suivre.
+              // Le nom et le motif proposés pour la suivre : le hashtag prouvé, tel quel (« hushapp », pas « hush »).
               name: c.label,
-              patterns: [tagCore(c.store.tag)],
+              patterns: [c.store.tag],
+              // Pourquoi le suivi d'office ne l'a pas prise (convex/radarAuto), s'il l'a regardée.
+              note: c.autoNote ?? null,
               storeUrl: storeUrl(c.store.storeId),
               artist: c.store.artist,
               genre: c.store.genre,
