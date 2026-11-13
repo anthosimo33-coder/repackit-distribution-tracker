@@ -42,10 +42,16 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
   // + 20 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   biblechat: ["alin.biblechat", "alyssa.biblechat", "biblestudieswit_twan", "biblestudieswithag", "biblestudieswithbeth", "biblestudieswitholivia", "charlotte.biblechat", "cleide.biblechat", "della.biblechat", "emmy.biblechat", "eze.biblechat", "jaz.biblechat", "karen.biblechat", "ken.bible.app", "nessa.biblechat", "pearl.biblechat", "roz.biblechat1", "sam_biblechat", "twan_biblechats", "yasmin.biblechat"],
   // + 1 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
+  // Bitepal, bpm, Diane AI, Koro AI, Pingo AI (13/11/2026) : les comptes créateurs que le contrôle des classements
+  // a reconnus sous le hashtag de l'app (pseudo au nom de l'app, bio qui la nomme, ou la moitié des vidéos). La
+  // recherche du réseau trouve les autres.
+  bitepal: ["logandglow", "healthyjenna", "reneeatssmart", "caltrackergal", "dboycodi"],
+  bpmapp: ["laure_acc", "rxnmchch"],
   calai: ["app_calai"],
   // + 12 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   creed: ["ember_faithh", "estherrsbiblestudy", "faithwithkate", "faithwithrachell", "glauben.mitalin", "hada.prayer", "iara.con.fe", "jackie.creed", "jackie.prays", "katesbiblestudy", "mahya.believes", "taylor.creed2"],
   // + 8 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
+  dianeai: ["melih.diane", "julye_aoot", "jade_dianeai", "studyemilie.dianeai", "lafacenfacile"],
   finch: ["alexandbeepo", "bokari.the.birb", "consistentlyalyssa", "miaandwaffles", "miacicit", "moragwoods0", "softlybecoming.milleth", "yoursisterkacey"],
   // + 12 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   flo: ["geovana.cgg", "joi.diario", "ray.flo_", "_diariodacami", "cycletalks_brook", "cycletalks_kay", "dani.girlythings", "emiko.floapp", "floappbrasil", "floappemily", "gabrielas.health7", "kiraflo234", "kristin__floapp", "maria_flo_app_", "periodtalks_mackenzie", "tonisav333"],
@@ -63,6 +69,7 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
   // + 4 francophones de la recherche du 11/11/2026 (en fin de liste, voir l'en-tête).
   knowunity: ["capistudios", "clouudstudies", "lydiaqcnykj", "patrickstudiess", "study.with.zoi", "studyluise", "studywithjasminn", "studywithlilla", "toni4school", "noah_031108", "btwuserbtw", "kayllis8", "study_with_louise"],
   // + 1 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
+  koroai: ["inouchka5", "laulau1715", "souk.revisions", "jordankoro_"],
   leakeddms: ["vapimediary"],
   // Relevés le 10/11/2026 dans les vidéos de la découverte (légende ou texte à l'écran qui nomme l'app).
   // + 19 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
@@ -76,6 +83,7 @@ export const SEED_ACCOUNTS: Readonly<Record<string, readonly string[]>> = {
   // + 1 francophone de la recherche du 11/11/2026 (en fin de liste, voir l'en-tête).
   palima: ["erin8521", "juliaenvoyage", "_palimaa", "palima13", "palima195", "palimaabramkina", "palimapassion", "pt_daurulang", "voyagesarah", "damien.voyage5"],
   // + 21 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
+  pingoai: ["britttttspanishlearning", "brittttgermanlearning", "bonjour.alena", "tooned.ai", "litoman.learns"],
   plugai: ["animalchaos281", "brigitwilbur42", "dailydose_of_texts0", "dailytextory", "dr.rizziology", "jxcreator1", "love.xo57", "momyrizzler", "mrrizzking4", "ray.texts", "rizzkyybusiness", "smoothrizz07", "text.give", "textfwooshh", "textinlett", "texts_message", "textulull", "textwavve", "therizzlermonarch", "tim886087", "user7002799158680"],
   // + 46 trouvés par la recherche approfondie du 10/11/2026 (voir l'en-tête).
   praktika: ["nick_study_1", "evadestravaingles", "analaorenn.praktika", "daiastudy", "daianapraktika", "learnwithcare", "angielski.z.iza", "angielski_z_pauli", "der_praktikant3", "dropshipwithdinda", "engishvibeswithhajar", "english.with.emma3", "english.with.samira", "english_with_asma3", "english_with_dimi", "englishmitminh", "englishwith.martu", "englishwithkerry", "englishwithouma5", "erica.praktika.ai", "imparaconluana6", "karin.praktika", "katerinaa.praktika", "langlaisavecbouch", "language.with.tat", "languageswithwis", "langwithrebeca", "learn.with.shar", "learn_linda", "learningenglishwjose", "learnwithkaren8", "lernenmitsabrina", "lernenmitsezai", "lernenmitsharon.a", "maridement.pl", "nais.languagejourney", "natalia.lingua", "peter.practices.english", "praktika21", "praktika27", "praktikaaiemi", "praktikaalyssa", "praktikabrasil", "spanishwithabel7", "spanishwithmariii", "sprachen.mit.adriana", "sprachenmitsophie", "sstudiaconsara", "studyandlearn00", "studywithangel_111", "studywithem.daily", "talkwith.chels"],

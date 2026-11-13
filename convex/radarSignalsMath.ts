@@ -298,9 +298,9 @@ export const POSTES: readonly PosteDef[] = [
   { key: "search", live: true, step: 10, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   { key: "curve", live: true, step: 20, max: 400, monthlyCredits: (n) => n * CURVE_CHECKPOINTS_H.length * DAYS_PER_MONTH },
   // Relevés de comptes suivis par jour (1 crédit = les 9 dernières vidéos d'un compte).
-  { key: "tiktok", live: true, step: 100, max: 5_000, monthlyCredits: (n) => n * DAYS_PER_MONTH },
+  { key: "tiktok", live: true, step: 500, max: 20_000, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   // Recherche du réseau des apps (mots-clés, hashtags), en crédits par mois.
-  { key: "network", live: true, step: 500, max: 30_000, monthlyCredits: (n) => n },
+  { key: "network", live: true, step: 2_000, max: 200_000, monthlyCredits: (n) => n },
   // Relevés Instagram par jour (1 crédit = les ~12 derniers Reels d'un compte).
   { key: "insta", live: true, step: 50, max: 3_000, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   // Vidéos transcrites par jour (1 crédit, 0 s'il n'y a rien à transcrire).
@@ -318,7 +318,7 @@ export const POSTES: readonly PosteDef[] = [
  * courbe et plafond passent au cran au-dessus. Des réglages plus anciens relus
  * prennent pour ces postes, et pour le plafond, les valeurs par défaut.
  */
-export const BUDGET_VERSION = 7;
+export const BUDGET_VERSION = 8;
 // v4 : Instagram, transcriptions et pubs branchés (éteints tant qu'ils ne l'étaient pas).
 // v5 : l'analyse IA branchée (familles de hooks) ; le plafond et les autres postes d'une v4 sont gardés.
 const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
@@ -328,6 +328,8 @@ const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
   { before: 6, postes: ["search"] },
   // v7 : 100 recherches/jour, le thème « argent » passant chaque jour (12/11/2026).
   { before: 7, postes: ["search"] },
+  // v8 : le Radar devient un produit vendu (13/11/2026) — 15 000 comptes suivis au plus, des centaines d'apps.
+  { before: 8, postes: ["tiktok", "network"] },
 ];
 /** Le plafond se garde à partir de cette version. */
 const CAP_KEPT_FROM = 4;
@@ -336,7 +338,7 @@ export const POSTE_KEYS = POSTES.map((p) => p.key);
 export const isPosteKey = (k: string): k is PosteKey => (POSTE_KEYS as string[]).includes(k);
 export const posteDef = (k: PosteKey) => POSTES.find((p) => p.key === k)!;
 
-export const CAP_CHOICES = [150, 200, 300, 400] as const;
+export const CAP_CHOICES = [300, 450, 650, 900] as const;
 
 export type BudgetSettings = {
   capUsd: number;
@@ -357,10 +359,15 @@ export type BudgetSettings = {
 // Analyse IA : ~1 $ par mois prévu (Claude Haiku, quelques centaines de hooks), 2 $ au plus.
 // Découverte : 20 recherches/jour du 09/11/2026 (60 avant) — 170 de ses 190 signaux étaient hors niche ;
 // 100 depuis le 12/11/2026 : les 76 recherches du thème « argent » (side hustle) chaque jour, en plus (~4,50 $/mois).
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 100, curve: 100, tiktok: 2_000, network: 12_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
+// Depuis le 13/11/2026 (le Radar devient un produit vendu) : 9 000 relevés/jour suivent 15 000 comptes au rythme
+// mesuré ce jour-là (0,62 relevé par compte et par jour, 87 $/mois pour 2 162 comptes), et la recherche des
+// réseaux passe à 40 000 crédits/mois (des centaines d'apps, chacune cherchée à fond). Prévu au plus :
+// ~630 $/mois sous un plafond de 650 $ — environ 10 000 comptes au prix du pack de 25 000 crédits, le double
+// avec celui de 500 000.
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 100, curve: 100, tiktok: 9_000, network: 40_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
-  capUsd: 300,
+  capUsd: 650,
   postes: POSTES.map((p) => ({ key: p.key, qty: DEFAULT_QTY[p.key], on: p.live })),
   // L'analyse IA est coupée la première : la veille marche sans elle.
   cutOrder: ["ai", "search", "transcript", "curve", "ads", "insta", "network", "tiktok"],

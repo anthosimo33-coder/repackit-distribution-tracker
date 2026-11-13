@@ -384,7 +384,7 @@
       },
       "tiktok": {
         "titre": "Relever les comptes suivis",
-        "aide": "1 crédit = les 9 dernières vidéos d'un compte. Les actifs chaque jour, les calmes tous les 3 jours, les dormants chaque semaine : 2 000 relevés suivent 3 000 comptes.",
+        "aide": "1 crédit = les 9 dernières vidéos d'un compte. Les actifs chaque jour, les calmes tous les 3 jours, les dormants chaque semaine : 9 000 relevés suivent 15 000 comptes.",
         "unite": "relevés/jour"
       },
       "insta": {

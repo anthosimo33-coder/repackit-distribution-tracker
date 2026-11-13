@@ -78,7 +78,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
     await admin.mutation(api.radarNetworks.e2eSeedNetwork, { secret: E2E_SECRET, ...r.seed });
     try {
       await page.goto(adminPath("/radar?onglet=comptes"));
-      await expect(page.getByTestId("radar-reseaux-compte")).toContainText(/sur 3\s000 possibles/);
+      await expect(page.getByTestId("radar-reseaux-compte")).toContainText(/sur 15\s000 possibles/);
 
       // Chaque app dans son groupe, et dans aucun autre.
       const groupe = (nom: string) => page.getByRole("region", { name: nom });
@@ -356,7 +356,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
 
       // Les apps, concurrentes du projet en tête.
       const tout = await lu("reseaux", {});
-      expect(tout.plafond).toBe(3_000);
+      expect(tout.plafond).toBe(15_000);
       const noms = tout.apps.map((a: { app: string }) => a.app);
       expect(noms.indexOf(r.rival)).toBeGreaterThanOrEqual(0);
       expect(noms.indexOf(r.rival)).toBeLessThan(noms.indexOf(r.ailleurs));

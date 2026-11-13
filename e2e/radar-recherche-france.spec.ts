@@ -11,11 +11,11 @@ const admin = createE2eClient(convexUrl);
 
 /**
  * Radar — ce que la recherche du réseau d'une app rattache quand l'app a fait le plein (11/11/2026) : une app
- * qui n'est concurrente d'aucun projet s'arrête à 100 comptes, sauf pour les comptes francophones. Sans écran :
+ * qui n'est concurrente d'aucun projet s'arrête à 300 comptes (100 jusqu'au 13/11/2026), sauf pour les comptes francophones. Sans écran :
  * on donne à la recherche les vidéos qu'elle aurait trouvées, et on lit ce qu'elle rattache.
  */
 test.describe("Radar — recherche du réseau : les francophones au-delà du plafond", () => {
-  test("app non concurrente à 100 comptes : la vidéo en français fait entrer son compte, celle en anglais non", async () => {
+  test("app non concurrente à 300 comptes : la vidéo en français fait entrer son compte, celle en anglais non", async () => {
     test.setTimeout(90_000);
     const ts = Date.now();
     const p = `e2erxf${ts}`;
@@ -23,14 +23,14 @@ test.describe("Radar — recherche du réseau : les francophones au-delà du pla
     await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
       secret: E2E_SECRET,
       apps: [
-        // Une app d'étude, concurrente de personne, déjà à 100 comptes.
+        // Une app d'étude, concurrente de personne, déjà à 300 comptes.
         { slug: `${p}a`, name: `E2E Fiches ${ts}`, rivalOf: [], strong: [`${p}a`] },
-        // Une concurrente du projet, à 100 comptes elle aussi : elle n'a pas de plafond par app.
+        // Une concurrente du projet, à 300 comptes elle aussi : elle n'a pas de plafond par app.
         { slug: `${p}b`, name: `E2E Rival ${ts}`, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}b`] },
         // Une app non concurrente loin du plafond.
         { slug: `${p}c`, name: `E2E Petite ${ts}`, rivalOf: [], strong: [`${p}c`] },
       ],
-      accounts: [...comptes(`${p}a`, 100), ...comptes(`${p}b`, 100), ...comptes(`${p}c`, 3)],
+      accounts: [...comptes(`${p}a`, 300), ...comptes(`${p}b`, 300), ...comptes(`${p}c`, 3)],
     });
     const cherche = (appSlug: string, videos: { handle: string; fans: number; caption: string; lang: string }[]) =>
       admin.mutation(api.radarNetworks.e2eAttachFromSearch, { secret: E2E_SECRET, appSlug, videos });
@@ -38,7 +38,7 @@ test.describe("Radar — recherche du réseau : les francophones au-delà du pla
     try {
       // Au plafond : l'anglophone et l'hispanophone restent dehors.
       expect((await cherche(`${p}a`, [v("rxf_en", "en", `${p}a`), v("rxf_es", "es-am", `${p}a`)])).attached).toBe(0);
-      // La francophone entre, 101e compte de l'app. Une vidéo en français qui ne cite pas l'app ne fait entrer personne.
+      // La francophone entre, 301e compte de l'app. Une vidéo en français qui ne cite pas l'app ne fait entrer personne.
       expect((await cherche(`${p}a`, [v("rxf_fr1", "fr", `${p}a`), v("rxf_hors", "fr", `${p}a`, false)])).attached).toBe(1);
       // La même, retrouvée par une autre recherche : déjà suivie, pas rattachée deux fois.
       expect((await cherche(`${p}a`, [v("rxf_fr1", "fr", `${p}a`)])).attached).toBe(0);

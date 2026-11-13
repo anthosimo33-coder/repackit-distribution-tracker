@@ -33,8 +33,12 @@
 
 // ─── Les classements ─────────────────────────────────────────────────────────
 
-/** Pays lus. France et États-Unis : les deux mesurés le 12/11/2026 (16 099 apps avec sept pays de plus, non mesurés). */
-export const STORE_COUNTRIES = ["fr", "us"] as const;
+/**
+ * Pays lus. France et États-Unis : les deux mesurés le 12/11/2026. Depuis le 13/11/2026 (il faut beaucoup plus
+ * d'apps), les marchés que Swarm montre en plus : Royaume-Uni, Espagne, Mexique, Brésil — leur rendement n'est
+ * pas mesuré. Les nouveaux pays sont EN FIN de liste : le curseur des listes déjà lues garde son sens.
+ */
+export const STORE_COUNTRIES = ["fr", "us", "gb", "es", "mx", "br"] as const;
 export const STORE_LISTS = ["topfreeapplications", "topgrossingapplications"] as const;
 /** « » = tous genres ; puis les genres de l'App Store hors jeux (éducation, style de vie, réseaux sociaux, santé…). */
 export const STORE_GENRES = ["", "6017", "6012", "6005", "6013", "6007", "6008", "6006", "6002", "6016", "6015", "6023", "6011", "6024", "6003", "6018", "6020", "6000", "6010", "6009", "6004", "6027"] as const;
@@ -47,8 +51,8 @@ export function storeFeedUrl(f: StoreFeed): string {
   return `https://itunes.apple.com/${f.country}/rss/${f.list}/limit=200/${f.genre ? `genre=${f.genre}/` : ""}json`;
 }
 
-/** Listes lues par passage : les 88 listes sont relues en un peu moins d'un jour (un passage toutes les 3 heures). */
-export const STORE_FEEDS_PER_RUN = 12;
+/** Listes lues par passage : les 264 listes sont relues en neuf heures (un passage par heure ; 12 toutes les 3 heures jusqu'au 13/11/2026). */
+export const STORE_FEEDS_PER_RUN = 30;
 
 /** Les listes d'un passage, à partir du curseur, en boucle. */
 export function feedsForRun(cursor: number, perRun: number = STORE_FEEDS_PER_RUN, feeds: readonly StoreFeed[] = STORE_FEEDS): { feeds: StoreFeed[]; next: number } {
@@ -329,8 +333,20 @@ export function nextCheckAfter(outcome: StoreOutcome | "known" | "unreadable", n
   return now + (outcome === "none" ? STORE_RECHECK_NONE_MS : STORE_RECHECK_NETWORK_MS);
 }
 
-/** Pages TikTok lues au plus par passage (un passage par heure, une pause de 1,5 à 3 s entre deux pages). */
-export const STORE_PAGES_PER_RUN = 90;
+/**
+ * Pages TikTok lues au plus par passage : un passage toutes les 5 minutes, une pause de 0,3 à 0,7 s entre deux
+ * pages, soit ~1 800 pages par heure au plus (90 par heure jusqu'au 13/11/2026 : 11 apps contrôlées par heure,
+ * 22 jours pour un premier tour). Mesuré ce jour-là depuis un poste : 500 profils lus à 10 par seconde, 495 du
+ * premier coup. Si TikTok refuse, le passage s'arrête à STORE_BREAKER refus d'affilée.
+ */
+export const STORE_PAGES_PER_RUN = 150;
+export const STORE_PAUSE_MIN_MS = 300;
+export const STORE_PAUSE_MAX_MS = 700;
+/** La pause avant une page, tirée au hasard dans sa fourchette (`random` entre 0 et 1). */
+export function storePauseMs(random: number): number {
+  const r = Math.min(Math.max(random, 0), 1);
+  return Math.round(STORE_PAUSE_MIN_MS + r * (STORE_PAUSE_MAX_MS - STORE_PAUSE_MIN_MS));
+}
 /** Une app coûte au plus ses hashtags et leurs profils : on ne commence pas une app sans cette marge. */
 export const STORE_PAGES_PER_APP = 3 + 2 * STORE_PROFILES_PER_TAG;
 /** Pages refusées d'affilée qui arrêtent le passage (TikTok ne répond plus à cette adresse). */

@@ -21,6 +21,9 @@ import {
   OFF_TOPIC_MIN_VIDEOS,
   SECOND_LOOK_MS,
   accountVerdict,
+  appNet,
+  pooled,
+  sameAppNet,
   bioNamesApp,
   effectiveRivalOf,
   withRivalChoice,
@@ -770,10 +773,10 @@ describe("comptes de départ après la recherche approfondie", () => {
   const tous = Object.values(SEED_ACCOUNTS).flat();
   const liste = (slug: string) => SEED_ACCOUNTS[slug] ?? [];
 
-  it("1 155 comptes sur 41 apps, chacun une seule fois (1 146 avant la recherche approfondie de Shortfy du 12/11, 1 137 sur 39 avant Shortfy et TrendSaaS, 1 100 sur 38 avant la recherche francophone du 11/11)", () => {
-    expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(41);
-    expect(tous).toHaveLength(1155);
-    expect(new Set(tous).size).toBe(1155);
+  it("1 176 comptes sur 46 apps, chacun une seule fois (1 155 sur 41 avant les 5 apps des classements du 13/11, 1 146 avant la recherche approfondie de Shortfy du 12/11, 1 137 sur 39 avant Shortfy et TrendSaaS, 1 100 sur 38 avant la recherche francophone du 11/11)", () => {
+    expect(Object.keys(SEED_ACCOUNTS)).toHaveLength(46);
+    expect(tous).toHaveLength(1176);
+    expect(new Set(tous).size).toBe(1176);
     // Shortfy : 2 du 12/11 au matin + 9 de la recherche approfondie du soir (une vidéo à 4,2 M de vues, bio « Shortfy.io »,
     // nom « laure_shortfy »…). Pas les comptes où il n'a fait que passer, ni la marque, ni l'homonyme turc.
     expect(liste("shortfy")).toHaveLength(11);
@@ -1071,5 +1074,94 @@ describe("classer une app à la main (10/11/2026)", () => {
     expect(effectiveRivalOf(["snytch", "blush"], trois)).toEqual([]);
     // Elle ne modifie pas la liste qu'on lui donne.
     expect(un).toEqual([{ project: "blush", rival: true }]);
+  });
+});
+
+describe("le résumé du réseau d'une app, rangé sur l'app (13/11/2026)", () => {
+  const b = (multiplier: number, views = 1_000) => ({ url: `https://www.tiktok.com/@x/video/${multiplier}`, views, multiplier, publishedAt: 1_794_000_000_000 });
+  const comptes = [
+    { handle: "ana", status: "active" as const, posts7d: 4, best7d: b(12) },
+    { handle: "bob", status: "paused" as const, posts7d: 1, best7d: b(40, 90_000) },
+    { handle: "cleo", status: "active" as const },
+  ];
+
+  it("comptes, comptes actifs, publications de la semaine, meilleure vidéo au plus fort multiplicateur", () => {
+    expect(appNet(comptes)).toEqual({ accounts: 3, active: 2, posts7d: 5, best: { handle: "bob", url: "https://www.tiktok.com/@x/video/40", views: 90_000, multiplier: 40, publishedAt: 1_794_000_000_000 } });
+    // Sans compte, ou sans vidéo qui sorte du lot : pas de meilleure vidéo.
+    expect(appNet([])).toEqual({ accounts: 0, active: 0, posts7d: 0 });
+    expect(appNet([comptes[2]])).toEqual({ accounts: 1, active: 1, posts7d: 0 });
+  });
+
+  it("on n'écrit que ce qui change", () => {
+    const net = appNet(comptes);
+    expect(sameAppNet(undefined, net)).toBe(false);
+    expect(sameAppNet({ ...net }, net)).toBe(true);
+    expect(sameAppNet({ ...net, active: 3 }, net)).toBe(false);
+    expect(sameAppNet({ ...net, posts7d: 6 }, net)).toBe(false);
+    expect(sameAppNet({ ...net, accounts: 4 }, net)).toBe(false);
+    expect(sameAppNet({ ...net, best: { ...net.best!, views: 90_001 } }, net)).toBe(false);
+    expect(sameAppNet({ accounts: 3, active: 2, posts7d: 5 }, net)).toBe(false);
+    expect(sameAppNet(appNet([comptes[2]]), appNet([comptes[2]]))).toBe(true);
+  });
+});
+
+describe("relevés menés de front (13/11/2026)", () => {
+  const attend = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  it("tous les éléments passent, jamais plus de `size` à la fois", async () => {
+    let enCours = 0;
+    let pic = 0;
+    const faits: number[] = [];
+    const n = await pooled([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, async (x) => {
+      pic = Math.max(pic, ++enCours);
+      await attend(5);
+      enCours--;
+      faits.push(x);
+    });
+    expect(n).toBe(10);
+    expect(faits.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(pic).toBe(3);
+  });
+
+  it("« stop » (plus de crédits) arrête tout ; le temps écoulé aussi", async () => {
+    const vus: number[] = [];
+    const n = await pooled([1, 2, 3, 4, 5, 6], 1, async (x) => {
+      vus.push(x);
+      return x === 2 ? "stop" : undefined;
+    });
+    expect([n, vus]).toEqual([2, [1, 2]]);
+    let appels = 0;
+    const m = await pooled([1, 2, 3, 4, 5, 6], 2, async () => void (await attend(2)), () => ++appels <= 3);
+    expect(m).toBe(3);
+    // Rien à faire : rien n'est lancé.
+    expect(await pooled([], 8, async () => undefined)).toBe(0);
+  });
+});
+
+describe("les 5 apps des classements confirmées le 13/11/2026", () => {
+  const app5 = (slug: string) => SEED_APPS.find((a) => a.slug === slug)!;
+
+  it("aucune n'est concurrente, chacune reconnaît les légendes de son réseau", () => {
+    for (const slug of ["koroai", "dianeai", "pingoai", "bitepal", "bpmapp"]) expect(app5(slug).rivalOf).toEqual([]);
+    expect(findApp("POV : la guerre pour le Trône de Sucre 🐉🩸 L'hiver et tes partiels approchent… #KoroAI #medecine", "inouchka5", SEED_APPS)?.name).toBe("Koro AI");
+    expect(findApp("La meilleure méthode 🫡🙏🙏 #dianeaiapp", "melih.diane", SEED_APPS)?.name).toBe("Diane AI");
+    expect(findApp("Dingue les cours en médecine 🤡🤌🏼 #dianeai #medecine #cours", "kleopdv", SEED_APPS)?.name).toBe("Diane AI");
+    expect(findApp("why is Spanish SO HARD?! 😭 #LanguageLearning #learnsspanish #pingoai #brittt", "britttttspanishlearning", SEED_APPS)?.name).toBe("Pingo AI");
+    expect(findApp("no under or over. just right 😋🍴 #calorietracking #bitepal", "healthyjenna", SEED_APPS)?.name).toBe("Bitepal");
+    expect(findApp("je sais pas si je dois rire ou pleurer 💀💀#bpmapp", "laure_acc", SEED_APPS)?.name).toBe("bpm");
+  });
+
+  it("ne prennent pas un prénom ni les battements par minute pour l'app", () => {
+    // « Diane aime… » ; #bpm = 105 000 vidéos de musique et de K-pop, #pingo = des chiens.
+    expect(findApp("Ma copine Diane aime trop réviser le soir", "lea.revise", SEED_APPS)).toBeUndefined();
+    expect(findApp("BPM space . . . #BPM #music #lyrics", "lui_lz0", SEED_APPS)).toBeUndefined();
+    expect(findApp("todo dia é assim kkkk #pet #dog #pinsher #pingo", "_pingopinscher", SEED_APPS)).toBeUndefined();
+    expect(findApp("#anime #boruto #naruto #koro #assasinationclasrooom", "xaku.mdr", SEED_APPS)).toBeUndefined();
+  });
+
+  it("21 comptes de départ, ceux que le contrôle des classements a reconnus", () => {
+    const n = (slug: string) => (SEED_ACCOUNTS[slug] ?? []).length;
+    expect([n("koroai"), n("dianeai"), n("pingoai"), n("bitepal"), n("bpmapp")]).toEqual([4, 5, 5, 5, 2]);
+    expect(SEED_ACCOUNTS.bpmapp).toContain("laure_acc");
   });
 });

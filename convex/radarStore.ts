@@ -25,6 +25,7 @@ import { e2eMutation, permissionQuery, type ProjectQueryCtx } from "./functions"
 import { ensureSettings, readSettings } from "./radarSignals";
 import { cleanText } from "./radarSignalsMath";
 import {
+  alreadyFollowed,
   checkStoreApp,
   feedsForRun,
   fetchEmbedPage,
@@ -35,13 +36,13 @@ import {
   storeBrand,
   storeCandidateKey,
   storeFeedUrl,
+  storePauseMs,
   storeUrl,
   tagCore,
   type StoreEntry,
   type TagVerdict,
 } from "./radarStoreMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
-import { pageDelayMs } from "./tiktokInternal";
 
 const DAY = 86_400_000;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -208,7 +209,7 @@ export const runStoreChecks = internalAction({
     let found = 0;
     const run = await runStoreQueue(due, followed, {
       page: (url) => fetchEmbedPage(url),
-      pause: () => sleep(pageDelayMs(Math.random())),
+      pause: () => sleep(storePauseMs(Math.random())),
       apply: async (app, outcome, best) => {
         const wrote = await ctx.runMutation(internal.radarStore.applyStoreCheck, { id: app.id, outcome, best, now: Date.now() });
         if (wrote === "created") found++;
@@ -222,7 +223,7 @@ export const runStoreChecks = internalAction({
 // ─── L'écran ─────────────────────────────────────────────────────────────────
 
 /** Apps des classements montrées au plus, celles qui ont le plus de comptes créateurs d'abord. */
-const STORE_LIST_CAP = 30;
+const STORE_LIST_CAP = 60;
 
 export async function listStoreCandidatesCore(ctx: ProjectQueryCtx) {
   const rows = await ctx.db
@@ -231,9 +232,11 @@ export async function listStoreCandidatesCore(ctx: ProjectQueryCtx) {
     .order("desc")
     .take(STORE_LIST_CAP);
   const s = await readSettings(ctx);
+  // Une app suivie depuis (à l'écran sous un autre nom, ou par la liste de départ) n'est plus à proposer.
+  const followed = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
   return {
     apps: rows.flatMap((c) =>
-      c.store
+      c.store && !alreadyFollowed([c.store.tag], followed)
         ? [
             {
               id: c._id,
