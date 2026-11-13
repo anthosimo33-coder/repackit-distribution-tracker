@@ -403,7 +403,7 @@ export function needsDeclaredLang(t: { lang?: string } | null, lang: string): bo
  * Le rejugement automatique des comptes en pause « hors sujet » ne touche pas ceux mis en pause à la main : une
  * seule légende qui cite l'app (la vidéo sponsorisée qui les avait fait entrer) suffirait à les relancer.
  */
-export function canRejudge(t: { pausedReason?: "offTopic"; handle: string }, byHand: readonly string[]): boolean {
+export function canRejudge(t: { pausedReason?: "offTopic" | "vetting"; handle: string }, byHand: readonly string[]): boolean {
   return t.pausedReason === "offTopic" && !byHand.includes(t.handle);
 }
 
@@ -591,16 +591,22 @@ export function shouldPromote(views: number, multiplier: number | undefined, rat
 
 /**
  * Prochain relevé d'un compte : chaque jour s'il a publié ces 3 derniers jours,
- * tous les 3 jours s'il est calme, chaque semaine s'il dort depuis plus de 14 jours.
+ * tous les 3 jours s'il est calme, chaque semaine s'il dort depuis plus de 14 jours,
+ * chaque mois s'il n'a rien publié depuis plus de 30 jours (13/11/2026 : 794 des 2 356 comptes
+ * actifs en étaient là, relevés chaque semaine pour rien — 113 relevés par jour).
  * Un compte relevé sans aucune vidéo repasse dans 3 jours (le premier relevé d'un
  * compte ajouté, lui, est immédiat : c'est son `nextReadAt` d'insertion).
  */
+export const DORMANT_AFTER_MS = 30 * DAY;
+export const DORMANT_EVERY_MS = 30 * DAY;
+
 export function nextReadAt(lastPostAt: number | undefined, now: number): number {
   if (lastPostAt === undefined) return now + 3 * DAY;
   const idle = now - lastPostAt;
   if (idle <= 3 * DAY) return now + DAY;
   if (idle <= 14 * DAY) return now + 3 * DAY;
-  return now + 7 * DAY;
+  if (idle <= DORMANT_AFTER_MS) return now + 7 * DAY;
+  return now + DORMANT_EVERY_MS;
 }
 
 /**

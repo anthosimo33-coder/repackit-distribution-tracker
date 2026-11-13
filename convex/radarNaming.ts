@@ -36,7 +36,7 @@ async function applyNamedCore(ctx: MutationCtx, videos: readonly Video[], now: n
     const app = findApp(text, s.authorHandle, apps);
     if (app) {
       hits.push({ slug: app.slug, author: s.authorHandle });
-      if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, s.lang)) === "added") {
+      if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, s.lang, true)) === "added") {
         attached++;
         grown.add(app._id);
       }

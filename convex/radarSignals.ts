@@ -32,6 +32,7 @@ import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind, signalThemes } from "./radarDiscoveryQueries";
 import { SEED_APPS, appNet, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { REJECTED_KEEP_MS } from "./radarVetMath";
 import { isTextOnShot } from "./radarDisplay";
 import { LANG_BY_HAND, OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
 import {
@@ -363,9 +364,16 @@ export async function attachAccount(
   counter: TrackedCounter,
   // La langue de la vidéo qui l'a fait trouver : un francophone passe outre le plafond de son app (canAttach).
   lang?: string,
+  // Trouvé par une recherche : il attend le filtre d'entrée (convex/radarVet) avant d'être relevé et montré.
+  vet = false,
 ): Promise<"added" | "known" | "full"> {
   const known = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
   if (known) return "known";
+  if (vet) {
+    // Déjà écarté pour cette app il y a moins de 30 jours : pas revérifié.
+    const rejected = await ctx.db.query("radarRejected").withIndex("by_handle_app", (q) => q.eq("handle", handle).eq("appId", app._id)).first();
+    if (rejected && now - rejected.at < REJECTED_KEEP_MS) return "known";
+  }
   counter.counts ??= await trackedCounts(ctx);
   const c = counter.counts;
   const rival = app.rivalOf.length > 0;
@@ -379,7 +387,7 @@ export async function attachAccount(
     platform: "tiktok",
     handle,
     appId: app._id,
-    status: "active",
+    ...(vet ? { status: "paused" as const, pausedReason: "vetting" as const, vetAt: now } : { status: "active" as const, proofAt: now }),
     matchedBy,
     fans,
     videosSeen: 0,
@@ -589,7 +597,7 @@ export const upsertDiscovered = internalMutation({
     const grown = new Set<Id<"radarApps">>();
     for (const s of videos) {
       const app = findApp(s.caption, s.authorHandle, apps);
-      if (app && (await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") {
+      if (app && (await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, undefined, true)) === "added") {
         attached++;
         grown.add(app._id);
       }

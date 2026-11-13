@@ -597,10 +597,12 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await expect(page.getByText(`${nom} suivie : 1 compte rejoint son réseau.`)).toBeVisible();
       await expect(reperee(cand)).toHaveCount(0);
       const neuve = page.getByRole("region", { name: "Concurrents de ce projet" }).getByTestId("radar-app").filter({ hasText: nom });
-      await expect(neuve).toContainText("1 compte (1 relevé)");
+      // Il attend le filtre d'entrée (13/11/2026) : sa page publique doit prouver qu'il pousse l'app avant qu'il soit relevé.
+      await expect(neuve).toContainText("1 compte (0 relevé)");
       await neuve.getByRole("button", { name: new RegExp(nom) }).click();
       await expect(neuve.getByTestId("radar-compte")).toHaveCount(1);
       await expect(neuve.getByTestId("radar-compte")).toContainText(`@rxfree_${ts}`);
+      await expect(neuve.getByTestId("radar-compte").getByTestId("radar-en-verification")).toBeVisible();
     } finally {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
     }

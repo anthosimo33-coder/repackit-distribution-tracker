@@ -548,7 +548,9 @@
     "ficheCampagne": "Paie ses créateurs {tarif} pour 1 000 vues · {n, plural, =0 {aucun créateur encore} one {# créateur} other {# créateurs}}",
     "ficheCampagneSansTarif": "Paie ses créateurs à la vue · {n, plural, =0 {aucun créateur encore} one {# créateur} other {# créateurs}}",
     "fichePays": "Ses comptes publient depuis : {liste}",
-    "pasSuivieDOffice": "Pas suivie d'office : {raison}"
+    "pasSuivieDOffice": "Pas suivie d'office : {raison}",
+    "enVerification": "en attente de vérification",
+    "enVerificationAide": "Trouvé par une recherche : sa page publique est lue avant qu'il soit relevé. Il entre si son pseudo, sa bio ou au moins deux de ses dernières vidéos citent {app}."
   },
   "RecurringAccountCard": {
     "abonnes": "{count} abonnés",

@@ -548,7 +548,9 @@
     "ficheCampagne": "Pays its creators {tarif} per 1,000 views · {n, plural, =0 {no creator yet} one {# creator} other {# creators}}",
     "ficheCampagneSansTarif": "Pays its creators per view · {n, plural, =0 {no creator yet} one {# creator} other {# creators}}",
     "fichePays": "Its accounts post from: {liste}",
-    "pasSuivieDOffice": "Not followed automatically: {raison}"
+    "pasSuivieDOffice": "Not followed automatically: {raison}",
+    "enVerification": "awaiting verification",
+    "enVerificationAide": "Found by a search: its public page is read before any paid read. It enters if its handle, bio or at least two of its latest videos mention {app}."
   },
   "RecurringAccountCard": {
     "abonnes": "{count} followers",

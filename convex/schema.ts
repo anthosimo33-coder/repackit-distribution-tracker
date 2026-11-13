@@ -4372,8 +4372,15 @@ export default defineSchema({
     // caption : une légende cite l'app ; manual : ajouté dans l'écran ; seed :
     // ambassadrice vérifiée du sourcing (convex/radarSeedAccounts).
     matchedBy: v.union(v.literal("caption"), v.literal("manual"), v.literal("seed")),
-    // Mis en pause automatiquement : ses vidéos lues ne citent jamais l'app (radarNetworkMath.isOffTopic).
-    pausedReason: v.optional(v.literal("offTopic")),
+    // Mis en pause automatiquement. « offTopic » : ses vidéos lues ne citent pas (assez) l'app. « vetting » : trouvé
+    // par une recherche, il attend le filtre d'entrée (convex/radarVet) — ni relevé, ni montré.
+    pausedReason: v.optional(v.union(v.literal("offTopic"), v.literal("vetting"))),
+    // Prouvé (filtre d'entrée, contrôle des classements, ajout à la main). Sans cette date, un compte jamais
+    // relevé est jugé à son premier relevé : pas assez de vidéos qui citent l'app → en pause.
+    proofAt: v.optional(v.number()),
+    // Depuis quand il attend le filtre d'entrée. Son prochain relevé (`nextReadAt`) n'est pas touché par l'attente :
+    // un compte revérifié reprend son rythme, il n'est pas relevé d'office à sa sortie.
+    vetAt: v.optional(v.number()),
     // Réactivé à la main après une telle pause : plus jamais remis en pause pour ce motif.
     keptByHand: v.optional(v.boolean()),
     fans: v.number(),
@@ -4408,7 +4415,18 @@ export default defineSchema({
     .index("by_due", ["status", "nextReadAt"])
     .index("by_ig_due", ["status", "igNextReadAt"])
     // L'onglet Créateurs lit les comptes d'une langue, jamais tous les comptes suivis.
-    .index("by_lang", ["lang", "status"]),
+    .index("by_lang", ["lang", "status"])
+    // La file du filtre d'entrée : les comptes « vetting », les plus anciens d'abord.
+    .index("by_paused", ["pausedReason", "nextReadAt"]),
+
+  // Comptes que le filtre d'entrée a écartés pour une app (convex/radarVet) : pas revérifiés avant 30 jours.
+  radarRejected: defineTable({
+    handle: v.string(),
+    appId: v.id("radarApps"),
+    at: v.number(),
+  })
+    .index("by_handle_app", ["handle", "appId"])
+    .index("by_at", ["at"]),
 
   // Toutes les vidéos relevées d'un compte suivi (sa médiane en vient) ; celles
   // qui sortent du lot sont aussi promues dans radarSignals.
