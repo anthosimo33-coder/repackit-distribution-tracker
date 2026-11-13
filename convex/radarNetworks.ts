@@ -78,6 +78,7 @@ import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf,
 import { FREE_LANE_MAX_MS, FREE_READS_PER_RUN, FREE_RETRY_MS, freeRead, paced, retrying, runFreeLane, type FreePage, type KnownVideo } from "./radarFreeMath";
 import { fetchEmbedPage, storePauseMs, storeUrl } from "./radarStoreMath";
 import { linkCandidate } from "./radarFiche";
+import { accountProof } from "./radarVetMath";
 import { MARKET_CURRENCY } from "./radarMarketMath";
 import {
   appRef,
@@ -239,7 +240,7 @@ async function attachFromSearchCore(
   for (const s of videos) {
     if (!citesApp(s.caption, s.authorHandle, app)) continue;
     // La langue de la vidéo suit : un compte francophone entre même si son app non concurrente a fait le plein.
-    if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, s.lang)) === "added") attached++;
+    if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, s.lang, true)) === "added") attached++;
     const r = await writeSignal(ctx, s, now, {
       insert: keepSignal(s) && s.publishedAt >= now - RETENTION_DAYS * DAY,
       foundBy,
@@ -524,7 +525,16 @@ export const applyAccountRead = internalMutation({
       app = verdict.to;
     }
     const appId = app?._id ?? acc.appId;
-    const offTopic = verdict.kind === "offTopic" && !acc.keptByHand;
+    // Premier relevé d'un compte que rien n'a encore prouvé (sa page publique ne se lisait pas) : il reste s'il
+    // pousse l'app — pseudo, bio, ou au moins deux de ses vidéos (convex/radarVetMath).
+    const unproven =
+      !!own &&
+      acc.readAt === undefined &&
+      acc.proofAt === undefined &&
+      acc.matchedBy === "caption" &&
+      verdict.kind === "keep" &&
+      accountProof(acc.handle, bio ?? acc.bio, videos.map((s) => `${s.caption} ${s.hook ?? ""}`), own) === null;
+    const offTopic = (verdict.kind === "offTopic" || unproven) && !acc.keptByHand;
     const fans = videos[0]?.authorFans ?? profile?.fans ?? acc.fans;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
     const ig = acc.igHandle ? null : igHandleFromBio(bio);
@@ -559,7 +569,7 @@ export const applyAccountRead = internalMutation({
       readErrors: 0,
       posts7d: week.length,
       best7d: best,
-      ...(offTopic ? { status: "paused" as const, pausedReason: "offTopic" as const } : {}),
+      ...(offTopic ? { status: "paused" as const, pausedReason: "offTopic" as const } : acc.proofAt === undefined && acc.readAt === undefined ? { proofAt: now } : {}),
     });
     if (own && (offTopic || verdict.kind === "move")) {
       await refreshAppNet(ctx, own._id, now);
@@ -1341,8 +1351,10 @@ export async function followCandidateCore(
   const app = await createApp(ctx, name, rivalOf, patterns);
   const counter: TrackedCounter = {};
   let attached = 0;
+  // Les comptes d'une app des classements sont déjà prouvés par son contrôle (pseudo, bio, moitié des vidéos) ;
+  // ceux des autres sources (meilleurs clips d'une campagne, comptes qui citent) passent par le filtre d'entrée.
   for (const handle of c.authors) {
-    if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter)) === "added") attached++;
+    if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter, undefined, c.kind !== "store")) === "added") attached++;
   }
   await ctx.db.patch(c._id, { status: "followed" });
   // Sa fiche (App Store, campagne) la suit : l'app suivie arrive avec ce qu'on savait de l'app repérée.
@@ -1461,8 +1473,11 @@ export const purgeNetworks = internalMutation({
       (c) => c.status === "new" && c.authorCount < 2,
     );
     for (const c of cands) await ctx.db.delete(c._id);
-    if (formats.length === 200) await ctx.scheduler.runAfter(0, internal.radarNetworks.purgeNetworks, {});
-    return formats.length + cands.length;
+    // Un compte écarté par le filtre d'entrée il y a plus de 30 jours peut être revérifié : sa trace s'efface.
+    const rejected = await ctx.db.query("radarRejected").withIndex("by_at", (q) => q.lt("at", before)).take(400);
+    for (const r of rejected) await ctx.db.delete(r._id);
+    if (formats.length === 200 || rejected.length === 400) await ctx.scheduler.runAfter(0, internal.radarNetworks.purgeNetworks, {});
+    return formats.length + cands.length + rejected.length;
   },
 });
 
