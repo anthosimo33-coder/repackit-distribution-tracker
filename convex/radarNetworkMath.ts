@@ -621,9 +621,17 @@ export function searchKind(s: string): { kind: "hashtag" | "keyword"; value: str
  */
 export const NETWORK_REGIONS: readonly (string | null)[] = [null, "FR"];
 
-/** Les passes de la recherche du réseau d'une app : chacune de ses recherches, dans chaque région. */
-export function networkPasses(searches: readonly string[]): { kind: "hashtag" | "keyword"; value: string; region: string | null }[] {
-  return searches.flatMap((raw) => NETWORK_REGIONS.map((region) => ({ ...searchKind(raw), region })));
+export type NetworkPass = { kind: "hashtag" | "keyword"; value: string; region: string | null; sort?: "date" };
+
+/**
+ * Les passes de la recherche du réseau d'une app : chacune de ses recherches, dans chaque région. En recherche
+ * COMPLÈTE (`deep`, la première d'une app), chaque mot-clé repasse trié par date : la pertinence remonte les
+ * vidéos qui ont marché, la date celles des petits comptes qui viennent de s'y mettre.
+ */
+export function networkPasses(searches: readonly string[], deep = false): NetworkPass[] {
+  const base: NetworkPass[] = searches.flatMap((raw) => NETWORK_REGIONS.map((region) => ({ ...searchKind(raw), region })));
+  if (!deep) return base;
+  return [...base, ...base.filter((p) => p.kind === "keyword").map((p) => ({ ...p, sort: "date" as const }))];
 }
 
 /** Ce qu'un signal garde de la recherche qui l'a trouvé : « réseau Stalkie », « réseau Stalkie·fr » pour la passe France. */
@@ -631,6 +639,26 @@ export const networkFoundBy = (app: string, region: string | null): string => (r
 
 /** Pages lues par recherche de réseau (30 vidéos par page en mot-clé) : 3 pour une concurrente, 2 sinon. */
 export const networkPages = (rival: boolean) => (rival ? 3 : 2);
+
+/**
+ * La recherche COMPLÈTE d'une app, à son entrée dans le Radar : on veut TOUS ses comptes, même ceux à 300 vues.
+ * Chaque recherche est lue page après page tant qu'elle ramène des comptes qu'on ne suivait pas — jusqu'à
+ * DEEP_PAGES pages (≈ 300 à 450 vidéos), et on s'arrête après DEEP_DRY_PAGES pages d'affilée sans nouveau
+ * compte. Le 12/11/2026, à la main sur Shortfy : #shortfy (246 vidéos) et #shortfyio (84) déroulés en entier
+ * donnaient 22 comptes, les deux pages d'une recherche de routine 15. Les recherches suivantes (tous les 3 ou
+ * 7 jours) restent courtes.
+ */
+export const DEEP_PAGES = 15;
+export const DEEP_DRY_PAGES = 2;
+
+/** Une app n'a pas encore eu sa recherche complète. */
+export const needsDeepSearch = (app: { deepSearchedAt?: number }): boolean => app.deepSearchedAt === undefined;
+
+/** Lit-on encore une page de cette recherche ? `page` : pages déjà lues ; `dry` : dernières pages d'affilée sans nouveau compte. */
+export function nextSearchPage(read: { page: number; dry: number }, deep: boolean, rival: boolean): boolean {
+  if (deep) return read.page < DEEP_PAGES && read.dry < DEEP_DRY_PAGES;
+  return read.page < networkPages(rival);
+}
 /** Un réseau se recherche à nouveau au bout de 3 jours pour une concurrente, d'une semaine sinon. */
 export const networkRefreshMs = (rival: boolean) => (rival ? 3 : 7) * DAY;
 
@@ -729,7 +757,12 @@ export function igHandleFromBio(bio: string | undefined): string | null {
 }
 
 /** Domaines qui ne sont pas des apps (liens de bio, messageries). */
-const NOT_APP_DOMAINS = new Set(["beacons.ai", "snipfeed.co", "carrd.co", "komi.io", "linkin.bio", "hoo.be", "bento.me", "msha.ke", "lnk.bio", "solo.to", "fanfix.io", "throne.me"]);
+// Pages de liens, raccourcisseurs, cagnottes, messageries : jamais une app. (« onelink.me », « discord.gg » et
+// « gofund.me » étaient en tête des sites repérés le 13/11/2026.)
+const NOT_APP_DOMAINS = new Set([
+  "beacons.ai", "snipfeed.co", "carrd.co", "komi.io", "linkin.bio", "hoo.be", "bento.me", "msha.ke", "lnk.bio", "solo.to", "fanfix.io", "throne.me",
+  "onelink.me", "discord.gg", "gofund.me", "paypal.me", "cash.app", "linktr.ee", "stan.store", "whop.com", "t.co", "amzn.to", "youtu.be", "itch.io",
+]);
 
 /** Les domaines d'app cités (« followspy.ai », « creators.stalkie.io » → « stalkie.io »). */
 export function domainsIn(text: string): string[] {

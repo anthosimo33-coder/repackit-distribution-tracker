@@ -82,10 +82,10 @@ crons.weekly(
 crons.interval("radar-signals-discovery", { hours: 6 }, internal.radarSignals.runDiscovery, {});
 crons.hourly("radar-signals-curve", { minuteUTC: 40 }, internal.radarSignals.runCurve, {});
 crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radarSignals.purgeOldSignals, {});
-// Réseaux d'apps (convex/radarNetworks) : recherche du réseau des apps dues toutes
-// les 6 h (une app se recherche chaque semaine), relevé des comptes suivis chaque
-// heure (chacun à son rythme : actif chaque jour, calme tous les 3 jours).
-crons.interval("radar-networks-search", { hours: 6 }, internal.radarNetworks.runNetworkSearch, {});
+// Réseaux d'apps (convex/radarNetworks) : recherche du réseau des apps dues chaque heure
+// (la première recherche d'une app est complète, les suivantes courtes, chaque semaine), relevé
+// des comptes suivis chaque heure (chacun à son rythme : actif chaque jour, calme tous les 3 jours).
+crons.interval("radar-networks-search", { hours: 1 }, internal.radarNetworks.runNetworkSearch, {});
 crons.hourly("radar-networks-accounts", { minuteUTC: 20 }, internal.radarNetworks.runAccountReads, {});
 // Le résumé du réseau de chaque app (ce que montre l'onglet Comptes suivis), refait chaque heure après les relevés.
 crons.hourly("radar-networks-summary", { minuteUTC: 35 }, internal.radarNetworks.refreshAppNets, {});
@@ -108,6 +108,15 @@ crons.interval("radar-visibility", { hours: 2 }, internal.radarAvailability.runC
 // hashtags sur les pages publiques de TikTok (150 pages toutes les 5 minutes, aucun crédit).
 crons.interval("radar-store-charts", { hours: 1 }, internal.radarStore.runStoreCharts, {});
 crons.interval("radar-store-checks", { minutes: 5 }, internal.radarStore.runStoreChecks, {});
+// Apps et logiciels qui paient des créateurs (convex/radarMarket) : les campagnes d'une place de marché publique —
+// la liste toutes les 6 heures, 40 pages de campagne toutes les 30 minutes (aucun crédit), puis Claude Haiku dit
+// chaque heure quel produit chaque campagne promeut (poste « Analyse IA »).
+// Petits réseaux (convex/radarNaming) : les tournures qui nomment un produit (« le site c'est… »), cherchées deux
+// fois par jour dans tout TikTok, les plus récentes d'abord, sans seuil de vues (16 crédits par passage).
+crons.interval("radar-naming", { hours: 12 }, internal.radarNaming.runNaming, {});
+crons.interval("radar-market-list", { hours: 6 }, internal.radarMarket.runMarketList, {});
+crons.interval("radar-market-reads", { minutes: 30 }, internal.radarMarket.runMarketReads, {});
+crons.interval("radar-market-judge", { hours: 1 }, internal.radarMarket.runMarketJudge, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

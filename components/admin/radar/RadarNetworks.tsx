@@ -12,6 +12,7 @@ import { useProject } from "@/components/project/ProjectProvider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
+import { formatMoney } from "@/lib/format-rate";
 import { cn } from "@/lib/utils";
 import { AccentTag } from "@/components/admin/radar/radar-ui";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -24,6 +25,8 @@ export type AppRow = Networks["apps"][number];
 type Candidate = FunctionReturnType<typeof api.radarNetworks.listCandidates>[number];
 type StoreList = FunctionReturnType<typeof api.radarStore.listStoreCandidates>;
 type StoreApp = StoreList["apps"][number];
+type MarketList = FunctionReturnType<typeof api.radarMarket.listMarketCandidates>;
+type MarketApp = MarketList["apps"][number];
 /** Ce qu'il faut d'une app repérée pour la suivre : son nom et ses motifs proposés, et si on la coche « concurrente » d'office. */
 type Followable = { id: Id<"radarAppCandidates">; name: string; patterns: string[]; rival: boolean };
 
@@ -43,6 +46,7 @@ export function RadarNetworks() {
   const data = useProjectQuery(api.radarNetworks.listNetworks, {});
   const candidates = useProjectQuery(api.radarNetworks.listCandidates, {});
   const store = useProjectQuery(api.radarStore.listStoreCandidates, {});
+  const market = useProjectQuery(api.radarMarket.listMarketCandidates, {});
   const [openApp, setOpenApp] = useState<Id<"radarApps"> | null>(null);
   const [adding, setAdding] = useState<Followable | true | false>(false);
   // L'horloge des recherches en cours : une recherche tombée en route cesse de
@@ -81,6 +85,11 @@ export function RadarNetworks() {
       {/* Une app des classements n'est la concurrente de personne tant qu'on ne l'a pas dit. */}
       {store && (store.apps.length > 0 || store.seen > 0) && (
         <StoreCandidates data={store} onFollow={(c) => setAdding({ id: c.id, name: c.name, patterns: c.patterns, rival: false })} />
+      )}
+
+      {/* Une app qui paie des créateurs sur une place de marché : même règle, pas concurrente tant qu'on ne l'a pas dit. */}
+      {market && (market.apps.length > 0 || market.seen > 0) && (
+        <MarketCandidates data={market} onFollow={(c) => setAdding({ id: c.id, name: c.name, patterns: c.patterns, rival: false })} />
       )}
 
       {data.apps.length === 0 ? (
@@ -576,6 +585,88 @@ function StoreCandidates({ data, onFollow }: { data: StoreList; onFollow: (c: St
                   className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
                 >
                   {tr("ficheAppStore")}
+                </a>
+                <button type="button" onClick={() => onFollow(c)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white">
+                  {tr("suivreCetteApp")}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await ignore({ candidateId: c.id });
+                    } catch (err) {
+                      toast.error(showError(err, tr("changementImpossible")));
+                    }
+                  }}
+                  className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
+                >
+                  {tr("ignorer")}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Les apps et logiciels qui paient des créateurs à la vue sur une place de marché de campagnes
+ * (convex/radarMarket), ceux dont on connaît le plus de comptes d'abord. La preuve est la campagne elle-même :
+ * ce qu'elle paie, combien de créateurs y publient, et ses meilleurs clips.
+ */
+function MarketCandidates({ data, onFollow }: { data: MarketList; onFollow: (c: MarketApp) => void }) {
+  const tr = useTranslations("admin.ops.RadarNetworks");
+  const loc = useIntlLocale();
+  const showError = useConvexError();
+  const ignore = useProjectMutation(api.radarNetworks.ignoreCandidate);
+  const usd = (x: number) => formatMoney(x, data.currency, loc);
+  return (
+    <section aria-labelledby="radar-apps-marche" className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+      <h2 id="radar-apps-marche" className="text-base font-semibold">
+        {tr("appsMarche")}
+      </h2>
+      <p className="text-sm text-slate-600">{tr("appsMarcheAide")}</p>
+      <p className="text-xs text-slate-500" data-testid="radar-marche-avancement">
+        {tr("appsMarcheAvancement", { judged: formatNumber(data.judged, loc), seen: formatNumber(data.seen, loc) })}
+        {data.stopped !== null && ` · ${tr("appsClassementsArret", { raison: data.stopped })}`}
+      </p>
+      {data.apps.length > 0 && (
+        <ul className="divide-y divide-slate-200">
+          {data.apps.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5" data-testid="radar-app-marche">
+              <div className="min-w-0 flex-[1_1_300px]">
+                <p className="truncate font-semibold text-slate-900">
+                  {c.name}
+                  <span className="font-normal text-slate-500">
+                    {` · ${tr(c.productKind === "app" ? "marcheApp" : "marcheLogiciel")}`}
+                    {c.org && c.org !== c.name && ` · ${tr("marchePayePar", { org: c.org })}`}
+                  </span>
+                </p>
+                <p className="text-xs text-slate-500">
+                  {tr("appsMarchePreuve", { n: c.creators, vues: formatNumber(c.views, loc), verse: usd(c.spentUsd) })}
+                  {c.rateUsd !== null && ` · ${tr("marcheTarif", { tarif: usd(c.rateUsd) })}`}
+                  {c.campaigns > 1 && ` · ${tr("marcheCampagnes", { n: c.campaigns })}`}
+                  {c.handles.length > 0 && " · "}
+                  {c.handles.slice(0, 4).map((x, i) => (
+                    <span key={x.handle}>
+                      {i > 0 && ", "}
+                      <a href={x.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        @{x.handle}
+                      </a>
+                    </span>
+                  ))}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <a
+                  href={c.campaignUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
+                >
+                  {tr("voirCampagne")}
                 </a>
                 <button type="button" onClick={() => onFollow(c)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white">
                   {tr("suivreCetteApp")}

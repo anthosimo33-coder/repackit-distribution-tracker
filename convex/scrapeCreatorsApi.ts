@@ -67,6 +67,17 @@ export async function scSearchKeyword(query: string, region: string, lang: strin
   return { ...r, value: videos };
 }
 
+/**
+ * Recherche TikTok par mot-clé, vidéos de la semaine les plus RÉCENTES d'abord (30 par crédit) : pour trouver ce
+ * que publient de petits comptes, que le tri par « j'aime » ne remonte jamais (convex/radarNaming).
+ */
+export async function scSearchRecent(query: string, region: string, lang: string): Promise<ScCall<SignalInput[]>> {
+  const r = await scGet("/v1/tiktok/search/keyword", { query, date_posted: "this-week", sort_by: "date-posted", region });
+  if (!r.ok) return r;
+  const list = Array.isArray(r.value.search_item_list) ? r.value.search_item_list : [];
+  return { ...r, value: list.map((it) => parseScVideo(it, lang)).filter((x): x is SignalInput => x !== null) };
+}
+
 /** Les dernières vidéos d'un compte (9 par crédit, vérifié le 06/11/2026). */
 export async function scProfileVideos(handle: string): Promise<ScCall<SignalInput[]>> {
   const r = await scGet("/v3/tiktok/profile/videos", { handle, sort_by: "latest" });
@@ -80,10 +91,17 @@ export async function scProfileVideos(handle: string): Promise<ScCall<SignalInpu
  * lettres du relais (doc ScrapeCreators, les deux recherches l'acceptent) ; sans
  * région, la requête est celle d'avant le 11/11/2026, à l'identique.
  */
-export function networkPageRequest(kind: "keyword" | "hashtag", value: string, cursor: number | undefined, region?: string): { path: string; params: Record<string, string> } {
+export function networkPageRequest(
+  kind: "keyword" | "hashtag",
+  value: string,
+  cursor: number | undefined,
+  region?: string,
+  // « date » : les plus récentes d'abord (recherche complète d'une app) ; sinon par pertinence, comme toujours.
+  sort?: "date",
+): { path: string; params: Record<string, string> } {
   const more = { ...(region ? { region } : {}), ...(cursor !== undefined ? { cursor: String(cursor) } : {}) };
   return kind === "keyword"
-    ? { path: "/v1/tiktok/search/keyword", params: { query: value, date_posted: "last-3-months", sort_by: "relevance", ...more } }
+    ? { path: "/v1/tiktok/search/keyword", params: { query: value, date_posted: "last-3-months", sort_by: sort === "date" ? "date-posted" : "relevance", ...more } }
     : { path: "/v1/tiktok/search/hashtag", params: { hashtag: value, ...more } };
 }
 
@@ -96,8 +114,9 @@ export async function scNetworkPage(
   value: string,
   cursor: number | undefined,
   region?: string,
+  sort?: "date",
 ): Promise<ScCall<{ videos: SignalInput[]; cursor: number | undefined }>> {
-  const q = networkPageRequest(kind, value, cursor, region);
+  const q = networkPageRequest(kind, value, cursor, region, sort);
   const r = await scGet(q.path, q.params);
   if (!r.ok) return r;
   const raw = Array.isArray(r.value.search_item_list) ? r.value.search_item_list : Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];

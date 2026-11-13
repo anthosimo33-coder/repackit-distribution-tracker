@@ -144,7 +144,11 @@ export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
     const r = await syncSeedApp(ctx, s, now);
     if (r.sync === "create") created++;
     if (!r.app) continue;
-    for (const handle of SEED_ACCOUNTS[s.slug] ?? []) await attachAccount(ctx, r.app, handle, 0, "seed", now, counter);
+    let seeded = 0;
+    for (const handle of SEED_ACCOUNTS[s.slug] ?? []) {
+      if ((await attachAccount(ctx, r.app, handle, 0, "seed", now, counter)) === "added") seeded++;
+    }
+    if (seeded) await refreshAppNet(ctx, r.app._id, now);
   }
   // Un compte retiré de la liste de départ n'est plus relevé, s'il y était entré par elle (radarNetworkMath.seedRemoval).
   for (const handle of SEED_REMOVED) {
@@ -582,9 +586,13 @@ export const upsertDiscovered = internalMutation({
     let admitted = 0;
     let attached = 0;
     const counter: TrackedCounter = {};
+    const grown = new Set<Id<"radarApps">>();
     for (const s of videos) {
       const app = findApp(s.caption, s.authorHandle, apps);
-      if (app && (await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") attached++;
+      if (app && (await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") {
+        attached++;
+        grown.add(app._id);
+      }
       await noteCandidates(ctx, s, now, apps, app?._id);
       const existing = await ctx.db
         .query("radarSignals")
@@ -619,6 +627,8 @@ export const upsertDiscovered = internalMutation({
     if (admitted > 0 || settings.curveDay !== day) {
       await ctx.db.patch(settings._id, { curveDay: day, curveAdmitted: admittedToday });
     }
+    // Le résumé du réseau des apps qui ont gagné un compte suit tout de suite (sinon à la tâche de l'heure).
+    for (const id of grown) await refreshAppNet(ctx, id, now);
     return { inserted, updated, admitted, attached };
   },
 });
