@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   FREE_BREAKER,
   FREE_FRESH_MS,
+  FREE_LANE_MAX_MS,
+  FREE_REGION_PAGES,
   freeNote,
   freePlan,
   freeProfileUrl,
   freeRead,
   freeStart,
   freeVideoUrl,
+  paced,
+  runFreeLane,
   parseFreeProfile,
   parseFreeVideo,
   retrying,
@@ -153,6 +157,23 @@ describe("Radar — relevé gratuit : ce qu'on lit en entier", () => {
     // Tout est connu et ancien : aucune page vidéo à lire.
     expect(freePlan(liste.slice(2), [{ videoId: V_SEMAINE }, { videoId: V_VIEILLE }], NOW).detail).toEqual([]);
   });
+
+  it("un compte sans pays : deux de ses vidéos rangées dont on ignore le pays sont relues, pas plus", () => {
+    expect(FREE_REGION_PAGES).toBe(2);
+    const V_MOIS = idAt(NOW - 30 * 24 * HOUR, 5);
+    const cinq = [...liste, { videoId: V_MOIS, caption: "", views: 500, publishedAt: videoIdTime(V_MOIS) }];
+    const known: KnownVideo[] = [{ videoId: V_HIER }, { videoId: V_SEMAINE }, { videoId: V_VIEILLE }, { videoId: V_MOIS }];
+    // Les deux rangées les plus récentes (hors celle d'hier, fraîche, relue de toute façon) ; la troisième garde ses vues.
+    const plan = freePlan(cinq, known, NOW, true);
+    expect(plan.detail.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER, V_SEMAINE, V_VIEILLE]);
+    expect(plan.light.map((v) => v.videoId)).toEqual([V_MOIS]);
+    // Une vidéo dont le pays est déjà rangé n'est pas relue pour ça : la suivante l'est.
+    const situee = freePlan(cinq, [{ videoId: V_HIER }, { videoId: V_SEMAINE, region: "FR" }, { videoId: V_VIEILLE }, { videoId: V_MOIS }], NOW, true);
+    expect(situee.detail.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER, V_VIEILLE, V_MOIS]);
+    expect(situee.light.map((v) => v.videoId)).toEqual([V_SEMAINE]);
+    // Le compte a déjà un pays : rien de plus n'est lu.
+    expect(freePlan(cinq, known, NOW).detail.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER]);
+  });
 });
 
 describe("Radar — relevé gratuit : le relevé d'un compte, de bout en bout", () => {
@@ -200,7 +221,7 @@ describe("Radar — relevé gratuit : le relevé d'un compte, de bout en bout", 
       [profil([]), "empty"],
     ] as const) {
       const t = io({ [P]: page as FreePage | string });
-      expect(await freeRead("lea.revise", t, NOW)).toEqual({ ok: false, why, pages: 1 });
+      expect(await freeRead("lea.revise", t, NOW)).toMatchObject({ ok: false, why, pages: 1 });
       expect(t.asked).toEqual([P]);
     }
   });
@@ -212,6 +233,32 @@ describe("Radar — relevé gratuit : le relevé d'un compte, de bout en bout", 
     const r = await freeRead("lea.revise", io({ [P]: liste, [U(V_NEUVE)]: supprimee, [U(V_HIER)]: { ok: false, kind: "suspect" } }, [{ videoId: V_HIER }, { videoId: V_SEMAINE }]), NOW);
     expect(r).toMatchObject({ ok: true, videos: [], pages: 3 });
     if (r.ok) expect(r.light.map((l) => [l.videoId, l.views])).toEqual([[V_SEMAINE, 300], [V_HIER, 1_200]]);
+  });
+
+  it("un compte sans pays : sa vidéo rangée est relue pour le situer, garde son texte ; si sa page manque, ses vues suffisent", async () => {
+    const known: KnownVideo[] = [{ videoId: V_HIER, region: "GB" }, { videoId: V_SEMAINE, hook: "Texte rangé" }];
+    const pages = { [P]: liste, [U(V_NEUVE)]: video(V_NEUVE), [U(V_HIER)]: video(V_HIER), [U(V_SEMAINE)]: video(V_SEMAINE, { locationCreated: "BE" }, { playCount: 250 }) };
+    const t = io(pages, known);
+    const r = await freeRead("lea.revise", t, NOW, undefined, true);
+    expect(t.asked).toEqual([P, U(V_NEUVE), U(V_HIER), U(V_SEMAINE)]);
+    if (!r.ok) throw new Error("attendu : relevé gratuit");
+    // Le pays de la vidéo rangée est lu sur sa page ; son texte reste celui déjà rangé, ses vues les plus hautes des deux pages.
+    expect(r.videos.map((v) => [v.videoId, v.region, v.hook, v.views])).toEqual([
+      [V_NEUVE, "FR", "Le nom du site c'est koro.ai · Enregistre", 9_000],
+      [V_HIER, "FR", undefined, 8_410],
+      [V_SEMAINE, "BE", "Texte rangé", 300],
+    ]);
+    expect(r.light).toEqual([]);
+    // Sa page est absente, supprimée ou refusée : la vidéo reçoit ses vues comme à tout autre relevé, rien n'est perdu.
+    for (const manque of [undefined, supprimee, { ok: false, kind: "suspect" } as FreePage]) {
+      const sans = await freeRead("lea.revise", io({ ...pages, [U(V_SEMAINE)]: manque as FreePage | string }, known), NOW, undefined, true);
+      expect(sans).toMatchObject({ ok: true, pages: 4, light: [{ videoId: V_SEMAINE, views: 300, coverUrl: "https://c/3.jpg" }] });
+      if (sans.ok) expect(sans.videos.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER]);
+    }
+    // Le compte a déjà un pays : la vidéo rangée n'est pas relue.
+    const deja = io(pages, known);
+    await freeRead("lea.revise", deja, NOW);
+    expect(deja.asked).toEqual([P, U(V_NEUVE), U(V_HIER)]);
   });
 });
 
@@ -250,5 +297,74 @@ describe("Radar — relevé gratuit : second essai et coupe-circuit", () => {
     for (const autre of ["absent", "private", "empty", "detail"] as const) expect(freeNote(s, autre)).toMatchObject({ on: true, fallback: 6, streak: 0 });
     s = freeNote(s, "suspect");
     expect(s).toEqual({ on: false, ok: 0, fallback: 6, streak: 6, stopped: "6 profils refusés d'affilée" });
+  });
+});
+
+describe("Radar — relevé gratuit : la voie gratuite d'un passage (13/11/2026)", () => {
+  it("un profil que TikTok ne sert pas dit pourquoi, et l'arrêt du passage le répète", async () => {
+    const P = freeProfileUrl("lea.revise");
+    const io = (page: FreePage | string) => ({ page: async (): Promise<FreePage> => (typeof page === "string" ? { ok: true, text: page } : page), known: async () => [] });
+    expect(await freeRead("lea.revise", io({ ok: false, kind: "suspect", reason: "HTTP 429" }), NOW)).toEqual({ ok: false, why: "suspect", pages: 1, reason: "HTTP 429" });
+    expect(await freeRead("lea.revise", io("<html>ratelimit triggered</html>"), NOW)).toEqual({ ok: false, why: "suspect", pages: 1, reason: "page sans profil" });
+    expect(await freeRead("lea.revise", io({ ok: false, kind: "absent" }), NOW)).toEqual({ ok: false, why: "absent", pages: 1 });
+    expect(P).toContain("/embed/@lea.revise");
+    let s = freeStart();
+    for (let i = 0; i < FREE_BREAKER; i++) s = freeNote(s, "suspect", "HTTP 429");
+    expect(s.stopped).toBe("6 profils refusés d'affilée (HTTP 429)");
+  });
+
+  it("une pause AVANT chaque page", async () => {
+    const order: string[] = [];
+    const page = paced(
+      async (url) => {
+        order.push(`page ${url}`);
+        return { ok: true, text: "" };
+      },
+      async () => void order.push("pause"),
+    );
+    await page("a");
+    await page("b");
+    expect(order).toEqual(["pause", "page a", "pause", "page b"]);
+  });
+
+  type Out = { ok: true } | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail"; reason?: string };
+  const lane = (issues: Record<string, Out>, alive: () => boolean = () => true) => {
+    const read: string[] = [];
+    return {
+      read,
+      run: runFreeLane(Object.keys(issues), async (h) => (read.push(h), issues[h]), alive),
+    };
+  };
+  const ok: Out = { ok: true };
+  const refus: Out = { ok: false, why: "suspect", reason: "HTTP 403" };
+
+  it("un compte après l'autre ; ce que le gratuit ne relève pas part au payant", async () => {
+    expect(FREE_LANE_MAX_MS).toBe(5 * 60_000);
+    const t = lane({ a: ok, b: { ok: false, why: "private" }, c: ok, d: { ok: false, why: "detail" }, e: refus, f: ok });
+    const r = await t.run;
+    expect(t.read).toEqual(["a", "b", "c", "d", "e", "f"]);
+    expect(r.toPay).toEqual(["b", "d", "e"]);
+    expect(r.state).toMatchObject({ on: true, ok: 3, fallback: 3, stopped: null });
+  });
+
+  it("six profils refusés d'affilée : la voie se ferme, le reste du passage part au payant SANS être demandé", async () => {
+    const issues: Record<string, Out> = { a: ok };
+    for (let i = 1; i <= 6; i++) issues[`r${i}`] = refus;
+    issues.x = ok;
+    issues.y = ok;
+    const t = lane(issues);
+    const r = await t.run;
+    expect(t.read).toEqual(["a", "r1", "r2", "r3", "r4", "r5", "r6"]);
+    expect(r.toPay).toEqual(["r1", "r2", "r3", "r4", "r5", "r6", "x", "y"]);
+    expect(r.state).toMatchObject({ on: false, ok: 1, fallback: 6, stopped: "6 profils refusés d'affilée (HTTP 403)" });
+  });
+
+  it("le temps imparti écoulé : les comptes restants partent au payant, la voie n'est pas « arrêtée »", async () => {
+    let left = 2;
+    const t = lane({ a: ok, b: ok, c: ok, d: ok }, () => left-- > 0);
+    const r = await t.run;
+    expect(t.read).toEqual(["a", "b"]);
+    expect(r.toPay).toEqual(["c", "d"]);
+    expect(r.state).toMatchObject({ on: true, ok: 2, fallback: 0, stopped: null });
   });
 });

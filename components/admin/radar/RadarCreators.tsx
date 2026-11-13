@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { isoCountryLabel } from "@/lib/country-name";
 import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
 import { AccentTag, useAge, useNow } from "@/components/admin/radar/radar-ui";
 import { Menu, RadioList } from "@/components/admin/radar/RadarSignals";
@@ -136,6 +137,11 @@ export function RadarCreators() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[15px] font-semibold text-slate-900">@{c.handle}</span>
                       {c.app && <AppTag app={c.app} rival={c.rival} />}
+                      {c.country && (
+                        <span className="text-xs text-slate-500" data-testid="radar-createur-pays">
+                          {isoCountryLabel(c.country, loc, c.country)}
+                        </span>
+                      )}
                     </div>
                     {c.bio && <p className="mt-1 line-clamp-2 break-words text-[13px] leading-snug text-slate-600">{c.bio}</p>}
                   </div>

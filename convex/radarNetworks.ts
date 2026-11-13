@@ -46,6 +46,7 @@ import {
   hookTemplate,
   igHandleFromBio,
   accountLang,
+  accountCountry,
   accountVerdict,
   bioNamesApp,
   canRejudge,
@@ -74,8 +75,10 @@ import { screenLang } from "./radarTextLang";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
-import { FREE_READS_PER_RUN, FREE_RETRY_MS, freeNote, freeRead, freeStart, retrying, type FreePage, type KnownVideo } from "./radarFreeMath";
-import { fetchEmbedPage } from "./radarStoreMath";
+import { FREE_LANE_MAX_MS, FREE_READS_PER_RUN, FREE_RETRY_MS, freeRead, paced, retrying, runFreeLane, type FreePage, type KnownVideo } from "./radarFreeMath";
+import { fetchEmbedPage, storePauseMs, storeUrl } from "./radarStoreMath";
+import { linkCandidate } from "./radarFiche";
+import { MARKET_CURRENCY } from "./radarMarketMath";
 import {
   appRef,
   attachAccount,
@@ -116,7 +119,8 @@ const videoUrl = (handle: string, videoId: string) => `https://www.tiktok.com/@$
 // ─── Lectures des tâches (types de retour DÉCLARÉS, cf radarSignals) ─────────
 
 type DueApp = { id: Id<"radarApps">; name: string; searches: string[]; rival: boolean; deep: boolean };
-type DueAccount = { id: Id<"radarTracked">; handle: string };
+/** `located` : on connaît déjà le pays d'où le compte publie. `first` : il n'a encore jamais été relevé. */
+type DueAccount = { id: Id<"radarTracked">; handle: string; located: boolean; first: boolean };
 
 export const dueApps = internalQuery({
   args: { now: v.number() },
@@ -148,7 +152,9 @@ async function freeKnownCore(ctx: QueryCtx, accountId: Id<"radarTracked">, video
   for (const videoId of videoIds.slice(0, 40)) {
     const k = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", videoId)).first();
     // Une vidéo n'est « connue » que rangée sous CE compte.
-    if (k && k.accountId === accountId) out.push({ videoId, ...(k.hook ? { hook: k.hook } : {}), ...(k.musicId ? { musicId: k.musicId } : {}), ...(k.musicTitle ? { musicTitle: k.musicTitle } : {}) });
+    if (k && k.accountId === accountId) {
+      out.push({ videoId, ...(k.hook ? { hook: k.hook } : {}), ...(k.musicId ? { musicId: k.musicId } : {}), ...(k.musicTitle ? { musicTitle: k.musicTitle } : {}), ...(k.region ? { region: k.region } : {}) });
+    }
   }
   return out;
 }
@@ -183,7 +189,7 @@ export const dueAccounts = internalQuery({
       .query("radarTracked")
       .withIndex("by_due", (q) => q.eq("status", "active").lte("nextReadAt", now))
       .take(limit);
-    return rows.map((r) => ({ id: r._id, handle: r.handle }));
+    return rows.map((r) => ({ id: r._id, handle: r.handle, located: r.country !== undefined, first: r.readAt === undefined }));
   },
 });
 
@@ -455,12 +461,15 @@ export const applyAccountRead = internalMutation({
       const known = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", s.videoId)).first();
       // La miniature est signée et expire : on garde celle du dernier relevé.
       const cover = s.coverUrl ? { coverUrl: s.coverUrl } : {};
+      // Le pays de création de la vidéo, tel que TikTok le donne : c'est lui qui situe le compte.
+      const region = s.region && /^[A-Za-z]{2}$/.test(s.region.trim()) ? { region: s.region.trim().toUpperCase() } : {};
       if (known) {
         await ctx.db.patch(known._id, {
           views: Math.max(known.views, s.views),
           snapshots: addSnapshot(known.snapshots, now, s.views),
           lastSeenAt: now,
           ...cover,
+          ...(known.region === undefined ? region : {}),
           // Vidéo relevée avant qu'on lise hook et son, ou avant les gabarits : on complète.
           ...(known.caption === undefined || known.hookKey !== extra.hookKey ? extra : {}),
         });
@@ -475,6 +484,7 @@ export const applyAccountRead = internalMutation({
           lastSeenAt: now,
           ...extra,
           ...cover,
+          ...region,
         });
         fresh.push(s);
       }
@@ -523,6 +533,8 @@ export const applyAccountRead = internalMutation({
     const lang =
       accountLang(acc.handle, videos.map((s) => s.lang), LANG_BY_HAND) ??
       screenLang(recent.map((r) => r.hook), videos.map((s) => s.region));
+    // Son pays : celui que TikTok donne le plus souvent à ses dernières vidéos (la langue ne le dit pas).
+    const country = accountCountry(recent.map((r) => r.region), acc.country);
     const lastPostAt = Math.max(acc.lastPostAt ?? 0, recent[0]?.publishedAt ?? 0) || undefined;
     const week = recent.filter((r) => now - r.publishedAt <= 7 * DAY);
     let best: Doc<"radarTracked">["best7d"];
@@ -537,6 +549,7 @@ export const applyAccountRead = internalMutation({
       ...(bio ? { bio } : {}),
       ...(ig ? { igHandle: ig, igNextReadAt: now, igReadErrors: 0 } : {}),
       ...(lang ? { lang } : {}),
+      ...(country ? { country } : {}),
       medianViews: median,
       videosSeen: acc.videosSeen + fresh.length,
       lastPostAt,
@@ -621,6 +634,16 @@ export const rejudgePaused = internalMutation({
     return rejudgePausedCore(ctx);
   },
 });
+
+/** Le verdict d'un compte sur ses vidéos RANGÉES, sans le relever : pour le rejuger quand les motifs de son app changent. */
+export async function judgeStoredAccount(ctx: QueryCtx, acc: Doc<"radarTracked">, own: Doc<"radarApps">, apps: readonly Doc<"radarApps">[]): Promise<"keep" | "move" | "offTopic"> {
+  const recent = await ctx.db
+    .query("radarTrackedVideos")
+    .withIndex("by_account_published", (q) => q.eq("accountId", acc._id))
+    .order("desc")
+    .take(MEDIAN_WINDOW);
+  return accountVerdict(acc.matchedBy, recent, acc.handle, own, otherActiveApps(apps, own._id), acc.bio).kind;
+}
 
 async function rejudgePausedCore(ctx: MutationCtx): Promise<{ moved: number; resumed: number }> {
   const now = Date.now();
@@ -721,10 +744,32 @@ export const e2eFreeAccountRead = e2eMutation({
         known: (ids) => freeKnownCore(ctx, acc._id, ids),
       },
       now,
+      undefined,
+      acc.country === undefined,
     );
     if (r.ok) await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc._id, videos: r.videos, light: r.light, profile: r.profile, now });
     const after = await ctx.db.get(acc._id);
-    return { read: r.ok ? ("free" as const) : r.why, pages: asked.length, detail: r.ok ? r.videos.length : 0, light: r.ok ? r.light.length : 0, status: after?.status ?? null, fans: after?.fans ?? null, videosSeen: after?.videosSeen ?? null };
+    return {
+      read: r.ok ? ("free" as const) : r.why,
+      pages: asked.length,
+      detail: r.ok ? r.videos.length : 0,
+      light: r.ok ? r.light.length : 0,
+      status: after?.status ?? null,
+      fans: after?.fans ?? null,
+      videosSeen: after?.videosSeen ?? null,
+      country: after?.country ?? null,
+    };
+  },
+});
+
+/** e2e : refait tout de suite le résumé du réseau d'une app (la tâche passe toutes les heures). Rend les pays de ses comptes. */
+export const e2eRefreshNet = e2eMutation({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }): Promise<{ code: string; accounts: number }[] | null> => {
+    const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!app) return null;
+    await refreshAppNet(ctx, app._id, Date.now());
+    return (await ctx.db.get(app._id))?.net?.countries ?? [];
   },
 });
 
@@ -949,47 +994,60 @@ export const runAccountReads = internalAction({
     let errors = 0;
     let creditsRemaining: number | undefined;
     let lastError: string | undefined;
-    let free = freeStart();
-    const freePage = {
-      page: retrying(
+    const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+    // Une page à la fois, une pause avant chacune (le rythme des contrôles des classements, que TikTok sert à nos
+    // serveurs) ; une page refusée est redemandée une fois.
+    const freePage = retrying(
+      paced(
         async (url: string): Promise<FreePage> => {
           const r = await fetchEmbedPage(url);
-          return r.kind === "ok" ? { ok: true, text: r.text } : { ok: false, kind: r.kind };
+          return r.kind === "ok" ? { ok: true, text: r.text } : r.kind === "suspect" ? { ok: false, kind: "suspect", reason: r.reason } : { ok: false, kind: "absent" };
         },
-        () => new Promise<void>((done) => setTimeout(done, FREE_RETRY_MS)),
+        () => sleep(storePauseMs(Math.random())),
       ),
-    };
-    // Huit comptes à la fois, et on s'arrête avant la limite de durée d'une tâche : ce qui reste est dû au
-    // passage suivant.
-    const calls = await pooled(
-      due,
-      ACCOUNT_READ_POOL,
-      async (acc) => {
-        if (free.on) {
-          const known = (videoIds: string[]): Promise<KnownVideo[]> => ctx.runQuery(internal.radarNetworks.freeKnown, { accountId: acc.id, videoIds });
-          const f = await freeRead(acc.handle, { page: freePage.page, known }, now);
-          free = freeNote(free, f.ok ? "ok" : f.why);
-          if (f.ok) {
-            await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: f.videos, light: f.light, profile: f.profile, now });
+      () => sleep(FREE_RETRY_MS),
+    );
+    // Le PREMIER relevé d'un compte est payant : une demande rend tout son historique, là où il faudrait lire une
+    // douzaine de pages. Les suivants passent par la voie gratuite.
+    const firsts = due.filter((a) => a.first);
+    const paid = (list: readonly DueAccount[]): Promise<number> =>
+      pooled(
+        list,
+        ACCOUNT_READ_POOL,
+        async (acc) => {
+          // Le relevé payant, dans la limite du budget du passage (sinon le compte reste dû).
+          if (credits >= n) return;
+          const r = await scProfileVideos(acc.handle);
+          credits += r.credits;
+          if (!r.ok) {
+            errors++;
+            lastError = r.error;
+            if (r.noCredits) return "stop";
+            await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
             return;
           }
-        }
-        // Repli : le relevé payant, dans la limite du budget du passage (sinon le compte reste dû).
-        if (credits >= n) return;
-        const r = await scProfileVideos(acc.handle);
-        credits += r.credits;
-        if (!r.ok) {
-          errors++;
-          lastError = r.error;
-          if (r.noCredits) return "stop";
-          await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
-          return;
-        }
-        if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
-        await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: r.value, now });
-      },
-      () => Date.now() - now < ACCOUNT_READ_MAX_MS,
-    );
+          if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
+          await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: r.value, now });
+        },
+        () => Date.now() - now < ACCOUNT_READ_MAX_MS,
+      );
+    // Les deux voies avancent en même temps ; ce que la voie gratuite n'a pas relevé part ensuite en payant.
+    const [lane, firstCalls] = await Promise.all([
+      runFreeLane(
+        due.filter((a) => !a.first),
+        async (acc) => {
+          const known = (videoIds: string[]): Promise<KnownVideo[]> => ctx.runQuery(internal.radarNetworks.freeKnown, { accountId: acc.id, videoIds });
+          const f = await freeRead(acc.handle, { page: freePage, known }, now, undefined, !acc.located);
+          if (!f.ok) return f;
+          await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: f.videos, light: f.light, profile: f.profile, now });
+          return { ok: true as const };
+        },
+        () => Date.now() - now < FREE_LANE_MAX_MS,
+      ),
+      paid(firsts),
+    ]);
+    const free = lane.state;
+    const calls = free.ok + firstCalls + (await paid(lane.toPay));
     await ctx.runMutation(internal.radarNetworks.noteFreeRun, { ok: free.ok, fallback: free.fallback, stopped: free.stopped, now: Date.now() });
     await ctx.runMutation(internal.radarSignals.recordRun, {
       poste: "tiktok",
@@ -1034,6 +1092,14 @@ export async function listNetworksCore(ctx: ProjectQueryCtx) {
       activeAccounts: net.active,
       posts7d: net.posts7d,
       best: net.best ?? null,
+      // Sa fiche (convex/radarFiche) : niche, ce qu'elle fait, d'où elle vient, où elle est poussée.
+      niche: a.niche ?? null,
+      pitch: a.pitch ?? null,
+      store: a.store ? { url: storeUrl(a.store.storeId), artist: a.store.artist, genre: a.store.genre } : null,
+      market: a.market
+        ? { campaignUrl: a.market.campaignUrl, creators: a.market.creators, rateUsd: a.market.rateCents !== undefined ? a.market.rateCents / 100 : null, currency: MARKET_CURRENCY }
+        : null,
+      countries: a.net?.countries ?? [],
       networkSearchedAt: a.networkSearchedAt ?? null,
       networkSearch: a.networkSearch ?? null,
     };
@@ -1065,6 +1131,7 @@ export async function listAppAccountsCore(ctx: ProjectQueryCtx, { appId }: { app
       status: t.status,
       matchedBy: t.matchedBy,
       fans: t.fans,
+      country: t.country ?? null,
       medianViews: t.medianViews ?? null,
       videosSeen: t.videosSeen,
       posts7d: t.posts7d ?? 0,
@@ -1278,6 +1345,8 @@ export async function followCandidateCore(
     if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter)) === "added") attached++;
   }
   await ctx.db.patch(c._id, { status: "followed" });
+  // Sa fiche (App Store, campagne) la suit : l'app suivie arrive avec ce qu'on savait de l'app repérée.
+  await linkCandidate(ctx, c, app._id, now);
   await refreshAppNet(ctx, app._id, now);
   return { appId: app._id, attached };
 }
@@ -1419,9 +1488,21 @@ export const e2eSeedNetwork = e2eMutation({
         offTopic: v.optional(v.boolean()),
         lang: v.optional(v.string()),
         bio: v.optional(v.string()),
+        // Le pays d'où il publie, déjà connu.
+        country: v.optional(v.string()),
         // Ses vidéos relevées (radarTrackedVideos), pour « ce qui sort du lot ».
         videos: v.optional(
-          v.array(v.object({ videoId: v.string(), ageH: v.number(), views: v.number(), hook: v.optional(v.string()), musicTitle: v.optional(v.string()), caption: v.optional(v.string()) })),
+          v.array(
+            v.object({
+              videoId: v.string(),
+              ageH: v.number(),
+              views: v.number(),
+              hook: v.optional(v.string()),
+              musicTitle: v.optional(v.string()),
+              caption: v.optional(v.string()),
+              region: v.optional(v.string()),
+            }),
+          ),
         ),
       }),
     ),
@@ -1468,6 +1549,7 @@ export const e2eSeedNetwork = e2eMutation({
         ...(t.medianViews !== undefined ? { medianViews: t.medianViews } : {}),
         ...(t.lang !== undefined ? { lang: t.lang } : {}),
         ...(t.bio !== undefined ? { bio: t.bio } : {}),
+        ...(t.country !== undefined ? { country: t.country } : {}),
         videosSeen: videos?.length ?? 9,
         posts7d: t.posts7d,
         ...(t.best7d ? { best7d: { ...t.best7d, url: videoUrl(t.handle, t.best7d.videoId) } } : {}),
@@ -1492,6 +1574,7 @@ export const e2eSeedNetwork = e2eMutation({
           snapshots: [{ at: now, views: vid.views }],
           lastSeenAt: now,
           ...(vid.hook !== undefined ? { hook: vid.hook } : {}),
+          ...(vid.region !== undefined ? { region: vid.region } : {}),
           ...(vid.musicTitle !== undefined ? { musicTitle: vid.musicTitle } : {}),
           ...(vid.caption !== undefined ? { caption: vid.caption } : {}),
         });

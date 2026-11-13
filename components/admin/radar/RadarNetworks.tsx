@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
+import { isoCountryLabel } from "@/lib/country-name";
 import { cn } from "@/lib/utils";
 import { AccentTag } from "@/components/admin/radar/radar-ui";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -199,6 +200,49 @@ export function NetworkSearchBlock({ app, now }: { app: AppRow; now: number }) {
   );
 }
 
+/**
+ * La fiche d'une app : sa niche et ce qu'elle fait, d'où elle vient (App Store, campagne qui paie ses créateurs),
+ * et les pays d'où ses comptes publient. Rien tant que la fiche n'est pas arrivée.
+ */
+function AppFiche({ app }: { app: AppRow }) {
+  const tr = useTranslations("admin.ops.RadarNetworks");
+  const loc = useIntlLocale();
+  const pays = app.countries.map((c) => `${isoCountryLabel(c.code, loc, c.code)} (${c.accounts})`).join(", ");
+  if (!app.niche && !app.pitch && !app.store && !app.market && !pays) return null;
+  const link = "underline underline-offset-2 hover:text-slate-900";
+  return (
+    <div className="mb-1 space-y-0.5 text-xs text-slate-600" data-testid="radar-app-fiche">
+      {(app.niche || app.pitch) && (
+        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          {app.niche && (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700" data-testid="radar-app-niche">
+              {app.niche}
+            </span>
+          )}
+          {app.pitch && <span className="min-w-0 text-[13px] text-slate-700">{app.pitch}</span>}
+        </p>
+      )}
+      {app.store && (
+        <p>
+          <a href={app.store.url} target="_blank" rel="noopener noreferrer" className={link}>
+            {tr("ficheStore", { genre: app.store.genre, editeur: app.store.artist })}
+          </a>
+        </p>
+      )}
+      {app.market && (
+        <p>
+          <a href={app.market.campaignUrl} target="_blank" rel="noopener noreferrer" className={link}>
+            {app.market.rateUsd !== null
+              ? tr("ficheCampagne", { tarif: formatMoney(app.market.rateUsd, app.market.currency, loc), n: app.market.creators })
+              : tr("ficheCampagneSansTarif", { n: app.market.creators })}
+          </a>
+        </p>
+      )}
+      {pays && <p data-testid="radar-app-pays">{tr("fichePays", { liste: pays })}</p>}
+    </div>
+  );
+}
+
 function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open: boolean; onToggle: () => void }) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const loc = useIntlLocale();
@@ -240,6 +284,7 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
             </span>
           </button>
           <div className="pl-6">
+            <AppFiche app={app} />
             <SearchStatus app={app} phase={phase} />
           </div>
         </div>
@@ -412,6 +457,7 @@ export function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appN
                       {r.matchedBy !== "caption" && (
                         <span className="ml-1.5 text-xs text-slate-500">{r.matchedBy === "manual" ? tr("ajouteALaMain") : tr("listeDeDepart")}</span>
                       )}
+                      {r.country && <span className="ml-1.5 text-xs text-slate-500">{isoCountryLabel(r.country, loc, r.country)}</span>}
                       {r.igHandle && (
                         <a href={`https://www.instagram.com/${r.igHandle}/`} target="_blank" rel="noopener noreferrer" className="mt-0.5 block text-xs text-fuchsia-700 hover:underline">
                           {r.igBest7d
@@ -563,6 +609,11 @@ function StoreCandidates({ data, onFollow }: { data: StoreList; onFollow: (c: St
                     {c.year && ` · ${c.year}`}
                   </span>
                 </p>
+                {c.note && (
+                  <p className="text-xs font-medium text-amber-800" data-testid="radar-app-non-suivie">
+                    {tr("pasSuivieDOffice", { raison: c.note })}
+                  </p>
+                )}
                 <p className="text-xs text-slate-500">
                   {tr("appsClassementsPreuve", { n: c.creators.length, tag: c.tag, videos: formatNumber(c.tagVideos, loc) })}
                   {" · "}
@@ -644,6 +695,11 @@ function MarketCandidates({ data, onFollow }: { data: MarketList; onFollow: (c: 
                     {c.org && c.org !== c.name && ` · ${tr("marchePayePar", { org: c.org })}`}
                   </span>
                 </p>
+                {c.note && (
+                  <p className="text-xs font-medium text-amber-800" data-testid="radar-app-non-suivie">
+                    {tr("pasSuivieDOffice", { raison: c.note })}
+                  </p>
+                )}
                 <p className="text-xs text-slate-500">
                   {tr("appsMarchePreuve", { n: c.creators, vues: formatNumber(c.views, loc), verse: usd(c.spentUsd) })}
                   {c.rateUsd !== null && ` · ${tr("marcheTarif", { tarif: usd(c.rateUsd) })}`}

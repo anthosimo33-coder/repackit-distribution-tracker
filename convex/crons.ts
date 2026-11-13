@@ -120,6 +120,9 @@ crons.interval("radar-naming", { hours: 12 }, internal.radarNaming.runNaming, {}
 crons.interval("radar-market-list", { hours: 6 }, internal.radarMarket.runMarketList, {});
 crons.interval("radar-market-reads", { minutes: 30 }, internal.radarMarket.runMarketReads, {});
 crons.interval("radar-market-judge", { hours: 1 }, internal.radarMarket.runMarketJudge, {});
+// La fiche de chaque app suivie : sa fiche App Store ou sa campagne recopiée de l'app repérée, sa niche et ce
+// qu'elle fait en une phrase dits par l'IA (convex/radarFiche).
+crons.interval("radar-fiches", { minutes: 30 }, internal.radarFiche.runFiches, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

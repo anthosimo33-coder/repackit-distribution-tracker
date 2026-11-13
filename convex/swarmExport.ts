@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { httpAction, internalQuery } from "./_generated/server";
+import { MARKET_CURRENCY } from "./radarMarketMath";
+import { storeUrl } from "./radarStoreMath";
 
 /**
  * Export du Radar vers Swarm (le SaaS de veille, projet Convex à part).
@@ -31,6 +33,14 @@ function projectApp(a: Doc<"radarApps">) {
     trackedCount: a.trackedCount ?? null,
     mergedInto: a.mergedInto ?? null,
     createdAt: a.createdAt,
+    // Sa fiche (convex/radarFiche) : niche et phrase (« hand » = niche posée à la main), fiche App Store,
+    // ce que ses campagnes paient (montants en cents de `currency`), pays de ses comptes actifs.
+    niche: a.niche ?? null,
+    nicheBy: a.nicheBy ?? null,
+    pitch: a.pitch ?? null,
+    store: a.store ? { ...a.store, url: storeUrl(a.store.storeId) } : null,
+    market: a.market ? { ...a.market, rateCents: a.market.rateCents ?? null, about: a.market.about ?? null, currency: MARKET_CURRENCY } : null,
+    countries: a.net?.countries ?? [],
   };
 }
 
@@ -43,6 +53,8 @@ function projectTracked(t: Doc<"radarTracked">) {
     fans: t.fans,
     bio: t.bio ?? null,
     lang: t.lang ?? null,
+    // Le pays d'où il publie (ISO 3166, deux lettres) : le plus fréquent parmi ses vidéos relevées.
+    country: t.country ?? null,
     medianViews: t.medianViews ?? null,
     videosSeen: t.videosSeen,
     lastPostAt: t.lastPostAt ?? null,
@@ -72,6 +84,7 @@ function projectTrackedVideo(x: Doc<"radarTrackedVideos">) {
     hookKey: x.hookKey ?? null,
     musicTitle: x.musicTitle ?? null,
     coverUrl: x.coverUrl ?? null,
+    region: x.region ?? null,
     lastSeenAt: x.lastSeenAt,
   };
 }

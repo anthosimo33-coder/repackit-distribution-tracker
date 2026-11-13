@@ -34,6 +34,7 @@ export async function listCreatorsCore(ctx: ProjectQueryCtx, { lang }: { lang: (
       rival: app?.rivalOf.includes(slug) ?? false,
       fans: t.fans,
       bio: t.bio ?? null,
+      country: t.country ?? null,
       igHandle: t.igHandle ?? null,
       medianViews: t.medianViews ?? null,
       // Vidéos relevées depuis qu'on le suit : ce que sa fiche montre.

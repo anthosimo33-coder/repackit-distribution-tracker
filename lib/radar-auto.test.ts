@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoPlan } from "../convex/radarAutoMath";
+import { AUTO_COMMON_NOTE, AUTO_SCHEMA, AUTO_SYSTEM, autoAnswer, autoPlan, autoPrompt, shortenedPattern } from "../convex/radarAutoMath";
 import { AUTO_MIN_CREATORS, brandFamily, storeAutoFollow, type CreatorWhy } from "../convex/radarStoreMath";
 
 /**
@@ -71,8 +71,17 @@ describe("Radar — suivi d'office : une app des classements", () => {
 });
 
 describe("Radar — suivi d'office : ce qu'on fait d'une app repérée", () => {
-  it("une app des classements assez prouvée : son hashtag sans « app » pour motif", () => {
-    expect(autoPlan({ kind: "store", label: "Bibly", store: { tag: "biblyapp", creators: [c("lucille_255", "bio"), c("melina8984", "bio")] } })).toEqual({ patterns: ["bibly"] });
+  it("une app des classements assez prouvée : son hashtag PROUVÉ pour motif, tel quel", () => {
+    expect(autoPlan({ kind: "store", label: "Bibly", store: { tag: "biblyapp", creators: [c("lucille_255", "bio"), c("melina8984", "bio")] } })).toEqual({ patterns: ["biblyapp"] });
+    // Le 13/11/2026 « hushapp » entrait sous « hush », « hyperapp » sous « hyper » : 1 400 comptes sans rapport rattachés.
+    const quatre = [c("squilliamfancyfan"), c("kensunfiltered"), c("nicolealiseda"), c("secretswithmady")];
+    expect(autoPlan({ kind: "store", label: "Hush", store: { tag: "hushapp", creators: quatre } })).toEqual({ patterns: ["hushapp"] });
+    expect(autoPlan({ kind: "store", label: "Darij AI", store: { tag: "darijai", creators: quatre } })).toEqual({ patterns: ["darijai"] });
+    expect(shortenedPattern("hushapp")).toBe("hush");
+    expect(shortenedPattern("guardianapp")).toBe("guardian");
+    // Un hashtag qui n'a pas été raccourci n'a rien à réparer.
+    expect(shortenedPattern("sideshift")).toBeNull();
+    expect(shortenedPattern("myapp")).toBeNull();
     expect(autoPlan({ kind: "store", label: "Survie", store: { tag: "survie", creators: [c("zwz997"), c("le_survivaliste.fr")] } })).toEqual({ skip: "preuve insuffisante" });
   });
 
@@ -86,5 +95,50 @@ describe("Radar — suivi d'office : ce qu'on fait d'une app repérée", () => {
   it("un compte mentionné ou un site cité ne sont jamais suivis d'office", () => {
     expect(autoPlan({ kind: "mention", label: "@SHEIN" })).toEqual({ skip: "pas une source suivie d'office" });
     expect(autoPlan({ kind: "domain", label: "opsion.app" })).toEqual({ skip: "pas une source suivie d'office" });
+  });
+});
+
+describe("Radar — suivi d'office : le garde « nom courant »", () => {
+  const batch = [
+    { id: "a", name: "Hush", what: "Style de vie app by Blyynd", patterns: ["hushapp"] },
+    { id: "b", name: "EQUALS", what: "Musique app by Equals Collective", patterns: ["equals"] },
+    { id: "c", name: "Open Road", what: "mobile app", patterns: ["openroad", "openroadapp"] },
+    { id: "d", name: "Aisance", what: "", patterns: ["aisance"] },
+  ];
+
+  it("l'IA reçoit, pour chaque app qui entrerait, son nom, ce qu'elle est et le motif qu'on chercherait", () => {
+    expect(autoPrompt(batch)).toBe(
+      "id: a\nproduct: Hush (Style de vie app by Blyynd)\nterm: hushapp\n\nid: b\nproduct: EQUALS (Musique app by Equals Collective)\nterm: equals\n\nid: c\nproduct: Open Road (mobile app)\nterm: openroad, openroadapp\n\nid: d\nproduct: Aisance\nterm: aisance",
+    );
+    // Elle ne peut répondre que par oui ou non, et dans le doute c'est non.
+    expect(AUTO_SCHEMA.properties.items.items.properties.distinctive.type).toBe("boolean");
+    expect(AUTO_SYSTEM).toContain("When unsure, answer false.");
+    expect(AUTO_COMMON_NOTE).toBe("nom courant : à suivre à la main avec un motif précis");
+  });
+
+  it("seul un « distinctif » franc fait entrer l'app ; une app sans verdict n'est pas regardée à ce passage", () => {
+    const got = autoAnswer(
+      {
+        items: [
+          { id: "a", distinctive: true },
+          { id: "b", distinctive: false },
+          // Ni oui ni non : c'est non.
+          { id: "c", distinctive: "yes" },
+          // Répétée, inventée, illisible : écartées.
+          { id: "a", distinctive: false },
+          { id: "zz", distinctive: true },
+          null,
+        ],
+      },
+      batch,
+    );
+    expect(got).toEqual([
+      { id: "a", common: false },
+      { id: "b", common: true },
+      { id: "c", common: true },
+    ]);
+    // « d » n'a pas de verdict : elle attendra le passage suivant.
+    expect(got.map((g) => g.id)).not.toContain("d");
+    for (const raw of [null, "texte", {}, { items: "non" }]) expect(autoAnswer(raw, batch)).toEqual([]);
   });
 });

@@ -4324,7 +4324,31 @@ export default defineSchema({
         active: v.number(),
         posts7d: v.number(),
         best: v.optional(v.object({ handle: v.string(), url: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number() })),
+        countries: v.optional(v.array(v.object({ code: v.string(), accounts: v.number() }))),
         at: v.number(),
+      }),
+    ),
+    // ── La fiche de l'app (13/11/2026), pour Swarm ──────────────────────────────────────────────────────────────
+    // Sa niche et ce qu'elle fait en une phrase : posées à la main (radarNicheMath.NICHE_BY_HAND) ou par l'IA.
+    niche: v.optional(v.string()),
+    pitch: v.optional(v.string()),
+    nicheBy: v.optional(v.union(v.literal("hand"), v.literal("ai"))),
+    nicheAt: v.optional(v.number()),
+    // Sa fiche App Store, quand elle vient des classements.
+    store: v.optional(v.object({ storeId: v.string(), artist: v.string(), genre: v.string(), released: v.string() })),
+    // Ce qu'elle paie aux créateurs, quand elle vient d'une place de marché de campagnes.
+    market: v.optional(
+      v.object({
+        source: v.string(),
+        productKind: v.union(v.literal("app"), v.literal("software")),
+        org: v.string(),
+        campaignUrl: v.string(),
+        campaigns: v.number(),
+        creators: v.number(),
+        views: v.number(),
+        spentCents: v.number(),
+        rateCents: v.optional(v.number()),
+        about: v.optional(v.string()),
       }),
     ),
     // Doublon fondu dans une autre app (radarNetworkMath.SeedApp.formerSlugs) : ses comptes
@@ -4354,6 +4378,8 @@ export default defineSchema({
     keptByHand: v.optional(v.boolean()),
     fans: v.number(),
     bio: v.optional(v.string()), // au dernier relevé
+    // Le pays d'où il publie : le plus fréquent parmi ses vidéos relevées (radarNetworkMath.accountCountry).
+    country: v.optional(v.string()),
     // Son Instagram, lu dans sa bio (cf radarNetworkMath.igHandleFromBio), relevé à part.
     igHandle: v.optional(v.string()),
     lang: v.optional(v.string()), // langue de ses vidéos TikTok, reprise pour ses Reels
@@ -4400,6 +4426,7 @@ export default defineSchema({
     hookKey: v.optional(v.string()), // GABARIT du hook, cf radarNetworkMath.hookTemplate
     musicId: v.optional(v.string()),
     musicTitle: v.optional(v.string()),
+    region: v.optional(v.string()), // pays de création de la vidéo d'après TikTok (« FR »)
     // Miniature au dernier relevé : URL signée par TikTok, qui expire. Swarm la
     // recopie chez lui pendant sa synchronisation (convex/swarmExport.ts).
     coverUrl: v.optional(v.string()),
@@ -4517,6 +4544,9 @@ export default defineSchema({
     // Le suivi d'office l'a regardée (convex/radarAuto) : suivie, ou laissée proposée avec la raison.
     autoAt: v.optional(v.number()),
     autoNote: v.optional(v.string()),
+    // L'app suivie qu'elle est devenue : sa fiche (App Store, campagne) y est recopiée, et tenue à jour.
+    appId: v.optional(v.id("radarApps")),
+    ficheAt: v.optional(v.number()),
     // Une app des classements : sa fiche, le hashtag qui la prouve, et pourquoi chaque compte est un compte créateur.
     store: v.optional(
       v.object({
@@ -4543,6 +4573,7 @@ export default defineSchema({
         views: v.number(),
         spentCents: v.number(),
         rateCents: v.optional(v.number()), // ce que rapportent 1 000 vues
+        about: v.optional(v.string()), // la description de sa campagne la plus vue
       }),
     ),
   })

@@ -543,7 +543,12 @@
     "marcheApp": "app mobile",
     "marcheLogiciel": "logiciel",
     "marchePayePar": "payé par {org}",
-    "voirCampagne": "Voir la campagne"
+    "voirCampagne": "Voir la campagne",
+    "ficheStore": "Sur l'App Store : {genre}, par {editeur}",
+    "ficheCampagne": "Paie ses créateurs {tarif} pour 1 000 vues · {n, plural, =0 {aucun créateur encore} one {# créateur} other {# créateurs}}",
+    "ficheCampagneSansTarif": "Paie ses créateurs à la vue · {n, plural, =0 {aucun créateur encore} one {# créateur} other {# créateurs}}",
+    "fichePays": "Ses comptes publient depuis : {liste}",
+    "pasSuivieDOffice": "Pas suivie d'office : {raison}"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} abonnés",

@@ -543,7 +543,12 @@
     "marcheApp": "mobile app",
     "marcheLogiciel": "software",
     "marchePayePar": "paid by {org}",
-    "voirCampagne": "View campaign"
+    "voirCampagne": "View campaign",
+    "ficheStore": "On the App Store: {genre}, by {editeur}",
+    "ficheCampagne": "Pays its creators {tarif} per 1,000 views · {n, plural, =0 {no creator yet} one {# creator} other {# creators}}",
+    "ficheCampagneSansTarif": "Pays its creators per view · {n, plural, =0 {no creator yet} one {# creator} other {# creators}}",
+    "fichePays": "Its accounts post from: {liste}",
+    "pasSuivieDOffice": "Not followed automatically: {raison}"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} followers",
