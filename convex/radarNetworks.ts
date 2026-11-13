@@ -27,7 +27,8 @@
 import { v, type Infer } from "convex/values";
 import { ERR, err } from "./errorCodes";
 import { internal } from "./_generated/api";
-import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, type MutationCtx,
+  type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx } from "./functions";
 import { normalizeTikTokHandle } from "./radarApi";
@@ -73,9 +74,12 @@ import { screenLang } from "./radarTextLang";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
+import { FREE_READS_PER_RUN, FREE_RETRY_MS, freeNote, freeRead, freeStart, retrying, type FreePage, type KnownVideo } from "./radarFreeMath";
+import { fetchEmbedPage } from "./radarStoreMath";
 import {
   appRef,
   attachAccount,
+  ensureSettings,
   ensureSeedApps,
   moveAccount,
   refreshAppNet,
@@ -135,6 +139,39 @@ export const appToSearch = internalQuery({
     if (!a) return null;
     if (a.status !== "active") return "paused";
     return { id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0, deep: needsDeepSearch(a) };
+  },
+});
+
+/** Ce qu'on a déjà de ces vidéos (texte à l'écran, son), pour le relevé gratuit (radarFreeMath.freeRead). */
+async function freeKnownCore(ctx: QueryCtx, accountId: Id<"radarTracked">, videoIds: readonly string[]): Promise<KnownVideo[]> {
+  const out: KnownVideo[] = [];
+  for (const videoId of videoIds.slice(0, 40)) {
+    const k = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", videoId)).first();
+    // Une vidéo n'est « connue » que rangée sous CE compte.
+    if (k && k.accountId === accountId) out.push({ videoId, ...(k.hook ? { hook: k.hook } : {}), ...(k.musicId ? { musicId: k.musicId } : {}), ...(k.musicTitle ? { musicTitle: k.musicTitle } : {}) });
+  }
+  return out;
+}
+
+export const freeKnown = internalQuery({
+  args: { accountId: v.id("radarTracked"), videoIds: v.array(v.string()) },
+  handler: (ctx, { accountId, videoIds }): Promise<KnownVideo[]> => freeKnownCore(ctx, accountId, videoIds),
+});
+
+/** Ce qu'un passage a relevé gratuitement, et ce qu'il a dû relever en payant. */
+export const noteFreeRun = internalMutation({
+  args: { ok: v.number(), fallback: v.number(), stopped: v.union(v.string(), v.null()), now: v.number() },
+  handler: async (ctx, { ok, fallback, stopped, now }) => {
+    const s = await ensureSettings(ctx);
+    await ctx.db.patch(s._id, {
+      freeReads: (s.freeReads ?? 0) + ok,
+      freeFallbacks: (s.freeFallbacks ?? 0) + fallback,
+      lastFreeAt: now,
+      lastFreeOk: ok,
+      lastFreeFallback: fallback,
+      lastFreeStop: stopped ?? undefined,
+    });
+    return null;
   },
 });
 
@@ -392,8 +429,16 @@ export const alertFormat = internalAction({
  * cite nourrit les apps repérées.
  */
 export const applyAccountRead = internalMutation({
-  args: { accountId: v.id("radarTracked"), videos: v.array(signalInput), now: v.number() },
-  handler: async (ctx, { accountId, videos, now }): Promise<{ promoted: number }> => {
+  args: {
+    accountId: v.id("radarTracked"),
+    videos: v.array(signalInput),
+    now: v.number(),
+    // Relevé gratuit (convex/radarFreeMath) : les vidéos déjà rangées dont seules les vues sont relues, et le
+    // profil (abonnés, bio) quand aucune vidéo n'est lue en entier.
+    light: v.optional(v.array(v.object({ videoId: v.string(), views: v.number(), coverUrl: v.optional(v.string()) }))),
+    profile: v.optional(v.object({ fans: v.number(), bio: v.string() })),
+  },
+  handler: async (ctx, { accountId, videos, now, light, profile }): Promise<{ promoted: number }> => {
     const acc = await ctx.db.get(accountId);
     if (!acc) return { promoted: 0 };
     let app = await ctx.db.get(acc.appId);
@@ -434,6 +479,23 @@ export const applyAccountRead = internalMutation({
         fresh.push(s);
       }
     }
+    // Les vidéos dont seules les vues ont été relues : leur compteur et leur relevé avancent, là où elles sont
+    // rangées et dans Signaux si elles y sont. Rien d'autre ne change pour elles.
+    for (const l of light ?? []) {
+      const known = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", l.videoId)).first();
+      if (!known || known.accountId !== accountId) continue;
+      const cover = l.coverUrl ? { coverUrl: l.coverUrl } : {};
+      await ctx.db.patch(known._id, { views: Math.max(known.views, l.views), snapshots: addSnapshot(known.snapshots, now, l.views), lastSeenAt: now, ...cover });
+      const sig = await ctx.db
+        .query("radarSignals")
+        .withIndex("by_video", (q) => q.eq("platform", "tiktok").eq("videoId", l.videoId))
+        .first();
+      if (sig) {
+        const views = Math.max(sig.views, l.views);
+        const sigFans = profile?.fans ?? sig.authorFans;
+        await ctx.db.patch(sig._id, { views, authorFans: sigFans, ratio: ratioOf(views, sigFans), snapshots: addSnapshot(sig.snapshots, now, l.views), lastSeenAt: now, ...cover });
+      }
+    }
     const recent = await ctx.db
       .query("radarTrackedVideos")
       .withIndex("by_account_published", (q) => q.eq("accountId", accountId))
@@ -445,7 +507,7 @@ export const applyAccountRead = internalMutation({
     const apps = await ctx.db.query("radarApps").collect();
     const own = app;
     // Sa bio, lue à ce relevé (sinon celle déjà connue) : si elle nomme son app, le compte reste dans son réseau.
-    const bio = videos.find((s) => s.authorBio)?.authorBio;
+    const bio = videos.find((s) => s.authorBio)?.authorBio ?? (profile?.bio || undefined);
     const verdict = own ? accountVerdict(acc.matchedBy, recent, acc.handle, own, otherActiveApps(apps, own._id), bio ?? acc.bio) : { kind: "keep" as const };
     if (own && verdict.kind === "move") {
       await moveAccount(ctx, acc, own, verdict.to, recent);
@@ -453,7 +515,7 @@ export const applyAccountRead = internalMutation({
     }
     const appId = app?._id ?? acc.appId;
     const offTopic = verdict.kind === "offTopic" && !acc.keptByHand;
-    const fans = videos[0]?.authorFans ?? acc.fans;
+    const fans = videos[0]?.authorFans ?? profile?.fans ?? acc.fans;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
     const ig = acc.igHandle ? null : igHandleFromBio(bio);
     // Sa langue : celle déclarée à la main, sinon la plus fréquente de ses légendes ; et quand TikTok n'en donne
@@ -632,6 +694,37 @@ export const e2eApplyAccountRead = e2eMutation({
     });
     const after = await ctx.db.get(acc._id);
     return after ? { lang: after.lang ?? null, status: after.status } : null;
+  },
+});
+
+/**
+ * e2e : le relevé GRATUIT d'un compte semé, avec les pages données ici (ce que TikTok aurait servi : une page
+ * absente de la liste « n'existe pas », une page `refused` est refusée). Rend comment le compte a été relevé, et
+ * ce que le relevé a écrit.
+ */
+export const e2eFreeAccountRead = e2eMutation({
+  args: { handle: v.string(), pages: v.array(v.object({ url: v.string(), html: v.optional(v.string()), refused: v.optional(v.boolean()) })) },
+  handler: async (ctx, { handle, pages }) => {
+    const acc = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+    if (!acc) return null;
+    const now = Date.now();
+    const asked: string[] = [];
+    const r = await freeRead(
+      handle,
+      {
+        page: async (url): Promise<FreePage> => {
+          asked.push(url);
+          const p = pages.find((x) => x.url === url);
+          if (!p) return { ok: false, kind: "absent" };
+          return p.refused ? { ok: false, kind: "suspect" } : { ok: true, text: p.html ?? "" };
+        },
+        known: (ids) => freeKnownCore(ctx, acc._id, ids),
+      },
+      now,
+    );
+    if (r.ok) await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc._id, videos: r.videos, light: r.light, profile: r.profile, now });
+    const after = await ctx.db.get(acc._id);
+    return { read: r.ok ? ("free" as const) : r.why, pages: asked.length, detail: r.ok ? r.videos.length : 0, light: r.ok ? r.light.length : 0, status: after?.status ?? null, fans: after?.fans ?? null, videosSeen: after?.videosSeen ?? null };
   },
 });
 
@@ -850,17 +943,39 @@ export const runAccountReads = internalAction({
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const b = budgetState(st.budget, st.usage);
     const n = allowance(st.budget, b, "tiktok", todayCredits(st, "tiktok"), ACCOUNT_RUNS_PER_DAY);
-    const due: DueAccount[] = await ctx.runQuery(internal.radarNetworks.dueAccounts, { now, limit: n });
+    // Le relevé gratuit d'abord (pages publiques de TikTok) : il ne dépend pas du budget, seul le repli payant y puise.
+    const due: DueAccount[] = await ctx.runQuery(internal.radarNetworks.dueAccounts, { now, limit: Math.max(n, FREE_READS_PER_RUN) });
     let credits = 0;
     let errors = 0;
     let creditsRemaining: number | undefined;
     let lastError: string | undefined;
+    let free = freeStart();
+    const freePage = {
+      page: retrying(
+        async (url: string): Promise<FreePage> => {
+          const r = await fetchEmbedPage(url);
+          return r.kind === "ok" ? { ok: true, text: r.text } : { ok: false, kind: r.kind };
+        },
+        () => new Promise<void>((done) => setTimeout(done, FREE_RETRY_MS)),
+      ),
+    };
     // Huit comptes à la fois, et on s'arrête avant la limite de durée d'une tâche : ce qui reste est dû au
     // passage suivant.
     const calls = await pooled(
       due,
       ACCOUNT_READ_POOL,
       async (acc) => {
+        if (free.on) {
+          const known = (videoIds: string[]): Promise<KnownVideo[]> => ctx.runQuery(internal.radarNetworks.freeKnown, { accountId: acc.id, videoIds });
+          const f = await freeRead(acc.handle, { page: freePage.page, known }, now);
+          free = freeNote(free, f.ok ? "ok" : f.why);
+          if (f.ok) {
+            await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: f.videos, light: f.light, profile: f.profile, now });
+            return;
+          }
+        }
+        // Repli : le relevé payant, dans la limite du budget du passage (sinon le compte reste dû).
+        if (credits >= n) return;
         const r = await scProfileVideos(acc.handle);
         credits += r.credits;
         if (!r.ok) {
@@ -875,6 +990,7 @@ export const runAccountReads = internalAction({
       },
       () => Date.now() - now < ACCOUNT_READ_MAX_MS,
     );
+    await ctx.runMutation(internal.radarNetworks.noteFreeRun, { ok: free.ok, fallback: free.fallback, stopped: free.stopped, now: Date.now() });
     await ctx.runMutation(internal.radarSignals.recordRun, {
       poste: "tiktok",
       credits,
@@ -1140,19 +1256,31 @@ export const followCandidate = permissionMutation("radar.use")({
   handler: async (ctx, { candidateId, name, rivalOf, patterns }) => {
     const c = await ctx.db.get(candidateId);
     if (!c) throw err(ERR.RADAR_APP_NOT_FOUND, "App repérée introuvable.");
-    const app = await createApp(ctx, name, rivalOf, patterns);
-    const now = Date.now();
-    const counter: TrackedCounter = {};
-    let attached = 0;
-    for (const handle of c.authors) {
-      if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter)) === "added") attached++;
-    }
-    await ctx.db.patch(candidateId, { status: "followed" });
-    await refreshAppNet(ctx, app._id, now);
-    if (attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
-    return { appId: app._id, attached };
+    const r = await followCandidateCore(ctx, c, name, rivalOf, patterns, Date.now());
+    if (r.attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
+    return r;
   },
 });
+
+/** Une app repérée devient une app suivie, ses comptes rejoignent son réseau : le bouton « Suivre », et le suivi d'office (convex/radarAuto). */
+export async function followCandidateCore(
+  ctx: MutationCtx,
+  c: Doc<"radarAppCandidates">,
+  name: string,
+  rivalOf: string[],
+  patterns: string[],
+  now: number,
+): Promise<{ appId: Id<"radarApps">; attached: number }> {
+  const app = await createApp(ctx, name, rivalOf, patterns);
+  const counter: TrackedCounter = {};
+  let attached = 0;
+  for (const handle of c.authors) {
+    if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter)) === "added") attached++;
+  }
+  await ctx.db.patch(c._id, { status: "followed" });
+  await refreshAppNet(ctx, app._id, now);
+  return { appId: app._id, attached };
+}
 
 export const ignoreCandidate = permissionMutation("radar.use")({
   args: { candidateId: v.id("radarAppCandidates") },

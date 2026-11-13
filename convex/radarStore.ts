@@ -177,7 +177,8 @@ export async function applyStoreCheckCore(
   };
   const got = await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", key)).first();
   if (got) {
-    await ctx.db.patch(got._id, fields);
+    // Une preuve neuve : le suivi d'office la regarde à nouveau.
+    await ctx.db.patch(got._id, { ...fields, autoAt: undefined, autoNote: undefined });
     return "updated";
   }
   await ctx.db.insert("radarAppCandidates", { key, kind: "store", fromApps: [], status: "new", firstSeenAt: now, ...fields });
