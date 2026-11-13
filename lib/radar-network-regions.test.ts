@@ -53,7 +53,7 @@ describe("recherche du réseau d'une app : la passe France", () => {
   });
 });
 
-describe("plafond de 100 comptes par app non concurrente : les francophones passent outre", () => {
+describe("plafond de comptes par app non concurrente (300 ; 100 jusqu'au 13/11/2026) : les francophones passent outre", () => {
   const counts = (total: number, ofApp: number, others: number) => ({ total, ofApp, others });
 
   it("le français, et lui seul", () => {
@@ -63,13 +63,17 @@ describe("plafond de 100 comptes par app non concurrente : les francophones pass
     expect(capFree(undefined)).toBe(false);
   });
 
-  it("Retain Cards à 102 comptes : une vidéo en français fait entrer son compte, une vidéo en anglais non", () => {
-    const plein = counts(2_174, 102, 1_300);
+  it("une app au plafond : une vidéo en français fait entrer son compte, une vidéo en anglais non", () => {
+    expect([MAX_TRACKED, MAX_PER_OTHER_APP, MAX_OTHER_TOTAL]).toEqual([15_000, 300, 13_000]);
+    const plein = counts(2_174, MAX_PER_OTHER_APP, 1_300);
     expect(canAttach(plein, false, "caption", "fr")).toBe(true);
     expect(canAttach(plein, false, "caption", "en")).toBe(false);
     expect(canAttach(plein, false, "caption")).toBe(false);
-    // Le plafond de toutes les apps non concurrentes ensemble non plus ne l'arrête pas.
-    expect(canAttach(counts(2_500, MAX_PER_OTHER_APP, MAX_OTHER_TOTAL), false, "caption", "fr")).toBe(true);
+    // Retain Cards à 102 comptes était pleine jusqu'au 13/11/2026 (plafond de 100) : elle reprend des comptes en toute langue.
+    expect(canAttach(counts(2_174, 102, 1_300), false, "caption", "en")).toBe(true);
+    // Le plafond de toutes les apps non concurrentes ensemble non plus n'arrête pas un francophone.
+    expect(canAttach(counts(14_000, MAX_PER_OTHER_APP, MAX_OTHER_TOTAL), false, "caption", "fr")).toBe(true);
+    expect(canAttach(counts(14_000, 3, MAX_OTHER_TOTAL), false, "caption", "en")).toBe(false);
   });
 
   it("le plafond de tous les comptes suivis vaut pour tout le monde", () => {

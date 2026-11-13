@@ -384,7 +384,7 @@
       },
       "tiktok": {
         "titre": "Read the followed accounts",
-        "aide": "1 credit = an account's last 9 videos. Active accounts every day, quiet ones every 3 days, dormant ones every week: 2,000 readings cover 3,000 accounts.",
+        "aide": "1 credit = an account's last 9 videos. Active accounts every day, quiet ones every 3 days, dormant ones every week: 9,000 readings cover 15,000 accounts.",
         "unite": "readings/day"
       },
       "insta": {

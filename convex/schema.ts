@@ -4300,6 +4300,17 @@ export default defineSchema({
     networkSearch: v.optional(networkSearchValidator),
     adsSearchedAt: v.optional(v.number()), // bibliothèques de pubs TikTok et Meta
     trackedCount: v.optional(v.number()), // comptes de son réseau (cf radarSignals.attachAccount)
+    // Le résumé de son réseau pour l'onglet Comptes suivis (radarNetworkMath.appNet), refait quand ses
+    // comptes changent puis chaque heure : l'écran ne relit plus tous les comptes suivis.
+    net: v.optional(
+      v.object({
+        accounts: v.number(),
+        active: v.number(),
+        posts7d: v.number(),
+        best: v.optional(v.object({ handle: v.string(), url: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number() })),
+        at: v.number(),
+      }),
+    ),
     // Doublon fondu dans une autre app (radarNetworkMath.SeedApp.formerSlugs) : ses comptes
     // l'ont rejointe, elle n'est plus listée ; elle reste pour ce qui la désigne encore.
     mergedInto: v.optional(v.id("radarApps")),

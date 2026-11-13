@@ -87,6 +87,8 @@ crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radar
 // heure (chacun à son rythme : actif chaque jour, calme tous les 3 jours).
 crons.interval("radar-networks-search", { hours: 6 }, internal.radarNetworks.runNetworkSearch, {});
 crons.hourly("radar-networks-accounts", { minuteUTC: 20 }, internal.radarNetworks.runAccountReads, {});
+// Le résumé du réseau de chaque app (ce que montre l'onglet Comptes suivis), refait chaque heure après les relevés.
+crons.hourly("radar-networks-summary", { minuteUTC: 35 }, internal.radarNetworks.refreshAppNets, {});
 crons.daily("radar-networks-purge", { hourUTC: 3, minuteUTC: 55 }, internal.radarNetworks.purgeNetworks, {});
 // Pubs des apps suivies (TikTok + Meta), Reels Instagram des comptes suivis, transcriptions.
 crons.interval("radar-ads", { hours: 6 }, internal.radarSources.runAdsSearch, {});
@@ -102,10 +104,10 @@ crons.interval("radar-rejudge-paused", { hours: 6 }, internal.radarNetworks.reju
 crons.interval("radar-families", { hours: 6 }, internal.radarFamilies.runFamilies, {});
 // Vidéos devenues invisibles (convex/radarAvailability) : 40 pages publiques toutes les 2 heures, aucun crédit.
 crons.interval("radar-visibility", { hours: 2 }, internal.radarAvailability.runChecks, {});
-// Apps des classements App Store (convex/radarStore) : 12 listes toutes les 3 heures, puis le contrôle de leurs hashtags
-// sur les pages publiques de TikTok (90 pages par heure, aucun crédit).
-crons.interval("radar-store-charts", { hours: 3 }, internal.radarStore.runStoreCharts, {});
-crons.hourly("radar-store-checks", { minuteUTC: 5 }, internal.radarStore.runStoreChecks, {});
+// Apps des classements App Store (convex/radarStore) : 30 listes par heure (six pays), puis le contrôle de leurs
+// hashtags sur les pages publiques de TikTok (150 pages toutes les 5 minutes, aucun crédit).
+crons.interval("radar-store-charts", { hours: 1 }, internal.radarStore.runStoreCharts, {});
+crons.interval("radar-store-checks", { minutes: 5 }, internal.radarStore.runStoreChecks, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

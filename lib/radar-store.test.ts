@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  STORE_COUNTRIES,
   STORE_FEEDS,
   STORE_MAX_TAG_VIDEOS,
   STORE_MIN_CREATORS,
@@ -46,23 +47,29 @@ const profil = (o: Partial<AuthorProfile> = {}): AuthorProfile => ({ fans: 200, 
 const page = (videos: number, auteurs: string[], views = 1_000_000): TagPage => ({ videos, views, items: auteurs.map((author) => ({ author, desc: "" })) });
 
 describe("Radar — classements App Store : les listes", () => {
-  it("France et États-Unis, gratuites et plus rentables, 22 genres : 88 listes", () => {
-    expect(STORE_FEEDS).toHaveLength(88);
+  it("six pays (France et États-Unis en tête, comme avant le 13/11/2026), gratuites et plus rentables, 22 genres : 264 listes", () => {
+    expect(STORE_FEEDS).toHaveLength(264);
+    // Les 88 premières listes n'ont pas bougé : le curseur déjà avancé en prod garde son sens.
+    expect(STORE_COUNTRIES).toEqual(["fr", "us", "gb", "es", "mx", "br"]);
+    expect(new Set(STORE_FEEDS.slice(0, 88).map((f) => f.country))).toEqual(new Set(["fr", "us"]));
+    expect(storeFeedUrl(STORE_FEEDS[88])).toBe("https://itunes.apple.com/gb/rss/topfreeapplications/limit=200/json");
     expect(storeFeedUrl({ country: "fr", list: "topfreeapplications", genre: "6017" })).toBe("https://itunes.apple.com/fr/rss/topfreeapplications/limit=200/genre=6017/json");
     // Sans genre : le classement général.
     expect(storeFeedUrl({ country: "us", list: "topgrossingapplications", genre: "" })).toBe("https://itunes.apple.com/us/rss/topgrossingapplications/limit=200/json");
   });
 
-  it("un passage lit 12 listes à partir du curseur, et reprend au début après la dernière", () => {
+  it("un passage lit 30 listes à partir du curseur, et reprend au début après la dernière", () => {
     const a = feedsForRun(0);
-    expect(a.feeds).toHaveLength(12);
+    expect(a.feeds).toHaveLength(30);
     expect(a.feeds[0]).toEqual(STORE_FEEDS[0]);
-    expect(a.next).toBe(12);
-    const fin = feedsForRun(84);
-    expect(fin.feeds.map((f) => STORE_FEEDS.indexOf(f))).toEqual([84, 85, 86, 87, 0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(fin.next).toBe(8);
+    expect(a.next).toBe(30);
+    const fin = feedsForRun(260);
+    expect(fin.feeds.map((f) => STORE_FEEDS.indexOf(f)).slice(0, 6)).toEqual([260, 261, 262, 263, 0, 1]);
+    expect(fin.next).toBe(26);
+    // Le curseur de la prod au 13/11/2026 (60, sur 88 listes alors) continue où il en était.
+    expect(feedsForRun(60).feeds[0]).toEqual(STORE_FEEDS[60]);
     // Un curseur hors bornes (une liste retirée du code depuis) ne casse rien.
-    expect(feedsForRun(1_000).feeds).toHaveLength(12);
+    expect(feedsForRun(1_000).feeds).toHaveLength(30);
     expect(feedsForRun(3, 2, STORE_FEEDS.slice(0, 4))).toEqual({ feeds: [STORE_FEEDS[3], STORE_FEEDS[0]], next: 1 });
   });
 

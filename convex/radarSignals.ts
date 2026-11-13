@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind, signalThemes } from "./radarDiscoveryQueries";
-import { SEED_APPS, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, appNet, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { isTextOnShot } from "./radarDisplay";
 import { LANG_BY_HAND, OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
 import {
@@ -187,6 +187,22 @@ export const e2eSyncDeclaredLangs = e2eMutation({
 /** Comptes d'un doublon déplacés par passage (la suite au passage suivant, toutes les heures). */
 const MERGE_BATCH = 25;
 
+/** Comptes lus au plus pour le résumé d'un réseau (une app non concurrente en a 300 au plus). */
+const APP_NET_MAX = 4_000;
+
+/**
+ * Refait le résumé du réseau d'une app (radarNetworkMath.appNet) à partir de ses comptes, et ne l'écrit que
+ * s'il change. Appelé quand ses comptes changent (ajout, pause, changement de réseau), puis chaque heure pour
+ * les publications de la semaine et la meilleure vidéo (radarNetworks.refreshAppNets).
+ */
+export async function refreshAppNet(ctx: MutationCtx, appId: Id<"radarApps">, now: number): Promise<void> {
+  const app = await ctx.db.get(appId);
+  if (!app) return;
+  const accounts = await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", appId)).take(APP_NET_MAX);
+  const net = appNet(accounts);
+  if (!sameAppNet(app.net, net)) await ctx.db.patch(appId, { net: { ...net, at: now } });
+}
+
 /**
  * Change un compte de réseau (radarNetworkMath.accountVerdict, ou la fusion d'un
  * doublon) : lui, ses vidéos lues récentes (les formats et la vue d'ensemble les
@@ -222,6 +238,10 @@ async function mergeApp(ctx: MutationCtx, old: Doc<"radarApps">, into: Doc<"rada
     const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc._id)).order("desc").take(100);
     await moveAccount(ctx, acc, old, into, recent);
     if (acc.status === "active") await ctx.db.patch(acc._id, { nextReadAt: now });
+  }
+  if (accounts.length) {
+    await refreshAppNet(ctx, old._id, now);
+    await refreshAppNet(ctx, into._id, now);
   }
   if (accounts.length > MERGE_BATCH) return;
   await ctx.db.patch(old._id, { ...rules, searches: [], status: "paused", mergedInto: into._id });

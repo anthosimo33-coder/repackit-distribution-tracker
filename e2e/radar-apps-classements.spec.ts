@@ -22,9 +22,9 @@ test.describe("Radar — apps trouvées dans les classements App Store", () => {
     test.setTimeout(120_000);
     const ts = Date.now();
     const p = `e2ecl${ts}`;
-    // Quatre apps : un réseau, un mot courant, une app déjà suivie, une app à ignorer.
+    // Cinq apps : un réseau, un mot courant, une app déjà suivie, une app à ignorer, une app suivie plus tard par un autre chemin.
     const app = (lettre: string) => ({ marque: `E2ecl${ts}${lettre}`, tag: `${p}${lettre}`, storeId: `${ts}${lettre.charCodeAt(0)}` });
-    const [reseau, courant, connue, autre] = ["a", "b", "c", "d"].map(app);
+    const [reseau, courant, connue, autre, plusTard] = ["a", "b", "c", "d", "e"].map(app);
     const entree = (x: { marque: string; storeId: string }, slogan: string, released: string) => ({ storeId: x.storeId, name: `${x.marque}: ${slogan}`, artist: "Inc.", genre: "Éducation", released });
     await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
       secret: E2E_SECRET,
@@ -35,9 +35,9 @@ test.describe("Radar — apps trouvées dans les classements App Store", () => {
       await admin.mutation(api.radarStore.e2eSeedStoreApps, {
         secret: E2E_SECRET,
         country: "fr",
-        entries: [entree(reseau, "dessiner sur ipad", "2025-08-14"), entree(courant, "Learn Spanish", "2024-11-17"), entree(connue, "KI-Karteikarten", "2023-01-10"), entree(autre, "meal planner", "2026-06-12")],
+        entries: [entree(reseau, "dessiner sur ipad", "2025-08-14"), entree(courant, "Learn Spanish", "2024-11-17"), entree(connue, "KI-Karteikarten", "2023-01-10"), entree(autre, "meal planner", "2026-06-12"), entree(plusTard, "fiches de révision", "2026-02-03")],
       }),
-    ).toBe(4);
+    ).toBe(5);
     // Les revoir dans une autre liste n'en crée pas une de plus.
     expect(await admin.mutation(api.radarStore.e2eSeedStoreApps, { secret: E2E_SECRET, country: "us", entries: [entree(reseau, "dessiner sur ipad", "2025-08-14")] })).toBe(0);
 
@@ -117,6 +117,16 @@ test.describe("Radar — apps trouvées dans les classements App Store", () => {
       await page.reload();
       await expect(page.getByRole("region", { name: "Autres apps" }).getByTestId("radar-app").filter({ hasText: reseau.marque })).toHaveCount(1);
       await expect(ligne(reseau)).toHaveCount(0);
+
+      // Une app proposée, puis suivie par un autre chemin que le bouton (la liste de départ du code, le 13/11/2026 :
+      // Koro AI, Diane AI…) : elle n'est plus proposée.
+      expect(await controle(plusTard, [{ tag: plusTard.tag, videos: 1_125, auteurs: [`lea.${plusTard.tag}`, `${plusTard.tag}_tom`, "z"] }])).toMatchObject({ outcome: "network", creators: 2 });
+      await page.reload();
+      await expect(ligne(plusTard)).toHaveCount(1);
+      await admin.mutation(api.radarNetworks.e2eSeedNetwork, { secret: E2E_SECRET, apps: [{ slug: `${p}e`, name: plusTard.marque, rivalOf: [], strong: [plusTard.tag] }], accounts: [] });
+      await page.reload();
+      await expect(page.getByRole("region", { name: "Autres apps" }).getByTestId("radar-app").filter({ hasText: plusTard.marque })).toHaveCount(1);
+      await expect(ligne(plusTard)).toHaveCount(0);
     } finally {
       await admin.mutation(api.radarStore.e2eClearStore, { secret: E2E_SECRET, prefix: String(ts) });
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });

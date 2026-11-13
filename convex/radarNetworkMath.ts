@@ -166,22 +166,91 @@ export const SEED_APPS: readonly SeedApp[] = [
   // — sous le seuil de la découverte ; sa croissance passe par la pub, que le Radar cherche ici sous son nom.
   { slug: "shortfy", name: "Shortfy", rivalOf: [], strong: ["shortfy"], searches: ["shortfy", "#shortfy", "shortfy.io"] },
   { slug: "trendsaas", name: "TrendSaaS", rivalOf: [], strong: ["trendsaas"], searches: ["trendsaas", "trendsaas.ai"] },
+  // Les 5 premières apps trouvées par les classements de l'App Store et confirmées par le fondateur (13/11/2026) :
+  // trois apps de révision francophones, une app de langues (66 000 vidéos sous #pingoai), un compteur de
+  // calories, une app de rencontre. Aucune n'est concurrente d'un projet. « diane ai » seul n'est pas un motif
+  // (« Diane aime… ») ; « bpm » non plus (les battements par minute : 105 000 vidéos sous #bpm, 104 sous #bpmapp).
+  { slug: "koroai", name: "Koro AI", rivalOf: [], strong: ["koroai"], searches: ["koro ai", "#koroai"] },
+  { slug: "dianeai", name: "Diane AI", rivalOf: [], strong: ["#dianeai", "@dianeai", "dianeaiapp", "diane.app"], searches: ["diane ai app", "#dianeaiapp", "#dianeai"] },
+  { slug: "pingoai", name: "Pingo AI", rivalOf: [], strong: ["pingoai", "usepingo"], searches: ["pingo ai", "#pingoai"] },
+  { slug: "bitepal", name: "Bitepal", rivalOf: [], strong: ["bitepal"], searches: ["bitepal", "#bitepal", "#bitepalapp"] },
+  { slug: "bpmapp", name: "bpm", rivalOf: [], strong: ["bpmapp", "bpm.app"], searches: ["#bpmapp", "bpm app rencontre"] },
 ];
 
 /**
  * Comptes suivis au plus (tous réseaux) : le budget des relevés est calé dessus
- * (2 000 relevés/jour suivent 3 000 comptes au rythme adaptatif). Le fondateur
- * veut le plus de données possible pour repérer les formats (06/11/2026).
+ * (9 000 relevés/jour suivent 15 000 comptes au rythme mesuré le 13/11/2026 :
+ * 0,62 relevé par compte et par jour). 3 000 jusqu'au 13/11/2026 (2 385 pris) :
+ * le Radar devient un produit vendu, il doit suivre des centaines d'apps.
  */
-export const MAX_TRACKED = 3_000;
+export const MAX_TRACKED = 15_000;
 /**
- * Une app qui n'est concurrente d'aucun projet ne prend pas plus de 100 comptes,
- * et toutes ensemble pas plus de 1 800 : 1 200 places restent aux concurrentes.
- * Les comptes de départ, ceux ajoutés à la main et les comptes francophones
- * (cf `capFree`) passent outre.
+ * Une app qui n'est concurrente d'aucun projet ne prend pas plus de 300 comptes
+ * (100 jusqu'au 13/11/2026 : on veut tous les créateurs d'une app, Astra AI en a
+ * 269), et toutes ensemble pas plus de 13 000 : 2 000 places restent aux
+ * concurrentes. Les comptes de départ, ceux ajoutés à la main et les comptes
+ * francophones (cf `capFree`) passent outre.
  */
-export const MAX_PER_OTHER_APP = 100;
-export const MAX_OTHER_TOTAL = 1_800;
+export const MAX_PER_OTHER_APP = 300;
+export const MAX_OTHER_TOTAL = 13_000;
+
+/** Ce que l'onglet Comptes suivis montre du réseau d'une app, calculé sur ses comptes et rangé sur l'app. */
+export type AppNet = {
+  accounts: number;
+  active: number;
+  posts7d: number;
+  best?: { handle: string; url: string; views: number; multiplier: number; publishedAt: number };
+};
+
+/**
+ * Le résumé d'un réseau : comptes, comptes actifs, publications de la semaine, meilleure vidéo (le plus fort
+ * multiplicateur). Jusqu'au 13/11/2026 l'écran relisait TOUS les comptes suivis à chaque affichage (1,5 Mo pour
+ * 2 385 comptes, et à chaque relevé d'un compte) : avec 15 000 comptes la lecture ne passe plus. Le résumé est
+ * rangé sur l'app (`radarApps.net`) et refait quand ses comptes changent, puis chaque heure.
+ */
+export function appNet(
+  accounts: readonly { handle: string; status: "active" | "paused"; posts7d?: number; best7d?: { url: string; views: number; multiplier: number; publishedAt: number } }[],
+): AppNet {
+  let best: AppNet["best"];
+  for (const t of accounts) {
+    const b = t.best7d;
+    if (b && (!best || b.multiplier > best.multiplier)) best = { handle: t.handle, url: b.url, views: b.views, multiplier: b.multiplier, publishedAt: b.publishedAt };
+  }
+  return {
+    accounts: accounts.length,
+    active: accounts.filter((t) => t.status === "active").length,
+    posts7d: accounts.reduce((sum, t) => sum + (t.posts7d ?? 0), 0),
+    ...(best ? { best } : {}),
+  };
+}
+
+/** Deux résumés disent-ils la même chose ? (on n'écrit que ce qui change.) */
+export function sameAppNet(a: AppNet | undefined, b: AppNet): boolean {
+  if (!a) return false;
+  const x = a.best;
+  const y = b.best;
+  const sameBest = x === undefined || y === undefined ? x === y : x.handle === y.handle && x.url === y.url && x.views === y.views && x.multiplier === y.multiplier && x.publishedAt === y.publishedAt;
+  return a.accounts === b.accounts && a.active === b.active && a.posts7d === b.posts7d && sameBest;
+}
+
+/**
+ * Fait le même travail sur chaque élément, `size` à la fois, dans l'ordre. `work` rend « stop » pour tout
+ * arrêter (plus de crédits) ; `alive` est relu avant chaque élément (le temps qu'il reste à la tâche). Rend le
+ * nombre d'éléments commencés. Les relevés de comptes partaient un par un : 258 par heure ne tiennent pas dans
+ * les 10 minutes d'une tâche.
+ */
+export async function pooled<T>(items: readonly T[], size: number, work: (item: T) => Promise<"stop" | void>, alive: () => boolean = () => true): Promise<number> {
+  let next = 0;
+  let stopped = false;
+  const worker = async () => {
+    while (!stopped && next < items.length && alive()) {
+      const item = items[next++];
+      if ((await work(item)) === "stop") stopped = true;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(size, items.length)) }, worker));
+  return next;
+}
 
 /**
  * Les langues dont les comptes entrent même quand leur app non concurrente a fait

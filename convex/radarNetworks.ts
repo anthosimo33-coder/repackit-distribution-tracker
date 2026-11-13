@@ -36,6 +36,7 @@ import {
   FORMAT_WINDOW_MS,
   MAX_READ_ERRORS,
   MAX_TRACKED,
+  pooled,
   FRESH_VIDEO_MS,
   MEDIAN_WINDOW,
   citesApp,
@@ -76,6 +77,7 @@ import {
   attachAccount,
   ensureSeedApps,
   moveAccount,
+  refreshAppNet,
   maybeAlert,
   noteCandidates,
   projectSlugOf,
@@ -94,6 +96,11 @@ const DAY = 86_400_000;
 /** La tâche réseau tourne 4 fois par jour, celle des comptes 24 fois. */
 const NETWORK_RUNS_PER_DAY = 4;
 const ACCOUNT_RUNS_PER_DAY = 24;
+/** Relevés menés de front, et durée au plus d'un passage (une tâche est coupée à 10 minutes). */
+const ACCOUNT_READ_POOL = 8;
+const ACCOUNT_READ_MAX_MS = 8 * 60_000;
+/** Apps dont le résumé de réseau est refait par appel (chaque heure, de proche en proche). */
+const APP_NET_BATCH = 15;
 
 const videoUrl = (handle: string, videoId: string) => `https://www.tiktok.com/@${handle}/video/${videoId}`;
 
@@ -140,6 +147,24 @@ export const dueAccounts = internalQuery({
 
 // ─── Écritures des tâches ────────────────────────────────────────────────────
 
+/**
+ * Refait le résumé du réseau de chaque app (comptes actifs, publications de la semaine, meilleure vidéo), quinze
+ * apps par appel puis la suite : lire tous les comptes d'un coup ne tient plus avec 15 000 comptes.
+ */
+export const refreshAppNets = internalMutation({
+  args: { after: v.optional(v.number()) },
+  handler: async (ctx, { after }): Promise<number> => {
+    const now = Date.now();
+    const apps = await ctx.db
+      .query("radarApps")
+      .withIndex("by_creation_time", (q) => q.gt("_creationTime", after ?? 0))
+      .take(APP_NET_BATCH);
+    for (const a of apps) await refreshAppNet(ctx, a._id, now);
+    if (apps.length === APP_NET_BATCH) await ctx.scheduler.runAfter(0, internal.radarNetworks.refreshAppNets, { after: apps[apps.length - 1]._creationTime });
+    return apps.length;
+  },
+});
+
 export const seedApps = internalMutation({
   args: {},
   handler: async (ctx): Promise<number> => ensureSeedApps(ctx),
@@ -174,6 +199,7 @@ async function attachFromSearchCore(
     });
     if (r === "inserted") signals++;
   }
+  if (attached) await refreshAppNet(ctx, appId, now);
   // La progression que l'écran affiche pendant la recherche.
   const ns = app.networkSearch;
   if (ns && ns.finishedAt === undefined) {
@@ -453,6 +479,10 @@ export const applyAccountRead = internalMutation({
       best7d: best,
       ...(offTopic ? { status: "paused" as const, pausedReason: "offTopic" as const } : {}),
     });
+    if (own && (offTopic || verdict.kind === "move")) {
+      await refreshAppNet(ctx, own._id, now);
+      if (verdict.kind === "move") await refreshAppNet(ctx, verdict.to._id, now);
+    }
 
     for (const s of videos) {
       if (s.publishedAt < now - FORMAT_WINDOW_MS) continue;
@@ -530,6 +560,7 @@ async function rejudgePausedCore(ctx: MutationCtx): Promise<{ moved: number; res
   const paused = await ctx.db.query("radarTracked").withIndex("by_due", (q) => q.eq("status", "paused")).take(REJUDGE_BATCH);
   let moved = 0;
   let resumed = 0;
+  const touched = new Set<Id<"radarApps">>();
   for (const t of paused) {
     const own = byId.get(t.appId);
     if (!canRejudge(t, OFF_TOPIC_BY_HAND) || !own) continue;
@@ -548,7 +579,10 @@ async function rejudgePausedCore(ctx: MutationCtx): Promise<{ moved: number; res
       resumed++;
     } else continue;
     await ctx.db.patch(t._id, { status: "active", pausedReason: undefined, nextReadAt: now, readErrors: 0 });
+    touched.add(own._id);
+    if (verdict.kind === "move") touched.add(verdict.to._id);
   }
+  for (const id of touched) await refreshAppNet(ctx, id, now);
   return { moved, resumed };
 }
 
@@ -809,30 +843,37 @@ export const runAccountReads = internalAction({
     let errors = 0;
     let creditsRemaining: number | undefined;
     let lastError: string | undefined;
-    for (const acc of due) {
-      const r = await scProfileVideos(acc.handle);
-      credits += r.credits;
-      if (!r.ok) {
-        errors++;
-        lastError = r.error;
-        if (r.noCredits) break;
-        await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
-        continue;
-      }
-      if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
-      await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: r.value, now });
-    }
+    // Huit comptes à la fois, et on s'arrête avant la limite de durée d'une tâche : ce qui reste est dû au
+    // passage suivant.
+    const calls = await pooled(
+      due,
+      ACCOUNT_READ_POOL,
+      async (acc) => {
+        const r = await scProfileVideos(acc.handle);
+        credits += r.credits;
+        if (!r.ok) {
+          errors++;
+          lastError = r.error;
+          if (r.noCredits) return "stop";
+          await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
+          return;
+        }
+        if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
+        await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: r.value, now });
+      },
+      () => Date.now() - now < ACCOUNT_READ_MAX_MS,
+    );
     await ctx.runMutation(internal.radarSignals.recordRun, {
       poste: "tiktok",
       credits,
-      calls: due.length,
+      calls,
       errors,
       now,
       ...(creditsRemaining !== undefined ? { creditsRemaining } : {}),
       ...(lastError ? { lastError } : {}),
     });
-    if (due.length) await maybeAlert(ctx, now);
-    return { calls: due.length, credits, errors };
+    if (calls) await maybeAlert(ctx, now);
+    return { calls, credits, errors };
   },
 });
 
@@ -841,22 +882,16 @@ export const runAccountReads = internalAction({
 /**
  * Les apps suivies et leur réseau, pour l'onglet Comptes suivis : comptes,
  * publications de la semaine, meilleure vidéo. Les concurrentes du projet en
- * tête. Lit les comptes (1 000 au plus), jamais leurs vidéos.
+ * tête. Ne lit que les apps : le résumé de chaque réseau y est rangé.
  */
 export async function listNetworksCore(ctx: ProjectQueryCtx) {
   const slug = await projectSlugOf(ctx);
   // Un doublon fondu dans une autre app (`mergedInto`) n'est plus une app à part.
   const apps = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
-  const tracked = await ctx.db.query("radarTracked").take(MAX_TRACKED + 100);
   const rows = apps.map((a) => {
-    const mine = tracked.filter((t) => t.appId === a._id);
-    let best: { handle: string; url: string; views: number; multiplier: number; publishedAt: number } | null = null;
-    for (const t of mine) {
-      if (t.best7d && (!best || t.best7d.multiplier > best.multiplier)) {
-        const b = t.best7d;
-        best = { handle: t.handle, url: b.url, views: b.views, multiplier: b.multiplier, publishedAt: b.publishedAt };
-      }
-    }
+    // Le résumé du réseau est rangé sur l'app (radarNetworkMath.appNet) : l'écran ne relit plus les comptes.
+    // Une app sans résumé (créée à l'instant) montre son compteur de comptes.
+    const net = a.net ?? { accounts: a.trackedCount ?? 0, active: a.trackedCount ?? 0, posts7d: 0, best: undefined };
     const group: "rival" | "otherRival" | "other" = a.rivalOf.includes(slug) ? "rival" : a.rivalOf.length ? "otherRival" : "other";
     return {
       id: a._id,
@@ -867,10 +902,10 @@ export async function listNetworksCore(ctx: ProjectQueryCtx) {
       status: a.status,
       source: a.source,
       searches: a.searches,
-      accounts: mine.length,
-      activeAccounts: mine.filter((t) => t.status === "active").length,
-      posts7d: mine.reduce((s, t) => s + (t.posts7d ?? 0), 0),
-      best,
+      accounts: net.accounts,
+      activeAccounts: net.active,
+      posts7d: net.posts7d,
+      best: net.best ?? null,
       networkSearchedAt: a.networkSearchedAt ?? null,
       networkSearch: a.networkSearch ?? null,
     };
@@ -879,8 +914,8 @@ export async function listNetworksCore(ctx: ProjectQueryCtx) {
   rows.sort((x, y) => order[x.group] - order[y.group] || y.accounts - x.accounts || x.name.localeCompare(y.name));
   return {
     max: MAX_TRACKED,
-    total: tracked.length,
-    active: tracked.filter((t) => t.status === "active").length,
+    total: rows.reduce((sum, r) => sum + r.accounts, 0),
+    active: rows.reduce((sum, r) => sum + r.activeAccounts, 0),
     projectSlug: slug,
     apps: rows,
   };
@@ -1101,6 +1136,7 @@ export const followCandidate = permissionMutation("radar.use")({
       if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter)) === "added") attached++;
     }
     await ctx.db.patch(candidateId, { status: "followed" });
+    await refreshAppNet(ctx, app._id, now);
     if (attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
     return { appId: app._id, attached };
   },
@@ -1177,7 +1213,10 @@ export const addTrackedAccount = permissionMutation("radar.use")({
     if (!app) throw err(ERR.RADAR_APP_NOT_FOUND, "App introuvable.");
     const r = await attachAccount(ctx, app, h, 0, "manual", Date.now(), {});
     if (r === "full") throw err(ERR.RADAR_TRACKED_FULL, `Déjà ${MAX_TRACKED} comptes suivis : mets-en en pause d'abord.`, { max: MAX_TRACKED });
-    if (r === "added") await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
+    if (r === "added") {
+      await refreshAppNet(ctx, appId, Date.now());
+      await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
+    }
     return r;
   },
 });
@@ -1194,6 +1233,7 @@ export const setTrackedStatus = permissionMutation("radar.use")({
       // Réactivé après une pause « ne cite jamais l'app » : on le garde pour de bon.
       ...(status === "active" && acc.pausedReason === "offTopic" ? { keptByHand: true } : {}),
     });
+    await refreshAppNet(ctx, acc.appId, Date.now());
     return status;
   },
 });
@@ -1366,6 +1406,7 @@ export const e2eSeedNetwork = e2eMutation({
         lastSeenAt: now,
       });
     }
+    for (const id of ids.values()) await refreshAppNet(ctx, id, now);
     return { appIds: Object.fromEntries(ids) };
   },
 });
