@@ -4378,6 +4378,9 @@ export default defineSchema({
     // Prouvé (filtre d'entrée, contrôle des classements, ajout à la main). Sans cette date, un compte jamais
     // relevé est jugé à son premier relevé : pas assez de vidéos qui citent l'app → en pause.
     proofAt: v.optional(v.number()),
+    // Depuis quand il attend le filtre d'entrée. Son prochain relevé (`nextReadAt`) n'est pas touché par l'attente :
+    // un compte revérifié reprend son rythme, il n'est pas relevé d'office à sa sortie.
+    vetAt: v.optional(v.number()),
     // Réactivé à la main après une telle pause : plus jamais remis en pause pour ce motif.
     keptByHand: v.optional(v.boolean()),
     fans: v.number(),

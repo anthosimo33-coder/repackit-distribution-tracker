@@ -36,7 +36,7 @@ async function vetQueueCore(ctx: QueryCtx, limit: number, only?: (handle: string
     if (!apps.has(t.appId)) apps.set(t.appId, await ctx.db.get(t.appId));
     const app = apps.get(t.appId);
     if (!app) continue;
-    out.push({ id: t._id, handle: t.handle, queuedAt: t.nextReadAt, rule: { strong: app.strong, weak: app.weak, context: app.context, ...(app.not ? { not: app.not } : {}) } });
+    out.push({ id: t._id, handle: t.handle, queuedAt: t.vetAt ?? t.nextReadAt, rule: { strong: app.strong, weak: app.weak, context: app.context, ...(app.not ? { not: app.not } : {}) } });
   }
   return out;
 }
@@ -72,7 +72,7 @@ async function applyVetsCore(ctx: MutationCtx, verdicts: readonly Verdict[], now
         await ctx.db.insert("radarRejected", { handle: acc.handle, appId: acc.appId, at: now });
         touched.set(acc.appId, (touched.get(acc.appId) ?? 0) + 1);
       } else {
-        await ctx.db.patch(acc._id, { pausedReason: "offTopic" });
+        await ctx.db.patch(acc._id, { pausedReason: "offTopic", vetAt: undefined });
         touched.set(acc.appId, touched.get(acc.appId) ?? 0);
       }
       counts.rejected++;
@@ -81,7 +81,9 @@ async function applyVetsCore(ctx: MutationCtx, verdicts: readonly Verdict[], now
     await ctx.db.patch(acc._id, {
       status: "active",
       pausedReason: undefined,
-      // Relevé tout de suite s'il ne l'a jamais été ; sinon à son rythme, comme avant sa vérification.
+      vetAt: undefined,
+      // Relevé tout de suite s'il ne l'a jamais été ; sinon à son rythme, comme avant sa vérification : son
+      // prochain relevé n'a pas bougé pendant l'attente.
       ...(acc.readAt === undefined ? { nextReadAt: now } : {}),
       ...(x.kind === "proven" ? { proofAt: now } : {}),
       ...(x.fans !== undefined && x.fans > 0 ? { fans: x.fans } : {}),
@@ -160,6 +162,16 @@ export const runVetting = internalAction({
 
 const REQUEUE_BATCH = 400;
 
+/** À revérifier : actif, rattaché par une légende, jamais prouvé, pas gardé à la main. */
+const toRequeue = (t: Doc<"radarTracked">, since: number): boolean =>
+  t.status === "active" && t.matchedBy === "caption" && !t.keptByHand && t.proofAt === undefined && t.addedAt >= since;
+
+/**
+ * La mise en attente d'un compte déjà entré. Son prochain relevé (`nextReadAt`) n'est PAS touché : prouvé, il reprend
+ * son rythme — sinon des milliers de comptes seraient dus d'un coup à leur sortie, et relevés en payant.
+ */
+const requeued = (now: number) => ({ status: "paused" as const, pausedReason: "vetting" as const, vetAt: now });
+
 /**
  * Remet en attente du filtre d'entrée les comptes ACTIFS rattachés par une légende et jamais prouvés, ajoutés
  * depuis `since` (0 : tous) — par lots, se relance jusqu'au bout. Pendant l'attente ils ne sont ni relevés ni
@@ -176,8 +188,8 @@ export const requeueVetting = internalMutation({
       .take(REQUEUE_BATCH);
     let queued = sofar ?? 0;
     for (const t of rows) {
-      if (t.status !== "active" || t.matchedBy !== "caption" || t.keptByHand || t.proofAt !== undefined || t.addedAt < since) continue;
-      if (!dryRun) await ctx.db.patch(t._id, { status: "paused", pausedReason: "vetting", nextReadAt: now });
+      if (!toRequeue(t, since)) continue;
+      if (!dryRun) await ctx.db.patch(t._id, requeued(now));
       queued++;
     }
     const done = rows.length < REQUEUE_BATCH;
@@ -228,12 +240,28 @@ export const e2eRequeueVetting = e2eMutation({
     let n = 0;
     const touched = new Set<Id<"radarApps">>();
     for (const t of await ctx.db.query("radarTracked").withIndex("by_due", (q) => q.eq("status", "active")).take(8_000)) {
-      if (!t.handle.includes(marker) || t.matchedBy !== "caption" || t.keptByHand || t.proofAt !== undefined) continue;
-      await ctx.db.patch(t._id, { status: "paused", pausedReason: "vetting", nextReadAt: now });
+      if (!t.handle.includes(marker) || !toRequeue(t, 0)) continue;
+      await ctx.db.patch(t._id, requeued(now));
       touched.add(t.appId);
       n++;
     }
     for (const appId of touched) await refreshAppNet(ctx, appId, now);
     return n;
+  },
+});
+
+/** e2e : les comptes ACTIFS dont le pseudo contient `marker` et dont un relevé est dû maintenant. */
+export const e2eDue = e2eMutation({
+  args: { marker: v.string() },
+  handler: async (ctx, { marker }): Promise<string[]> => {
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("radarTracked")
+      .withIndex("by_due", (q) => q.eq("status", "active").lte("nextReadAt", now))
+      .take(8_000);
+    return rows
+      .filter((t) => t.handle.includes(marker))
+      .map((t) => t.handle)
+      .sort();
   },
 });

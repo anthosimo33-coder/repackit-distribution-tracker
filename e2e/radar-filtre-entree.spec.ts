@@ -72,6 +72,8 @@ test.describe("Radar — filtre d'entrée des comptes", () => {
 
       // Trois sont entrés et un quatrième attend son premier relevé pour être jugé ; deux ont disparu ; un attend encore.
       await expect(carte).toContainText("5 comptes (4 relevés)");
+      // Le premier relevé des quatre entrés est dû tout de suite ; celui qui attend ne l'est pas.
+      expect(await admin.mutation(api.radarVet.e2eDue, { secret: E2E_SECRET, marker: m })).toEqual(["bio", "deux", "neuf", "sanspage"].map(h).sort());
       for (const nom of ["deux", "bio", "neuf", "sanspage", "refuse"]) await expect(ligne(nom)).toHaveCount(1);
       for (const nom of ["tele", "prive"]) await expect(ligne(nom)).toHaveCount(0);
       await expect(ligne("refuse").getByTestId("radar-en-verification")).toBeVisible();
@@ -147,6 +149,8 @@ test.describe("Radar — filtre d'entrée des comptes", () => {
       ).toEqual({ proven: 1, rejected: 1, paid: 0, waiting: 0 });
       // Le bon compte reprend ; l'émission de télé passe en pause « hors sujet » et garde ses vidéos rangées.
       await expect(carte).toContainText("2 comptes (1 relevé)");
+      // Il reprend À SON RYTHME : son prochain relevé (demain) n'a pas bougé, il n'est pas relevé d'office à sa sortie.
+      expect(await admin.mutation(api.radarVet.e2eDue, { secret: E2E_SECRET, marker: m })).toEqual([]);
       await carte.getByRole("button", { name: new RegExp(`E2E Revérif ${ts}`) }).click();
       await expect(ligne("bon").getByTestId("radar-hors-sujet")).toHaveCount(0);
       await expect(ligne("tele").getByTestId("radar-hors-sujet")).toBeVisible();

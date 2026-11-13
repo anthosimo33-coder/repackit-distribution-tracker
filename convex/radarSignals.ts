@@ -387,7 +387,7 @@ export async function attachAccount(
     platform: "tiktok",
     handle,
     appId: app._id,
-    ...(vet ? { status: "paused" as const, pausedReason: "vetting" as const } : { status: "active" as const, proofAt: now }),
+    ...(vet ? { status: "paused" as const, pausedReason: "vetting" as const, vetAt: now } : { status: "active" as const, proofAt: now }),
     matchedBy,
     fans,
     videosSeen: 0,
