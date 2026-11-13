@@ -111,6 +111,9 @@ crons.interval("radar-store-checks", { minutes: 5 }, internal.radarStore.runStor
 // Apps et logiciels qui paient des créateurs (convex/radarMarket) : les campagnes d'une place de marché publique —
 // la liste toutes les 6 heures, 40 pages de campagne toutes les 30 minutes (aucun crédit), puis Claude Haiku dit
 // chaque heure quel produit chaque campagne promeut (poste « Analyse IA »).
+// Suivi d'office (convex/radarAuto) : les apps trouvées par les classements et la place de marché deviennent des
+// apps suivies quand leur preuve suffit ; les autres restent proposées à l'écran.
+crons.interval("radar-auto-follow", { minutes: 10 }, internal.radarAuto.runAutoFollow, {});
 // Petits réseaux (convex/radarNaming) : les tournures qui nomment un produit (« le site c'est… »), cherchées deux
 // fois par jour dans tout TikTok, les plus récentes d'abord, sans seuil de vues (16 crédits par passage).
 crons.interval("radar-naming", { hours: 12 }, internal.radarNaming.runNaming, {});

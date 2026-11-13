@@ -237,6 +237,33 @@ export function isBrandAccount(handle: string, slug: string, verified: boolean):
   return verified;
 }
 
+/**
+ * Un compte « de la famille de la marque » : son pseudo COMMENCE par le nom de l'app (« pluxee.ve »,
+ * « woodsense.vn », « lydia_campus », « lorangebleuebeaucouze »). Ce sont le plus souvent les comptes de la marque
+ * par pays ou par boutique, pas des comptes créateurs — eux mettent leur prénom d'abord (« kelsey.verso »,
+ * « elisa.amenapp »). Ils restent une preuve pour PROPOSER l'app, pas pour la suivre d'office.
+ */
+export function brandFamily(handle: string, slug: string): boolean {
+  return slug.length >= 4 && compactName(handle).startsWith(slug);
+}
+
+/** Comptes créateurs (hors famille de la marque) à partir desquels une app des classements est suivie d'office. */
+export const AUTO_MIN_CREATORS = 3;
+
+/**
+ * Une app des classements est-elle SUIVIE D'OFFICE ? Oui avec trois comptes créateurs hors famille de la marque,
+ * ou deux dont l'un la nomme dans sa bio. Décidé le 13/11/2026 (« les apps trouvées sont suivies d'office ») et
+ * calé sur les 46 apps proposées ce jour-là, relues une à une avec la bio de leurs 130 comptes : la règle en suit
+ * 23 (dont 5 déjà suivies), toutes de vraies apps à réseau (MenuGo, Amen, Fibi, Piatto, Solaia, Finzee, Hush,
+ * Darij AI, Quranify, Bibly…) ; elle laisse proposées 23 autres, dont les 12 fausses (Adobe Premiere, Survie,
+ * Pluxee, Lydia, l'Orange bleue, WoodSense, OpusClip…) et 11 vraies moins prouvées (Ghosted, Clutch, BellySafe…).
+ */
+export function storeAutoFollow(tag: string, creators: readonly { handle: string; why: CreatorWhy }[]): boolean {
+  const slug = tagCore(tag);
+  const own = creators.filter((c) => !brandFamily(c.handle, slug));
+  return own.length >= AUTO_MIN_CREATORS || (own.length === 2 && own.some((c) => c.why === "bio"));
+}
+
 /** Un mot qui dit qu'on parle d'une APP (dans une bio) : sans lui, « parrot » dans une bio n'est qu'un perroquet. */
 const APP_CONTEXT =
   /\b(app|apps|appli|application|aplicativo|aplicacion|download|telecharge|baixe|baixar|descarga|descargar|app ?store|play ?store|ambassad\w*|embajador\w*|embaixador\w*|partner|partenaire|ugc|link in bio|lien en bio|link na bio|brand)\b/;

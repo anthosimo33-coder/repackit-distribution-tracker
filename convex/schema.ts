@@ -4261,6 +4261,14 @@ export default defineSchema({
     lastStoreChartsAt: v.optional(v.number()),
     lastStoreChecksAt: v.optional(v.number()),
     lastStoreStop: v.optional(v.string()), // pourquoi le dernier contrôle s'est arrêté avant la fin (TikTok ne répondait plus)
+    // Relevé gratuit des comptes (convex/radarFreeMath) : relevés faits sur les pages publiques depuis le début,
+    // replis sur le relevé payant, et le dernier passage (un arrêt = TikTok ne servait plus les profils).
+    freeReads: v.optional(v.number()),
+    freeFallbacks: v.optional(v.number()),
+    lastFreeAt: v.optional(v.number()),
+    lastFreeOk: v.optional(v.number()),
+    lastFreeFallback: v.optional(v.number()),
+    lastFreeStop: v.optional(v.string()),
     // Place de marché de campagnes (convex/radarMarket) : campagnes connues, lues, jugées ; dernier passage et son arrêt.
     marketSeen: v.optional(v.number()),
     marketRead: v.optional(v.number()),
@@ -4506,6 +4514,9 @@ export default defineSchema({
     status: v.union(v.literal("new"), v.literal("ignored"), v.literal("followed")),
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
+    // Le suivi d'office l'a regardée (convex/radarAuto) : suivie, ou laissée proposée avec la raison.
+    autoAt: v.optional(v.number()),
+    autoNote: v.optional(v.string()),
     // Une app des classements : sa fiche, le hashtag qui la prouve, et pourquoi chaque compte est un compte créateur.
     store: v.optional(
       v.object({

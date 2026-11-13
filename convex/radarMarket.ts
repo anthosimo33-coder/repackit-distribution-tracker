@@ -23,6 +23,7 @@ import { ensureSettings, readSettings } from "./radarSignals";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { FAMILY_MODEL, haikuCostUsd } from "./radarFamiliesMath";
 import { alreadyFollowed } from "./radarStoreMath";
+import { scKeyPresent } from "./scrapeCreatorsApi";
 import {
   fetchMarketPage,
   isProduct,
@@ -90,7 +91,9 @@ export const noteMarketRun = internalMutation({
 
 export const runMarketList = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ seen: number; added: number } | { skipped: "unreadable" }> => {
+  handler: async (ctx): Promise<{ seen: number; added: number } | { skipped: "unreadable" | "no-key" }> => {
+    // Sans la clé du fournisseur de données (tests, intégration continue), le Radar ne collecte rien.
+    if (!scKeyPresent()) return { skipped: "no-key" };
     const page = await fetchMarketPage(MARKET_SITEMAP_URL);
     if (!page.ok) {
       await ctx.runMutation(internal.radarMarket.noteMarketRun, { read: 0, judged: 0, stopped: "plan de site illisible", now: Date.now() });
@@ -201,7 +204,8 @@ export const applyCampaignRead = internalMutation({
 
 export const runMarketReads = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ read: number; stopped: string | null }> => {
+  handler: async (ctx): Promise<{ read: number; stopped: string | null } | { skipped: "no-key" }> => {
+    if (!scKeyPresent()) return { skipped: "no-key" };
     const due: DueCampaign[] = await ctx.runQuery(internal.radarMarket.dueCampaigns, { now: Date.now(), limit: MARKET_READS_PER_RUN });
     let read = 0;
     let suspects = 0;
