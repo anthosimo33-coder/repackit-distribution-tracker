@@ -55,6 +55,9 @@ import {
   normalizeBudget,
   plannedUsd,
   ratioOf,
+  creditAlert,
+  CREDIT_RESERVE,
+  type Balance,
   type BudgetSettings,
   type SignalInput,
 } from "./radarSignalsMath";
@@ -331,23 +334,32 @@ export const e2eSyncSeedApp = e2eMutation({
  * de lectures par jour. Une app sans compteur (créée avant lui) est comptée une
  * fois par son index, puis le garde.
  */
-export type TrackedCounter = { counts?: { total: number; byApp: Map<string, number>; others: number } };
+export type TrackedCounter = { counts?: { total: number; byApp: Map<string, number>; rows: Map<string, number>; others: number } };
 
+/**
+ * `byApp`, `total`, `others` : la place prise (lignes moins comptes en pause « hors sujet »), que le plafond lit ;
+ * `rows` : les lignes de chaque app, le compteur `radarApps.trackedCount` tel qu'il est rangé.
+ */
 async function trackedCounts(ctx: MutationCtx) {
   const byApp = new Map<string, number>();
+  const rowsByApp = new Map<string, number>();
   let total = 0;
   let others = 0;
   for (const a of await ctx.db.query("radarApps").collect()) {
-    let n = a.trackedCount;
-    if (n === undefined) {
-      n = (await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", a._id)).collect()).length;
-      await ctx.db.patch(a._id, { trackedCount: n });
+    let rows = a.trackedCount;
+    if (rows === undefined) {
+      rows = (await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", a._id)).collect()).length;
+      await ctx.db.patch(a._id, { trackedCount: rows });
     }
+    // Les comptes en pause « hors sujet » ne prennent pas de place : le 13/11/2026, Hush comptait 324 lignes pour
+    // 7 comptes actifs (ses déchets d'un motif trop large) et ne pouvait plus recevoir un seul vrai créateur.
+    const n = Math.max(0, rows - (a.net?.offTopic ?? 0));
+    rowsByApp.set(a._id, rows);
     byApp.set(a._id, n);
     total += n;
     if (a.rivalOf.length === 0) others += n;
   }
-  return { total, byApp, others };
+  return { total, byApp, rows: rowsByApp, others };
 }
 
 /**
@@ -379,10 +391,11 @@ export async function attachAccount(
   const rival = app.rivalOf.length > 0;
   if (!canAttach({ total: c.total, ofApp: c.byApp.get(app._id) ?? 0, others: c.others }, rival, matchedBy, lang)) return "full";
   c.total++;
-  const ofApp = (c.byApp.get(app._id) ?? 0) + 1;
-  c.byApp.set(app._id, ofApp);
+  c.byApp.set(app._id, (c.byApp.get(app._id) ?? 0) + 1);
+  const rows = (c.rows.get(app._id) ?? 0) + 1;
+  c.rows.set(app._id, rows);
   if (!rival) c.others++;
-  await ctx.db.patch(app._id, { trackedCount: ofApp });
+  await ctx.db.patch(app._id, { trackedCount: rows });
   await ctx.db.insert("radarTracked", {
     platform: "tiktok",
     handle,
@@ -535,9 +548,15 @@ export type JobState = {
   usage: { poste: string; credits: number; day: string; usd?: number }[];
   day: string;
   month: string;
+  /** Le solde ScrapeCreators lu au dernier appel payant (`null` : jamais lu). Il borne chaque poste (budgetState). */
+  balance: Balance | null;
+  /** Jours (Paris) où l'alerte de solde de chaque genre est déjà partie. */
+  creditAlerted: { low?: string; reserve?: string };
+  /** La dépense des 4 derniers jours, mois précédent compris : le rythme qui dit combien de jours le solde tient. */
+  recentUsage: { poste: string; credits: number; day: string }[];
 };
 type DueCheck = { id: Id<"radarSignals">; url: string };
-export type RunResult = { skipped: "no-key" } | { calls: number; credits: number; errors: number };
+export type RunResult = { skipped: "no-key" | "busy" } | { calls: number; credits: number; errors: number };
 
 export const jobState = internalQuery({
   args: { now: v.number() },
@@ -546,12 +565,21 @@ export const jobState = internalQuery({
     const month = monthKeyParis(now);
     const day = dayKeyParis(now);
     const usage = await monthUsage(ctx, month);
+    const remaining = settings?.creditsRemaining;
+    const since = dayKeyParis(now - 4 * DAY);
+    const recent = await ctx.db.query("radarUsage").withIndex("by_day_poste", (q) => q.gte("day", since)).collect();
     return {
       budget: normalizeBudget(settings),
       cursor: settings?.discoveryCursor ?? 0,
       usage: usage.map((u) => ({ poste: u.poste, credits: u.credits, day: u.day, ...(u.usd !== undefined ? { usd: u.usd } : {}) })),
       day,
       month,
+      balance: remaining !== undefined ? { remaining, seenAt: settings?.creditsSeenAt ?? 0, now } : null,
+      creditAlerted: {
+        ...(settings?.lowCreditsAlertDay ? { low: settings.lowCreditsAlertDay } : {}),
+        ...(settings?.reserveAlertDay ? { reserve: settings.reserveAlertDay } : {}),
+      },
+      recentUsage: recent.map((u) => ({ poste: u.poste, credits: u.credits, day: u.day })),
     };
   },
 });
@@ -720,11 +748,44 @@ export const recordRun = internalMutation({
 /** Réserve l'alerte 80 % du mois : vrai une seule fois par mois (lu et écrit ensemble). */
 export const claimAlert = internalMutation({
   args: { month: v.string() },
-  handler: async (ctx, { month }): Promise<Id<"projects"> | null> => {
+  handler: async (ctx, { month }): Promise<boolean> => {
     const s = await readSettings(ctx);
-    if (!s || !s.alert80 || !s.alertProjectId || s.alertedMonth === month) return null;
+    if (!s || !s.alert80 || s.alertedMonth === month) return false;
     await ctx.db.patch(s._id, { alertedMonth: month });
-    return s.alertProjectId;
+    return true;
+  },
+});
+
+/** Réserve l'alerte de solde d'un genre pour la journée (Paris) : vrai une seule fois par jour. */
+export const claimCreditAlert = internalMutation({
+  args: { kind: v.union(v.literal("low"), v.literal("reserve")), day: v.string() },
+  handler: async (ctx, { kind, day }): Promise<boolean> => {
+    const s = await ensureSettings(ctx);
+    const field = kind === "low" ? "lowCreditsAlertDay" : "reserveAlertDay";
+    if (s[field] === day) return false;
+    await ctx.db.patch(s._id, { [field]: day });
+    return true;
+  },
+});
+
+/**
+ * Les projets prévenus des alertes du budget du Radar : celui dont l'écran a enregistré le budget, sinon ceux qui
+ * ont des concurrentes suivies (ceux qui se servent du Radar). Jusqu'au 14/11/2026, seul le premier comptait : le
+ * budget n'avait jamais été enregistré à l'écran, et aucune alerte ne pouvait partir.
+ */
+export const budgetAlertTargets = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Id<"projects">[]> => {
+    const s = await readSettings(ctx);
+    if (s?.alertProjectId) return [s.alertProjectId];
+    const slugs = new Set<string>();
+    for (const a of await activeApps(ctx)) for (const slug of a.rivalOf) slugs.add(slug);
+    const out: Id<"projects">[] = [];
+    for (const slug of [...slugs].sort()) {
+      const p = await ctx.db.query("projects").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+      if (p) out.push(p._id);
+    }
+    return out;
   },
 });
 
@@ -747,24 +808,41 @@ export const purgeOldSignals = internalMutation({
 
 // ─── Tâches ──────────────────────────────────────────────────────────────────
 
-/** Alerte Telegram à 80 % du plafond, une fois par mois. */
+/**
+ * Alertes Telegram du budget : le solde ScrapeCreators qui ne tient plus 3 jours, puis la réserve atteinte (une
+ * fois par jour chacune), et 80 % du plafond du mois (une fois par mois). Un même canal ne reçoit qu'un message.
+ */
 export async function maybeAlert(ctx: ActionCtx, now: number): Promise<void> {
   const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
-  const b = budgetState(st.budget, st.usage);
-  if (!b.over80) return;
-  const projectId: Id<"projects"> | null = await ctx.runMutation(internal.radarSignals.claimAlert, { month: st.month });
-  if (!projectId) return;
-  const p = await ctx.runQuery(internal.notifications.getProjectNotify, { projectId });
-  const cfg = p ? notifyConfig(p.notify, p.name) : null;
-  if (!p || !cfg) return;
+  const b = budgetState(st.budget, st.usage, st.balance);
+  const int = (x: number) => new Intl.NumberFormat("fr-FR").format(Math.round(x));
   const usd = (x: number) => x.toFixed(2).replace(".", ",");
-  await deliver(
-    cfg,
-    "budget radar",
-    `📡 Radar : ${usd(b.spentUsd)} $ dépensés sur ${usd(st.budget.capUsd)} $ ce mois-ci (80 % du plafond).` +
-      (b.cut.length ? ` Postes coupés pour tenir le plafond : ${b.cut.join(", ")}.` : "") +
-      `\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar?onglet=reglages">Ouvrir le budget</a>`,
-  );
+  const lines: string[] = [];
+  const credit = creditAlert(b, st.balance?.remaining ?? null, st.recentUsage, st.day, st.creditAlerted);
+  if (credit && (await ctx.runMutation(internal.radarSignals.claimCreditAlert, { kind: credit.kind, day: st.day }))) {
+    const left = int(st.balance?.remaining ?? 0);
+    lines.push(
+      credit.kind === "reserve"
+        ? `🛑 Radar : plus que ${left} crédits ScrapeCreators, sous la réserve de ${int(CREDIT_RESERVE)}. Relevés payants, recherches de réseaux et découverte sont à l'arrêt (les relevés gratuits continuent). Ils repartent seuls dans l'heure qui suit l'achat d'un pack.`
+        : `⛽ Radar : plus que ${left} crédits ScrapeCreators, environ ${int(Math.max(0, credit.days ?? 0) * 24)} heures au rythme des derniers jours. Sous ${int(CREDIT_RESERVE)} crédits, le Radar arrête ses relevés payants.`,
+    );
+  }
+  if (b.over80 && (await ctx.runMutation(internal.radarSignals.claimAlert, { month: st.month }))) {
+    lines.push(
+      `📡 Radar : ${usd(b.spentUsd)} $ dépensés sur ${usd(st.budget.capUsd)} $ ce mois-ci (80 % du plafond).` +
+        (b.cut.length ? ` Postes coupés pour tenir le plafond : ${b.cut.join(", ")}.` : ""),
+    );
+  }
+  if (lines.length === 0) return;
+  const targets: Id<"projects">[] = await ctx.runQuery(internal.radarSignals.budgetAlertTargets, {});
+  const chats = new Set<string>();
+  for (const projectId of targets) {
+    const p = await ctx.runQuery(internal.notifications.getProjectNotify, { projectId });
+    const cfg = p ? notifyConfig(p.notify, p.name) : null;
+    if (!p || !cfg || chats.has(cfg.chatId)) continue;
+    chats.add(cfg.chatId);
+    await deliver(cfg, "budget radar", `${lines.join("\n\n")}\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar?onglet=reglages">Ouvrir le budget</a>`);
+  }
 }
 
 /** Découverte : la part du passage de la rotation, dans la limite du budget. */
@@ -777,7 +855,7 @@ export const runDiscovery = internalAction({
       return { skipped: "no-key" };
     }
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    const b = budgetState(st.budget, st.usage);
+    const b = budgetState(st.budget, st.usage, st.balance);
     const n = allowance(st.budget, b, "search", todayCredits(st, "search"), DISCOVERY_RUNS_PER_DAY);
     const { queries } = nextQueries(st.cursor, n, DISCOVERY_ROTATION);
     let credits = 0;
@@ -824,7 +902,7 @@ export const runCurve = internalAction({
     const now = Date.now();
     if (!scKeyPresent()) return { skipped: "no-key" };
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    const b = budgetState(st.budget, st.usage);
+    const b = budgetState(st.budget, st.usage, st.balance);
     const n = allowance(st.budget, b, "curve", todayCredits(st, "curve"), 24);
     const due: DueCheck[] = await ctx.runQuery(internal.radarSignals.dueCurve, { now, limit: n });
     let credits = 0;
@@ -991,7 +1069,8 @@ export async function getRadarBudgetCore(ctx: ProjectQueryCtx) {
   const budget: BudgetSettings = normalizeBudget(settings);
   const month = monthKeyParis(now);
   const usage = await monthUsage(ctx, month);
-  const state = budgetState(budget, usage);
+  const remaining = settings?.creditsRemaining;
+  const state = budgetState(budget, usage, remaining !== undefined ? { remaining, seenAt: settings?.creditsSeenAt ?? 0, now } : null);
   return {
     month,
     budget,

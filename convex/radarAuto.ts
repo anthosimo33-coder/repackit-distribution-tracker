@@ -129,7 +129,7 @@ export const runAutoFollow = internalAction({
     // Sans IA (clé absente, enveloppe épuisée, réponse illisible), rien n'entre d'office : les apps attendent.
     if (batch.length > 0 && process.env.ANTHROPIC_API_KEY) {
       const st = await ctx.runQuery(internal.radarSignals.jobState, { now });
-      if (allowanceUsd(st.budget, budgetState(st.budget, st.usage), "ai") >= MIN_ALLOWANCE_USD) {
+      if (allowanceUsd(st.budget, budgetState(st.budget, st.usage, st.balance), "ai") >= MIN_ALLOWANCE_USD) {
         asked = true;
         try {
           const response = await new Anthropic().messages.create({

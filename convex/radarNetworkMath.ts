@@ -115,7 +115,11 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "wrizz", name: "WRizz", rivalOf: BLUSH, strong: ["@wrizz", "#wrizz", "wrizzapp", "wrizz.app", "wrizzz.app"], searches: ["wrizz", "wrizz app", "#wrizz"] },
   // Citée « @WingAI », « #wingai » ou « @wingai_app » ; « wingai » seul est dans « following AI ».
   { slug: "wingaiapp", name: "Wing AI", rivalOf: BLUSH, strong: ["@wingai", "#wingai", "wingaiapp"], searches: ["wingai", "wing ai app", "#wingai"] },
-  { slug: "rizzapp", name: "Rizz App", rivalOf: BLUSH, strong: ["rizz.app", "rizzapp"], not: ["wrizz"], searches: ["rizz app", "rizz.app", "#rizzapp"] },
+  // Le dièse #rizzapp seul ne prouve rien : c'est aussi le dièse de catégorie des « histoires de textos ». Le
+  // 13/11/2026, 44 des 158 comptes actifs de Rizz App n'étaient rattachés que par lui, dont 33 fermes au gabarit
+  // « nvisible#redditstories #DIY #maker#rizzapp » (pseudos aléatoires, contenus repris), TextVibe et Rizzly
+  // Keyboard : aucun compte Rizz App parmi les 8 relus. « Rizz App », « @rizzapp », « rizz.app » restent des preuves.
+  { slug: "rizzapp", name: "Rizz App", rivalOf: BLUSH, strong: ["rizz.app", "rizzapp"], not: ["wrizz", "#rizzapp"], searches: ["rizz app", "rizz.app", "#rizzapp"] },
   { slug: "plugai", name: "Plug AI", rivalOf: BLUSH, strong: ["@plugai"], weak: ["plugai"], context: TEXT_CONTEXT, searches: ["plug ai rizz", "#plugai"] },
   { slug: "rizzmaster", name: "Rizz Master", rivalOf: BLUSH, strong: ["rizzmaster"], searches: ["rizz master app"] },
   { slug: "flertnow", name: "Flert Now", rivalOf: BLUSH, strong: ["flertnow"], searches: ["flert now"] },
@@ -198,6 +202,8 @@ export const MAX_OTHER_TOTAL = 13_000;
 export type AppNet = {
   accounts: number;
   active: number;
+  /** Comptes en pause « hors sujet » : ils restent en base (leur histoire) mais ne prennent plus de place (canTrack). */
+  offTopic?: number;
   posts7d: number;
   best?: { handle: string; url: string; views: number; multiplier: number; publishedAt: number };
   /** Les pays d'où ses comptes publient, les plus représentés d'abord (5 au plus). */
@@ -233,7 +239,14 @@ export function accountCountry(regions: readonly (string | undefined | null)[], 
  * rangé sur l'app (`radarApps.net`) et refait quand ses comptes changent, puis chaque heure.
  */
 export function appNet(
-  accounts: readonly { handle: string; status: "active" | "paused"; posts7d?: number; country?: string; best7d?: { url: string; views: number; multiplier: number; publishedAt: number } }[],
+  accounts: readonly {
+    handle: string;
+    status: "active" | "paused";
+    pausedReason?: "offTopic" | "vetting";
+    posts7d?: number;
+    country?: string;
+    best7d?: { url: string; views: number; multiplier: number; publishedAt: number };
+  }[],
 ): AppNet {
   let best: AppNet["best"];
   const byCountry = new Map<string, number>();
@@ -247,9 +260,11 @@ export function appNet(
     .map(([code, n]) => ({ code, accounts: n }))
     .sort((a, b) => b.accounts - a.accounts || a.code.localeCompare(b.code))
     .slice(0, NET_COUNTRIES_MAX);
+  const offTopic = accounts.filter((t) => t.status === "paused" && t.pausedReason === "offTopic").length;
   return {
     accounts: accounts.length,
     active: accounts.filter((t) => t.status === "active").length,
+    ...(offTopic ? { offTopic } : {}),
     posts7d: accounts.reduce((sum, t) => sum + (t.posts7d ?? 0), 0),
     ...(best ? { best } : {}),
     ...(countries.length ? { countries } : {}),
@@ -263,7 +278,7 @@ export function sameAppNet(a: AppNet | undefined, b: AppNet): boolean {
   const y = b.best;
   const sameBest = x === undefined || y === undefined ? x === y : x.handle === y.handle && x.url === y.url && x.views === y.views && x.multiplier === y.multiplier && x.publishedAt === y.publishedAt;
   const sameCountries = JSON.stringify(a.countries ?? []) === JSON.stringify(b.countries ?? []);
-  return a.accounts === b.accounts && a.active === b.active && a.posts7d === b.posts7d && sameBest && sameCountries;
+  return a.accounts === b.accounts && a.active === b.active && (a.offTopic ?? 0) === (b.offTopic ?? 0) && a.posts7d === b.posts7d && sameBest && sameCountries;
 }
 
 /**

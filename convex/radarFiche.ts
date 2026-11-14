@@ -177,7 +177,7 @@ export const runFiches = internalAction({
     const sync: { linked: number; lost: number } = await ctx.runMutation(internal.radarFiche.syncFiches, { now });
     if (!process.env.ANTHROPIC_API_KEY) return { ...sync, judged: 0, usd: 0, note: "no-ai-key" };
     const st = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    if (allowanceUsd(st.budget, budgetState(st.budget, st.usage), "ai") < MIN_ALLOWANCE_USD) return { ...sync, judged: 0, usd: 0, note: "budget" };
+    if (allowanceUsd(st.budget, budgetState(st.budget, st.usage, st.balance), "ai") < MIN_ALLOWANCE_USD) return { ...sync, judged: 0, usd: 0, note: "budget" };
     const batch: NicheToJudge[] = await ctx.runQuery(internal.radarFiche.ficheWork, { now, limit: NICHE_BATCH });
     if (batch.length === 0) return { ...sync, judged: 0, usd: 0, note: "rien" };
 

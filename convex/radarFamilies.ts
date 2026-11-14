@@ -95,7 +95,7 @@ export const runFamilies = internalAction({
     if (!process.env.ANTHROPIC_API_KEY) return { skipped: "no-key" };
     const now = Date.now();
     const st = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    if (allowanceUsd(st.budget, budgetState(st.budget, st.usage), "ai") < MIN_ALLOWANCE_USD) return { skipped: "budget" };
+    if (allowanceUsd(st.budget, budgetState(st.budget, st.usage, st.balance), "ai") < MIN_ALLOWANCE_USD) return { skipped: "budget" };
     const work: FamilyWork = await ctx.runQuery(internal.radarFamilies.familyWork, { now });
     if (work.candidates.length === 0) return { skipped: "rien" };
 
