@@ -22,6 +22,8 @@ import {
   ACCOUNT_SYSTEM,
   ACCOUNT_VERDICTS,
   ABOUT,
+  JUDGE_VERSION,
+  NATURE_VERSION,
   NATURE_BATCH,
   NATURE_SCHEMA,
   NATURE_SYSTEM,
@@ -29,6 +31,8 @@ import {
   accountAnswer,
   accountPrompt,
   accountTexts,
+  groupedByApp,
+  judgeCursorOf,
   natureAnswer,
   natureDue,
   naturePrompt,
@@ -39,7 +43,7 @@ import {
   type NatureToJudge,
   type WeakWhy,
 } from "./radarJudgeMath";
-import { MEDIAN_WINDOW } from "./radarNetworkMath";
+import { MEDIAN_WINDOW, bioNamesApp, citesNormalized, normalize } from "./radarNetworkMath";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { proofDetail, type ProofDetail } from "./radarVetMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
@@ -110,7 +114,7 @@ async function applyNaturesCore(ctx: MutationCtx, answers: readonly { id: string
     const id = ctx.db.normalizeId("radarApps", a.id);
     if (!id || !(await ctx.db.get(id))) continue;
     // Rangé à part : rien ne lit ce champ pour décider (phase A).
-    await ctx.db.patch(id, { nature: a.nature, natureAt: now });
+    await ctx.db.patch(id, { nature: a.nature, natureAt: now, natureV: NATURE_VERSION });
     written++;
   }
   return written;
@@ -150,12 +154,16 @@ async function judgeItemFor(ctx: QueryCtx, t: Doc<"radarTracked">, apps: Map<Id<
   );
   const weak = weakProof(proof, t.matchedBy);
   if (!weak) return null;
-  if (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).first()) return null;
+  // Déjà jugé sous les définitions d'aujourd'hui ; un jugement d'une version d'avant ne compte plus (JUDGE_VERSION).
+  const judged = await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect();
+  if (judged.some((j) => (j.v ?? 1) >= JUDGE_VERSION)) return null;
+  const cites = (x: { caption?: string | null; hook?: string | null }) => citesNormalized(normalize(`${x.caption ?? ""} ${x.hook ?? ""}`), app);
   return {
     id: t._id,
     handle: t.handle,
     bio: t.bio ?? "",
-    texts: accountTexts(videos),
+    texts: accountTexts(videos, undefined, cites),
+    evidence: { cites: proof.cites, of: proof.of, bioNames: bioNamesApp(t.bio, app), source: t.matchedBy === "seed" ? "seed" : "caption" },
     app: { name: app.name, searches: app.searches, ...(app.pitch ? { pitch: app.pitch } : {}), ...(app.store ? { store: { genre: app.store.genre, artist: app.store.artist } } : {}) },
     appId: app._id,
     weak,
@@ -202,9 +210,12 @@ async function applyJudgmentsCore(
   for (const a of answers) {
     const m = byId.get(a.id);
     if (!m) continue;
-    if (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", m.accountId)).first()) continue;
+    const before = await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", m.accountId)).collect();
+    if (before.some((j) => (j.v ?? 1) >= JUDGE_VERSION)) continue;
+    // Le jugement d'une version d'avant est remplacé (sinon le compte serait redonné à juger à chaque passage).
+    for (const j of before) await ctx.db.delete(j._id);
     // Rangé à part : le compte ne change pas (phase A).
-    await ctx.db.insert("radarAccountJudgments", { ...m, verdict: a.verdict, ...(a.other ? { other: a.other } : {}), why: a.why, at: now });
+    await ctx.db.insert("radarAccountJudgments", { ...m, verdict: a.verdict, ...(a.other ? { other: a.other } : {}), why: a.why, at: now, v: JUDGE_VERSION });
     written++;
   }
   return written;
@@ -217,14 +228,15 @@ export const applyJudgments = internalMutation({
 
 export const judgeCursor = internalQuery({
   args: {},
-  handler: async (ctx): Promise<string | null> => (await ctx.db.query("radarSettings").first())?.judgeCursor ?? null,
+  // Un parcours d'une version d'avant repart du début : tous les comptes sont rejugés sous les définitions d'aujourd'hui.
+  handler: async (ctx): Promise<string | null> => judgeCursorOf(await ctx.db.query("radarSettings").first()),
 });
 
 export const setJudgeCursor = internalMutation({
   args: { cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { cursor }) => {
     const s = await ctx.db.query("radarSettings").first();
-    if (s) await ctx.db.patch(s._id, { judgeCursor: cursor ?? undefined });
+    if (s) await ctx.db.patch(s._id, { judgeCursor: cursor ?? undefined, judgeCursorV: JUDGE_VERSION });
     return null;
   },
 });
@@ -297,8 +309,11 @@ export const runAccountJudgments = internalAction({
     let usd = 0;
     let calls = 0;
     let error: string | undefined;
-    for (let i = 0; i < work.items.length; i += ACCOUNT_BATCH) {
-      const batch = work.items.slice(i, i + ACCOUNT_BATCH);
+    // Rangés par app : un appel ne mêle pas les comptes de deux apps voisines (v1 jugeait des comptes de Retain Cards
+    // « pas Astra AI », l'app de leurs voisins dans l'appel).
+    const items = groupedByApp(work.items);
+    for (let i = 0; i < items.length; i += ACCOUNT_BATCH) {
+      const batch = items.slice(i, i + ACCOUNT_BATCH);
       const r = await askHaiku(ACCOUNT_SYSTEM, ACCOUNT_SCHEMA, accountPrompt(batch));
       calls++;
       usd += r.usd;
@@ -334,6 +349,34 @@ export const e2eJudgeNatures = e2eMutation({
     const raw = { products: answers.map((a) => ({ id: idOf.get(a.slug) ?? a.slug, ...a.nature })) };
     const written = await applyNaturesCore(ctx, natureAnswer(raw, batch), now);
     return { asked: batch.map((b) => ({ name: b.name, texts: b.texts, bios: b.bios })), prompt: naturePrompt(batch), written };
+  },
+});
+
+/** e2e : un jugement d'avant les définitions v2 (sans version), pour ce compte et/ou cette app. */
+export const e2eLegacyJudgment = e2eMutation({
+  args: { handle: v.optional(v.string()), slug: v.optional(v.string()) },
+  handler: async (ctx, { handle, slug }) => {
+    const now = Date.now();
+    if (handle) {
+      const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+      if (t) await ctx.db.insert("radarAccountJudgments", { accountId: t._id, appId: t.appId, handle, weak: "aucune", proof: { by: null, cites: 0, of: 0 }, verdict: "sans_rapport", why: "v1", at: now });
+    }
+    if (slug) {
+      const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+      if (app) await ctx.db.patch(app._id, { nature: { digital: true, kind: "media", aboutIt: "oui", why: "v1" }, natureAt: now, natureV: undefined });
+    }
+    return null;
+  },
+});
+
+/** e2e : les jugements rangés pour ce compte. */
+export const e2eJudgmentsOf = e2eMutation({
+  args: { handle: v.string() },
+  handler: async (ctx, { handle }) => {
+    const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+    if (!t) return [];
+    const rows = await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect();
+    return rows.map((j) => ({ verdict: j.verdict, why: j.why, v: j.v ?? 1 }));
   },
 });
 

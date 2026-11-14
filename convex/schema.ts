@@ -4292,6 +4292,7 @@ export default defineSchema({
     accountsRerun: v.optional(v.boolean()), // un passage a été demandé pendant qu'un autre tournait : relancé à sa fin
     rejudgeCursor: v.optional(v.string()), // où reprend le rejugement des comptes en pause (convex/radarNetworks)
     judgeCursor: v.optional(v.string()), // où reprend le jugement IA des comptes à preuve faible (convex/radarJudge)
+    judgeCursorV: v.optional(v.number()), // la version du parcours en cours ; une autre version repart du début
     // La reprise des marques à slogan dans la file des contrôles (radarStore.requeueRetagged) : où elle en est, et sa fin.
     storeRetagCursor: v.optional(v.string()),
     storeRetagDoneAt: v.optional(v.number()),
@@ -4360,6 +4361,7 @@ export default defineSchema({
       }),
     ),
     natureAt: v.optional(v.number()),
+    natureV: v.optional(v.number()), // version des définitions de son jugement (radarJudgeMath.NATURE_VERSION)
     // Dernière fois que ses apps sœurs (les autres apps de son éditeur) ont été demandées à l'App Store (radarStore).
     siblingsAt: v.optional(v.number()),
     // Sa fiche App Store, quand elle vient des classements.
@@ -4473,6 +4475,7 @@ export default defineSchema({
     other: v.optional(v.string()), // l'autre produit qu'il pousse (« autre_app »)
     why: v.string(),
     at: v.number(),
+    v: v.optional(v.number()), // version des définitions (radarJudgeMath.JUDGE_VERSION) ; absent = v1, qui ne compte plus
   }).index("by_account", ["accountId"]),
 
   // La mesure du premier relevé GRATUIT (radarFreeMath, « LA MESURE DU PREMIER RELEVÉ GRATUIT ») : le premier relevé

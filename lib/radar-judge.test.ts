@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_BATCH,
+  ACCOUNT_SYSTEM,
   ACCOUNT_TEXTS_MAX,
+  JUDGE_VERSION,
   NATURE_BATCH,
+  NATURE_SYSTEM,
+  NATURE_VERSION,
   NATURE_REFRESH_MS,
   SWARM_KINDS,
   WEAK_SHARE,
   accountAnswer,
   accountPrompt,
   accountTexts,
+  groupedByApp,
+  judgeCursorOf,
   natureAnswer,
   natureDue,
   naturePrompt,
+  productName,
   shownInSwarm,
   weakProof,
 } from "../convex/radarJudgeMath";
@@ -73,10 +80,18 @@ describe("Radar — jugement : ce qu'est une app", () => {
     expect(shownInSwarm(null)).toBe(true);
   });
 
-  it("jugée une fois, rejugée au bout de 30 jours", () => {
+  it("jugée une fois, rejugée au bout de 30 jours, ou tout de suite si ses définitions ont changé", () => {
     expect(natureDue({}, NOW)).toBe(true);
-    expect(natureDue({ natureAt: NOW - NATURE_REFRESH_MS + 1 }, NOW)).toBe(false);
-    expect(natureDue({ natureAt: NOW - NATURE_REFRESH_MS }, NOW)).toBe(true);
+    expect(natureDue({ natureAt: NOW - NATURE_REFRESH_MS + 1, natureV: NATURE_VERSION }, NOW)).toBe(false);
+    expect(natureDue({ natureAt: NOW - NATURE_REFRESH_MS, natureV: NATURE_VERSION }, NOW)).toBe(true);
+    // Jugée hier sous les définitions v1 (FreeDrama « media ») : rejugée.
+    expect(NATURE_VERSION).toBe(2);
+    expect(natureDue({ natureAt: NOW - 3_600_000 }, NOW)).toBe(true);
+  });
+
+  it("une app pour regarder des séries est une app ; le média, c'est le contenu (v2)", () => {
+    expect(NATURE_SYSTEM).toContain("apps to watch series or videos");
+    expect(NATURE_SYSTEM).toContain("never the app or the site used to watch, read or listen to it");
   });
 
   it("l'IA lit la fiche, la phrase connue et ce qu'écrivent ses comptes ; rien n'est inventé quand on ne sait rien", () => {
@@ -107,6 +122,26 @@ describe("Radar — jugement : pousse-t-il CE produit ?", () => {
     expect(t).toHaveLength(10);
   });
 
+  it("v2 : les vidéos qui citent l'app d'abord, même plus anciennes que les 10 dernières", () => {
+    // mfernandaugc : 4 vidéos sur 20 citent Fluencify, aucune parmi les 10 dernières — v1 la jugeait « sans rapport ».
+    const vids = [
+      ...Array.from({ length: 16 }, (_, i) => ({ caption: `rotina fitness ${i} #emagrecer` })),
+      ...Array.from({ length: 4 }, (_, i) => ({ caption: `aprendendo inglês com #fluencify ${i}` })),
+    ];
+    const cites = (v: { caption?: string | null }) => (v.caption ?? "").includes("fluencify");
+    const t = accountTexts(vids, 10, cites);
+    expect(t.slice(0, 4)).toEqual([0, 1, 2, 3].map((i) => `aprendendo inglês com #fluencify ${i}`));
+    expect(t[4]).toBe("rotina fitness 0 #emagrecer");
+    expect(t).toHaveLength(10);
+    // Sans la règle, aucune n'est lue.
+    expect(accountTexts(vids).some((x) => x.includes("fluencify"))).toBe(false);
+    // Une citation en fin de longue légende n'est pas coupée (les autres textes, si).
+    const long = [{ caption: `${"Treino de pernas completo para iniciantes ".repeat(6)}#fluencify` }, { caption: "x".repeat(300) }];
+    const [first, second] = accountTexts(long, 10, cites);
+    expect(first.endsWith("#fluencify")).toBe(true);
+    expect(second.length).toBeLessThanOrEqual(180);
+  });
+
   it("un verdict de la liste par compte demandé ; « autre » ne se garde que pour « autre_app »", () => {
     expect(ACCOUNT_BATCH).toBe(12);
     const raw = {
@@ -123,13 +158,49 @@ describe("Radar — jugement : pousse-t-il CE produit ?", () => {
     ]);
   });
 
+  it("« autre app » nomme UNE app ; une liste ou une description devient « incertain »", () => {
+    expect(productName("Moka Score")).toBe("Moka Score");
+    expect(productName("Heavenly: Bible Verse Widgets")).toBe("Heavenly: Bible Verse Widgets");
+    expect(productName("StemUp, SimpleStudy")).toBe("");
+    expect(productName("web de révision TKA (site non nommé)")).toBe("");
+    expect(productName("Airbuds (appli de musique Spotify)")).toBe("");
+    expect(productName("une application de quiz pour réviser le bac")).toBe("");
+    const raw = { accounts: [{ id: "c1", verdict: "autre_app", other: "StemUp, SimpleStudy", why: "deux apps d'étude" }] };
+    expect(accountAnswer(raw, [{ id: "c1" }])).toEqual([{ id: "c1", verdict: "incertain", why: "deux apps d'étude" }]);
+  });
+
+  it("v2 : le parcours d'une version d'avant repart du début ; un passage range ses comptes par app", () => {
+    expect(judgeCursorOf({ judgeCursor: "c-v1" })).toBeNull();
+    expect(judgeCursorOf({ judgeCursor: "c-v2", judgeCursorV: JUDGE_VERSION })).toBe("c-v2");
+    expect(judgeCursorOf({ judgeCursorV: JUDGE_VERSION })).toBeNull();
+    expect(judgeCursorOf(null)).toBeNull();
+    const items = [{ appId: "b", h: 1 }, { appId: "a", h: 2 }, { appId: "b", h: 3 }, { appId: "a", h: 4 }];
+    expect(groupedByApp(items).map((x) => x.h)).toEqual([2, 4, 1, 3]);
+  });
+
+  it("v2 : placement = une ou deux vidéos ; un nom absent des textes d'un compte de liste = incertain", () => {
+    expect(JUDGE_VERSION).toBe(2);
+    expect(ACCOUNT_SYSTEM).toContain("names the product in only one or two videos");
+    expect(ACCOUNT_SYSTEM).toContain("Three or more videos naming the product is never a placement");
+    expect(ACCOUNT_SYSTEM).toContain("found through a list of the product's creators, answer \"incertain\"");
+    expect(ACCOUNT_SYSTEM).toContain("never against another account's product");
+  });
+
   it("l'IA lit le produit (nom, phrase, fiche App Store, recherches), le compte, sa bio et ses dernières vidéos", () => {
     const p = accountPrompt([
-      { id: "c1", handle: "lea.revise", bio: "", texts: [], app: { name: "Knowunity", searches: ["knowunity"], pitch: "App de fiches de révision" } },
+      {
+        id: "c1",
+        handle: "lea.revise",
+        bio: "",
+        texts: [],
+        app: { name: "Knowunity", searches: ["knowunity"], pitch: "App de fiches de révision" },
+        evidence: { cites: 3, of: 11, bioNames: false, source: "seed" },
+      },
     ]);
     expect(p).toContain("product: Knowunity — App de fiches de révision");
     expect(p).toContain("account: @lea.revise");
     expect(p).toContain("bio: (empty)");
-    expect(p).toContain("latest videos (on-screen text — caption): (none)");
+    expect(p).toContain("evidence: 3 of 11 stored videos contain the product's name or tag (listed first); bio names it: no; account found through a list of the product's creators");
+    expect(p).toContain("videos (on-screen text — caption), those naming the product first, then the latest: (none)");
   });
 });

@@ -41,7 +41,13 @@ export const shownInSwarm = (nature: Pick<AppNature, "digital" | "kind"> | null 
 export const NATURE_BATCH = 20;
 /** Une app jugée est rejugée au bout de 30 jours (ses comptes ont changé). */
 export const NATURE_REFRESH_MS = 30 * DAY;
-export const natureDue = (app: { natureAt?: number }, now: number): boolean => app.natureAt === undefined || now - app.natureAt >= NATURE_REFRESH_MS;
+/**
+ * La version des définitions données à l'IA. v2 (14/11/2026) : une app pour regarder des séries (FreeDrama, Shortical)
+ * est une app, pas un « media » — le média, c'est le contenu lui-même. Un jugement d'une version d'avant est refait.
+ */
+export const NATURE_VERSION = 2;
+export const natureDue = (app: { natureAt?: number; natureV?: number }, now: number): boolean =>
+  app.natureAt === undefined || (app.natureV ?? 1) < NATURE_VERSION || now - app.natureAt >= NATURE_REFRESH_MS;
 
 export type NatureToJudge = {
   id: string;
@@ -59,7 +65,7 @@ export const NATURE_SYSTEM = [
   "You review products that short-form video creators promote, for a catalogue of mobile apps and web tools.",
   "For each product, answer from the evidence only:",
   "- digital: true when the product is software the user installs or opens (mobile app, web app, browser extension, desktop software, online service used through an app or a site); false for a physical product, a shop or marketplace of physical goods, a place (gym, restaurant, hotel), a person, a show, a song, a team.",
-  '- kind: "app" (mobile app that is not a game), "saas" (web tool or software, AI tools used on the web included), "jeu_mobile" (game played on a phone, from the App Store or Google Play), "jeu" (any other video game: console, PC, browser), "ecommerce" (store, marketplace or shopping agent selling physical goods), "marque" (physical brand or product), "media" (show, series, film, music, podcast, streamer, news), "autre".',
+  '- kind: "app" (mobile app that is not a game — apps to watch series or videos, to read, to listen to music and social apps included), "saas" (web tool or software, AI tools used on the web included), "jeu_mobile" (game played on a phone, from the App Store or Google Play), "jeu" (any other video game: console, PC, browser), "ecommerce" (store, marketplace or shopping agent selling physical goods), "marque" (physical brand or product), "media" (the content itself or its outlet: a show, a film, a song, a podcast, a streamer, a news outlet — never the app or the site used to watch, read or listen to it), "autre".',
   '- aboutIt: do the creators\' texts and bios talk about THIS product (the product itself, what it does, its publisher)? "oui"; "non" when the name only appears as an ordinary word, a song, a person, a genre hashtag, or another product; "incertain" when there is too little text.',
   "- why: one plain French sentence of at most 120 characters with the decisive clue (no brand-free paraphrase needed, no emoji).",
   "Never guess from the name alone. Answer for every product, using its id.",
@@ -151,6 +157,8 @@ export type AccountVerdict = (typeof ACCOUNT_VERDICTS)[number];
 export const ACCOUNT_BATCH = 12;
 export const ACCOUNT_TEXTS_MAX = 10;
 const ACCOUNT_TEXT_MAX = 180;
+/** Le texte d'une vidéo qui cite l'app, plus long : coupé à 180, la citation tombait dans 27 cas sur 433 (0 à 400). */
+const ACCOUNT_CITING_TEXT_MAX = 400;
 
 export type AccountToJudge = {
   id: string;
@@ -158,16 +166,37 @@ export type AccountToJudge = {
   bio: string;
   texts: string[];
   app: { name: string; searches: string[]; pitch?: string; store?: { genre: string; artist: string } };
+  /** Ce que compte le filtre lexical : vidéos rangées qui citent l'app, la bio qui la nomme, et d'où vient le compte. */
+  evidence: { cites: number; of: number; bioNames: boolean; source: "caption" | "seed" };
 };
+
+/**
+ * La version des définitions et de ce qui est donné à lire. v2 (14/11/2026), après la relecture à la main des 125
+ * premiers verdicts qui auraient agi (3 sur 10 faux) : l'IA lit d'abord les vidéos qui citent l'app (elle ne voyait
+ * que les 10 dernières, souvent sans elles), avec leur décompte ; « placement » = une ou deux vidéos (définition du
+ * fondateur : un créateur généraliste payé une ou deux fois) ; un nom absent des textes n'est pas « sans rapport ».
+ * Un jugement d'une version d'avant ne compte plus : le compte est rejugé.
+ */
+export const JUDGE_VERSION = 2;
+
+/** Où reprend le parcours des comptes : un parcours d'une version d'avant repart du début (tous rejugés). */
+export const judgeCursorOf = (s: { judgeCursor?: string; judgeCursorV?: number } | null | undefined): string | null =>
+  s && (s.judgeCursorV ?? 1) === JUDGE_VERSION ? (s.judgeCursor ?? null) : null;
+
+/** Les comptes d'un passage rangés par app : un appel à l'IA ne mêle pas deux apps voisines quand il peut l'éviter. */
+export const groupedByApp = <T extends { appId: string }>(items: readonly T[]): T[] =>
+  [...items].sort((a, b) => (a.appId < b.appId ? -1 : a.appId > b.appId ? 1 : 0));
 
 export const ACCOUNT_SYSTEM = [
   "You check whether a TikTok account promotes a given product (an app or a web tool).",
+  "Each account comes with its own product: judge it only against that product, never against another account's product.",
   "Verdicts:",
-  '- "pousse": the account repeatedly posts about THIS product — its own account, an ambassador or UGC creator, or a creator whose videos show or name the product.',
-  '- "autre_app": the account promotes a different product, often with a similar name; give that product\'s name in "other".',
-  '- "sans_rapport": the product\'s name appears only as an ordinary word, a song, a person, a genre hashtag, or not at all; the account does not promote the product.',
-  '- "placement": a general creator who mentions the product once in a paid placement, among unrelated content.',
-  '- "incertain": the texts do not allow a decision.',
+  '- "pousse": the account posts about THIS product in several videos (three or more), or its bio names the product as its own, its partner or its link — the product\'s own account, an ambassador, a UGC creator paid repeatedly (partner or ambassador hashtags, a promo code, ad disclosures on the product\'s videos), even when it also posts other content.',
+  '- "placement": a general creator whose videos are mostly about other things and who names the product in only one or two videos, usually paid. Three or more videos naming the product is never a placement.',
+  '- "autre_app": the account promotes a different product, named in its texts or bio; give that one product\'s exact name as written, in "other". If that product is not named, answer "incertain".',
+  '- "sans_rapport": the product\'s name or tag appears only with another meaning — an ordinary word in some language, a song, a person, a slang or genre hashtag — or the account clearly posts about something else and names the product at most once, without promoting it.',
+  '- "incertain": the texts do not allow a decision. In particular, when the texts never name the product and the account was found through a list of the product\'s creators, answer "incertain": the product may appear only on screen in the videos.',
+  "The evidence line counts the videos whose text contains the product's name or tag: check what each of them means, a match can be an ordinary word.",
   "why: one plain French sentence of at most 120 characters with the decisive clue.",
   "Use only the evidence given. Answer for every account, using its id.",
 ].join("\n");
@@ -194,18 +223,35 @@ export const ACCOUNT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-/** Ses textes à donner à lire : texte à l'écran et légende de ses dernières vidéos, propres, chacun une fois. */
-export function accountTexts(videos: readonly { caption?: string | null; hook?: string | null }[], max = ACCOUNT_TEXTS_MAX): string[] {
+type VideoText = { caption?: string | null; hook?: string | null };
+
+/**
+ * Ses textes à donner à lire : texte à l'écran et légende, propres, chacun une fois — D'ABORD ceux des vidéos qui
+ * citent l'app (`cites`), puis les dernières. Avant (v1), seules les 10 dernières : une créatrice dont 4 vidéos sur 20
+ * citent Fluencify était jugée « sans rapport » faute de les voir.
+ */
+export function accountTexts(videos: readonly VideoText[], max = ACCOUNT_TEXTS_MAX, cites?: (v: VideoText) => boolean): string[] {
+  const citing = cites ? videos.filter((v) => cites(v)) : [];
+  const ordered = cites ? [...citing, ...videos.filter((v) => !cites(v))] : videos;
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const v of videos) {
-    const t = tidy([v.hook, v.caption].filter(Boolean).join(" — "), ACCOUNT_TEXT_MAX);
+  for (const v of ordered) {
+    const t = tidy([v.hook, v.caption].filter(Boolean).join(" — "), citing.includes(v) ? ACCOUNT_CITING_TEXT_MAX : ACCOUNT_TEXT_MAX);
     if (t.length < 3 || seen.has(t)) continue;
     seen.add(t);
     out.push(t);
     if (out.length >= max) break;
   }
   return out;
+}
+
+/** La ligne de preuve donnée à lire : ce que le filtre lexical a compté, à vérifier par l'IA. */
+export function evidenceLine(e: AccountToJudge["evidence"]): string {
+  return [
+    `${e.cites} of ${e.of} stored videos contain the product's name or tag (listed first)`,
+    `bio names it: ${e.bioNames ? "yes" : "no"}`,
+    `account found ${e.source === "seed" ? "through a list of the product's creators" : "through a video naming the product"}`,
+  ].join("; ");
 }
 
 export function accountPrompt(batch: readonly AccountToJudge[]): string {
@@ -218,7 +264,8 @@ export function accountPrompt(batch: readonly AccountToJudge[]): string {
         `product search terms: ${a.app.searches.slice(0, 6).join(", ") || "(none)"}`,
         `account: @${a.handle}`,
         `bio: ${a.bio ? quoted([tidy(a.bio, 200)]) : "(empty)"}`,
-        `latest videos (on-screen text — caption): ${a.texts.length ? quoted(a.texts) : "(none)"}`,
+        `evidence: ${evidenceLine(a.evidence)}`,
+        `videos (on-screen text — caption), those naming the product first, then the latest: ${a.texts.length ? quoted(a.texts) : "(none)"}`,
       ].join("\n"),
     )
     .join("\n\n");
@@ -227,6 +274,16 @@ export function accountPrompt(batch: readonly AccountToJudge[]): string {
 const isVerdict = (x: unknown): x is AccountVerdict => typeof x === "string" && (ACCOUNT_VERDICTS as readonly string[]).includes(x);
 
 export type AccountJudgment = { id: string; verdict: AccountVerdict; other?: string; why: string };
+
+/**
+ * Le nom d'UNE app, tel qu'écrit : pas une liste (« StemUp, SimpleStudy »), pas une description (« web de révision TKA
+ * (site non nommé) »). Sinon rien — et le verdict « autre app » devient « incertain » : une piste sans nom ne mène nulle part.
+ */
+export function productName(other: string): string {
+  const x = other.trim();
+  if (!x || x.length > 40 || /[,;/()]/.test(x) || /\b(non nomm|unnamed|unknown|inconnu|not named)/i.test(x) || x.split(/\s+/).length > 5) return "";
+  return x;
+}
 
 export function accountAnswer(raw: unknown, batch: readonly { id: string }[]): AccountJudgment[] {
   const asked = new Set(batch.map((a) => a.id));
@@ -238,8 +295,9 @@ export function accountAnswer(raw: unknown, batch: readonly { id: string }[]): A
     const id = typeof x.id === "string" ? x.id : "";
     if (!asked.has(id) || !isVerdict(x.verdict)) continue;
     asked.delete(id);
-    const other = x.verdict === "autre_app" ? tidy(typeof x.other === "string" ? x.other : "", 60) : "";
-    out.push({ id, verdict: x.verdict, ...(other ? { other } : {}), why: tidy(typeof x.why === "string" ? x.why : "", WHY_MAX) });
+    const other = x.verdict === "autre_app" ? productName(tidy(typeof x.other === "string" ? x.other : "", 60)) : "";
+    const verdict: AccountVerdict = x.verdict === "autre_app" && !other ? "incertain" : x.verdict;
+    out.push({ id, verdict, ...(other ? { other } : {}), why: tidy(typeof x.why === "string" ? x.why : "", WHY_MAX) });
   }
   return out;
 }
