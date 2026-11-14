@@ -235,7 +235,7 @@ export type AppMarketFiche = {
 };
 
 type CandidateFiche = {
-  kind: "mention" | "domain" | "store" | "market";
+  kind: "mention" | "domain" | "store" | "market" | "hashtag";
   label: string;
   store?: AppStoreFiche & { tag: string };
   market?: AppMarketFiche & { handle: string };

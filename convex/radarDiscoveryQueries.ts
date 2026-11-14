@@ -77,6 +77,35 @@ export const MONEY_QUERIES: readonly DiscoveryQuery[] = [
 
 const MONEY_LABELS: ReadonlySet<string> = new Set(MONEY_QUERIES.map(foundByLabel));
 
+// ─── Les produits web (14/11/2026) ───────────────────────────────────────────
+
+/**
+ * Les PRODUITS WEB (lot 5 du dig, 14/11/2026). JobStep (CV par l'IA, 120 000 utilisateurs) et Pimzi (menus de la
+ * semaine, 1 800 vidéos) n'avaient jamais été vus : ni app sur l'App Store, ni campagne sur la place de marché, ni
+ * créatrice déjà suivie, et la découverte ne cherchait que des tournures d'« app », en français, anglais, espagnol et
+ * portugais. Leurs créatrices disent « ce site », « diese Seite », « ta strona », et publient en publicité déclarée
+ * (« Anzeige », « publicité », « reklama ») — un produit qui paie des créateurs, ce que Swarm vend. D'où ces
+ * tournures, et quatre marchés de plus (allemand, polonais, néerlandais, italien), passées chaque jour.
+ * 22 parce que la découverte dispose de 118 recherches par jour (150, moins les 32 des tournures qui nomment un
+ * produit, radarNamingMath) et qu'un tour doit y tenir : 7 de niche + 76 d'argent + 22 + 13 autres = 118.
+ */
+export const WEB_QUERIES: readonly DiscoveryQuery[] = [
+  ...q("fr", "FR", ["ce site", "ce site web", "utilise ce site", "publicité site"]),
+  ...q("en", "US", ["this website", "this site", "use this website"]),
+  ...q("es", "ES", ["esta web", "este sitio web"]),
+  ...q("es", "MX", ["esta página web"]),
+  ...q("pt", "BR", ["esse site"]),
+  ...q("de", "DE", ["diese app", "diese seite", "diese website", "anzeige app"]),
+  ...q("pl", "PL", ["ta aplikacja", "ta strona", "reklama aplikacja"]),
+  ...q("nl", "NL", ["deze app", "deze site"]),
+  ...q("it", "IT", ["questa app", "questo sito"]),
+];
+
+const WEB_LABELS: ReadonlySet<string> = new Set(WEB_QUERIES.map(foundByLabel));
+
+/** La vidéo a-t-elle été trouvée par une recherche de produit web (« ce site », « diese Seite »…) ? */
+export const isWebFind = (foundBy: string): boolean => WEB_LABELS.has(foundBy);
+
 /**
  * Les hashtags qui rangent une vidéo dans le thème « argent » même quand une
  * autre recherche l'a trouvée (un compte suivi, une tournure d'app) : ceux que
@@ -114,9 +143,10 @@ export const ROTATION_OTHERS_PER_ROUND = 13;
 
 /**
  * L'ordre de passage : à chaque tour, les 7 tournures de niche et les tournures
- * quotidiennes (`daily` : les 76 du thème « argent »), puis 13 des 53 autres, et
- * ainsi de suite. Un tour fait 96 recherches : au réglage par défaut (100/jour),
- * la niche et l'argent passent chaque jour, les autres tous les 4 jours.
+ * quotidiennes (`daily` : les 76 du thème « argent » et les 22 des produits web),
+ * puis 13 des 53 autres, et ainsi de suite. Un tour fait 118 recherches : au réglage
+ * par défaut (150/jour, dont 32 aux tournures qui nomment un produit), la niche,
+ * l'argent et les produits web passent chaque jour, les autres tous les 4 jours.
  */
 export function discoveryRotation(
   all: readonly DiscoveryQuery[] = DISCOVERY_QUERIES,
@@ -131,4 +161,4 @@ export function discoveryRotation(
   return out;
 }
 
-export const DISCOVERY_ROTATION: readonly DiscoveryQuery[] = discoveryRotation(DISCOVERY_QUERIES, ROTATION_OTHERS_PER_ROUND, MONEY_QUERIES);
+export const DISCOVERY_ROTATION: readonly DiscoveryQuery[] = discoveryRotation(DISCOVERY_QUERIES, ROTATION_OTHERS_PER_ROUND, [...MONEY_QUERIES, ...WEB_QUERIES]);

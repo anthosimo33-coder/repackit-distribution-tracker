@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { NAMING_QUERIES } from "../convex/radarNamingMath";
+import { productHashtags, hashtagCandidates } from "../convex/radarNetworkMath";
 import {
   SC_PRICE_PER_CREDIT,
   addSnapshot,
@@ -28,6 +30,8 @@ import {
 import {
   DISCOVERY_QUERIES,
   DISCOVERY_ROTATION,
+  WEB_QUERIES,
+  isWebFind,
   MONEY_HASHTAGS,
   MONEY_QUERIES,
   discoveryRotation,
@@ -177,20 +181,25 @@ describe("tri à la découverte et courbe", () => {
   it("fait tourner les recherches sans en sauter ni en répéter", () => {
     expect(DISCOVERY_QUERIES).toHaveLength(60);
     expect(MONEY_QUERIES).toHaveLength(76);
-    // Un tour : les 7 tournures de niche, les 76 du thème argent, puis 13 des 53 autres, et ainsi de suite.
+    // Un tour : les 7 tournures de niche, les 76 du thème argent, les 22 des produits web, puis 13 des 53 autres.
     const niche = ["app pour couple", "app para casal", "app para parejas", "app para parejas", "app for couples", "achei um app", "app that tells you"].sort();
-    expect(DISCOVERY_ROTATION).toHaveLength(5 * (7 + 76) + 53);
+    expect(WEB_QUERIES).toHaveLength(22);
+    expect(DISCOVERY_ROTATION).toHaveLength(5 * (7 + 76 + 22) + 53);
     expect(DISCOVERY_ROTATION.slice(0, 7).map((x) => x.query).sort()).toEqual(niche);
     expect(DISCOVERY_ROTATION.slice(7, 83)).toEqual(MONEY_QUERIES);
-    // Un tour fait 7 + 76 + 13 = 96 recherches.
-    expect(DISCOVERY_ROTATION.slice(96, 103).map((x) => x.query).sort()).toEqual(niche);
-    expect(DISCOVERY_ROTATION.slice(103, 179)).toEqual(MONEY_QUERIES);
-    // À 100 recherches par jour, d'où que reparte le curseur : la niche et l'argent chaque jour.
+    expect(DISCOVERY_ROTATION.slice(83, 105)).toEqual(WEB_QUERIES);
+    // Un tour fait 7 + 76 + 22 + 13 = 118 recherches.
+    expect(DISCOVERY_ROTATION.slice(118, 125).map((x) => x.query).sort()).toEqual(niche);
+    expect(DISCOVERY_ROTATION.slice(125, 201)).toEqual(MONEY_QUERIES);
+    // 150 recherches par jour, dont 32 aux tournures qui nomment un produit (deux passages) : 118 pour la découverte.
+    // D'où que reparte le curseur, la niche, l'argent et les produits web passent chaque jour.
+    const parJour = 150 - 2 * NAMING_QUERIES.length;
+    expect(parJour).toBe(118);
     const label = (x: { query: string; region: string }) => `${x.query}·${x.region}`;
-    const quotidiennes = new Set([...DISCOVERY_QUERIES.filter((x) => niche.includes(x.query)), ...MONEY_QUERIES].map(label));
-    expect(quotidiennes.size).toBe(7 + 76);
-    for (const depart of [0, 1, 50, 96, 300, 400, DISCOVERY_ROTATION.length - 1]) {
-      const jour = new Set(nextQueries(depart, 100, DISCOVERY_ROTATION).queries.map(label));
+    const quotidiennes = new Set([...DISCOVERY_QUERIES.filter((x) => niche.includes(x.query)), ...MONEY_QUERIES, ...WEB_QUERIES].map(label));
+    expect(quotidiennes.size).toBe(7 + 76 + 22);
+    for (const depart of [0, 1, 50, 96, 118, 300, 400, DISCOVERY_ROTATION.length - 1]) {
+      const jour = new Set(nextQueries(depart, parJour, DISCOVERY_ROTATION).queries.map(label));
       expect([...quotidiennes].filter((q) => !jour.has(q))).toEqual([]);
     }
     const autres = DISCOVERY_ROTATION.filter((x) => DISCOVERY_QUERIES.includes(x) && !niche.includes(x.query)).map(label);
@@ -256,10 +265,10 @@ describe("budget", () => {
   const d = normalizeBudget(null);
   const usage = (poste: string, credits: number, day = "2026-11-06") => ({ poste, credits, day });
 
-  it("prévoit 629,92 $ au plus par défaut sous un plafond de 650 $ : 100 recherches/jour, courbe, 9 000 relevés de comptes/jour, réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
+  it("prévoit 632,74 $ au plus par défaut sous un plafond de 650 $ : 150 recherches/jour, courbe, 9 000 relevés de comptes/jour, réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
     expect(d.capUsd).toBe(650);
-    expect(plannedUsd(d)).toBeCloseTo((100 * 30 + 100 * 3 * 30 + 9_000 * 30 + 40_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
-    expect(plannedUsd(d)).toBeCloseTo(629.92, 2);
+    expect(plannedUsd(d)).toBeCloseTo((150 * 30 + 100 * 3 * 30 + 9_000 * 30 + 40_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
+    expect(plannedUsd(d)).toBeCloseTo(632.74, 2);
   });
 
   it("des réglages d'avant la v4 prennent les postes relevés, les postes branchés et le plafond par défaut ; ceux de la v4 sont respectés", () => {
@@ -277,8 +286,8 @@ describe("budget", () => {
     // Les réglages réels de la prod au 06/11/2026 (v1, plafond 60 $).
     const m = normalizeBudget(v1);
     expect(m.capUsd).toBe(650);
-    // La découverte passe à 100 recherches/jour (v7) : la niche et le thème argent chaque jour, les autres en rotation.
-    expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 100, on: true });
+    // La découverte passe à 150 recherches/jour (v9) : la niche, l'argent et les produits web chaque jour, les autres en rotation.
+    expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 150, on: true });
     expect(m.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 100, on: true });
     // 9 000 relevés/jour et 40 000 crédits de recherche des réseaux par mois depuis la v8 (13/11/2026).
     expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 9_000, on: true });
@@ -321,13 +330,14 @@ describe("budget", () => {
     expect(b.capUsd).toBe(650);
     expect(b.postes.find((p) => p.key === "ai")).toEqual({ key: "ai", qty: 2, on: true });
     expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(true);
-    // D'une v4, la découverte prend aussi son défaut (100/jour) ; en v7, une quantité réglée est bornée.
-    expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 100, on: true });
+    // D'une v4, la découverte prend aussi son défaut (150/jour) ; en v9, une quantité réglée est bornée.
+    expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 150, on: true });
     const search = (qty: number, budgetVersion: number) => normalizeBudget({ postes: [{ key: "search", qty, on: true }], budgetVersion }).postes.find((p) => p.key === "search");
-    expect(search(1_000, 7)).toEqual({ key: "search", qty: 300, on: true });
-    // La prod était en v6 à 20/jour : elle passe à 100 ; une quantité réglée après (v7) est gardée.
-    expect(search(20, 6)).toEqual({ key: "search", qty: 100, on: true });
-    expect(search(40, 7)).toEqual({ key: "search", qty: 40, on: true });
+    expect(search(1_000, 9)).toEqual({ key: "search", qty: 300, on: true });
+    // Réglée avant la v9 (20/jour en v6, 40 en v7) : elle passe à 150 ; une quantité réglée en v9 est gardée.
+    expect(search(20, 6)).toEqual({ key: "search", qty: 150, on: true });
+    expect(search(40, 7)).toEqual({ key: "search", qty: 150, on: true });
+    expect(search(40, 9)).toEqual({ key: "search", qty: 40, on: true });
     expect(b.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 88, on: false });
     expect(b.cutOrder).toEqual(["curve", "ai", "search", "transcript", "ads", "insta", "network", "tiktok"]);
     expect(b.alert80).toBe(false);
@@ -451,10 +461,10 @@ describe("budget", () => {
 
   it("donne à un passage sa part du jour, bornée par ce qui reste aujourd'hui", () => {
     const s = budgetState(d, []);
-    // 100 recherches/jour en 4 passages : 25 par passage, bornées par le reste du jour.
-    expect(allowance(d, s, "search", 0, 4)).toBe(25);
-    expect(allowance(d, s, "search", 90, 4)).toBe(10);
-    expect(allowance(d, s, "search", 100, 4)).toBe(0);
+    // 150 recherches/jour en 4 passages : 38 par passage, bornées par le reste du jour.
+    expect(allowance(d, s, "search", 0, 4)).toBe(38);
+    expect(allowance(d, s, "search", 130, 4)).toBe(20);
+    expect(allowance(d, s, "search", 150, 4)).toBe(0);
     // 100 vidéos × 3 relevés = 300/jour → 13 par heure ; 9 000 relevés de comptes → 375 par heure.
     expect(allowance(d, s, "curve", 0, 24)).toBe(13);
     expect(allowance(d, s, "tiktok", 0, 24)).toBe(375);
@@ -723,3 +733,25 @@ describe("tri par défaut : vues ÷ médiane du compte", () => {
     expect(applyFilters(data, { ...defaultFilters(), sort: "ratio" }, NOW)[0].handle).toBe("decouverte_forte");
   });
 });
+
+describe("produits web (lot 5 du dig, 14/11/2026)", () => {
+  it("« ce site » et la pub déclarée dans chaque langue, 4 marchés de plus ; chaque tournure unique et pas déjà ailleurs", () => {
+    const label = (x: { query: string; region: string }) => `${x.query}·${x.region}`;
+    expect(new Set(WEB_QUERIES.map(label)).size).toBe(WEB_QUERIES.length);
+    const ailleurs = new Set([...DISCOVERY_QUERIES, ...MONEY_QUERIES].map(label));
+    expect(WEB_QUERIES.filter((x) => ailleurs.has(label(x)))).toEqual([]);
+    expect([...new Set(WEB_QUERIES.map((x) => x.region))].sort()).toEqual(["BR", "DE", "ES", "FR", "IT", "MX", "NL", "PL", "US"]);
+    expect(isWebFind("diese seite·de")).toBe(true);
+    expect(isWebFind("ce site·fr")).toBe(true);
+    expect(isWebFind("cette app·fr")).toBe(false);
+  });
+
+  it("les hashtags qui pourraient nommer un produit : ni mise en avant, ni pub déclarée, ni le mot du sujet", () => {
+    expect(productHashtags("diese seite ist so crazy 🫡😱 #jobstep #ki #lebenslauf #bewerbungen #viral")).toEqual(["jobstep", "lebenslauf", "bewerbungen"]);
+    expect(productHashtags("5€ pour 4 burgers ? 🤔 #pimzi #courses #pascher #Économies #fyp #pourtoi")).toEqual(["pimzi", "courses", "pascher", "economies"]);
+    expect(productHashtags("Anzeige | nicht schlecht #anzeige #ad #werbung #2026 #app #website")).toEqual([]);
+    expect(productHashtags("trop court #cv #ia, trop long #" + "a".repeat(31))).toEqual([]);
+    expect(hashtagCandidates("#pimzi #pimzi")).toEqual([{ key: "#pimzi", kind: "hashtag", label: "pimzi" }]);
+  });
+});
+

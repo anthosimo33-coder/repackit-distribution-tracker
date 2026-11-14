@@ -4615,7 +4615,8 @@ export default defineSchema({
     key: v.string(), // « @<id TikTok> », le domaine, « store:<id App Store> » ou « market:<produit> »
     // « store » : une app des classements App Store dont le hashtag porte des comptes créateurs (convex/radarStore).
     // « market » : une app ou un logiciel qui paie des créateurs sur une place de marché de campagnes (convex/radarMarket).
-    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store"), v.literal("market")),
+    // « hashtag » : le hashtag d'une vidéo de produit web (« ce site », « diese Seite »…, radarDiscoveryQueries.WEB_QUERIES).
+    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store"), v.literal("market"), v.literal("hashtag")),
     label: v.string(),
     authors: v.array(v.string()), // pseudos qui la citent (50 au plus)
     authorCount: v.number(),
