@@ -13,7 +13,9 @@ const admin = createE2eClient(convexUrl);
  * Radar → Swarm : l'export ne part plus qu'avec ce que le Radar suit ENCORE (14/11/2026). Le 13/11, Swarm comptait
  * sous une app les vidéos de ses comptes mis en pause « hors sujet » (55 % des vues affichées, l'accueil tenu par
  * Hush avec la vidéo d'une chanteuse) : un compte en pause, ses vidéos, ses signaux et ses reprises de format ne
- * partent plus. Chaque compte part avec sa preuve, chaque vidéo et chaque signal disent s'ils citent leur app.
+ * partent plus. Chaque vidéo et chaque signal disent s'ils citent leur app. La JUSTIFICATION d'un compte (pseudo,
+ * bio, vidéos, comment il est entré) reste interne (14/11/2026) : elle ne part plus, et un compte que plus rien ne
+ * relie à son app ne part pas.
  *
  * La page lue est celle que sert /swarm/export (même fonction), page par page comme le fait Swarm. Les comptes
  * suivis sont GLOBAUX et la base e2e partagée : le test ne regarde que les siens (marqueur) et les efface.
@@ -34,7 +36,7 @@ async function exportAll(table: Table): Promise<Row[]> {
 }
 
 test.describe("Radar → Swarm — l'export", () => {
-  test("seuls les comptes suivis partent, avec leur preuve ; chaque vidéo et chaque signal disent s'ils citent l'app", async () => {
+  test("seuls les comptes suivis ET reliés à leur app partent, sans leur justification ; chaque vidéo et chaque signal disent s'ils citent l'app", async () => {
     test.setTimeout(120_000);
     const ts = Date.now();
     const p = `e2esw${ts}`;
@@ -81,6 +83,8 @@ test.describe("Radar → Swarm — l'export", () => {
             { videoId: vid(4, 3), ageH: 53, views: 600, caption: "Mon chat" },
           ],
         },
+        // 5 : actif, mais plus rien ne le relie à son app (ni pseudo, ni bio, aucune vidéo qui la cite) : ne part pas.
+        { handle: h(5), appSlug: `${p}a`, fans: 300, posts7d: 1, videos: [{ videoId: vid(5, 1), ageH: 8, views: 1_200, caption: "Ma recette du jour" }] },
       ],
       formats: [
         {
@@ -103,19 +107,21 @@ test.describe("Radar → Swarm — l'export", () => {
     });
     try {
       // ── Les comptes : les actifs seulement, chacun avec ce qui le relie à son app ──
-      const mine = new Set([h(1), h(2), `${p}a_fan${ts}`, h(4)]);
+      const mine = new Set([h(1), h(2), `${p}a_fan${ts}`, h(4), h(5)]);
       const tracked = (await exportAll("tracked")).filter((t) => mine.has(t.handle as string));
       const byHandle = new Map(tracked.map((t) => [t.handle as string, t]));
+      // Le compte en pause et celui que plus rien ne relie à son app ne partent pas.
       expect([...byHandle.keys()].sort()).toEqual([h(1), h(4), `${p}a_fan${ts}`].sort());
-      expect(byHandle.get(h(1))).toMatchObject({ status: "active", matchedBy: "caption", proof: { by: "bio", cites: 1, of: 2 } });
-      expect(byHandle.get(`${p}a_fan${ts}`)).toMatchObject({ proof: { by: "handle" } });
-      expect(byHandle.get(h(4))).toMatchObject({ proof: { by: "videos", cites: 2, of: 3 } });
+      expect(byHandle.get(h(1))).toMatchObject({ status: "active", bio: `J'utilise ${p}a tous les jours` });
+      // Aucune justification ne part, pour aucun compte.
+      for (const t of tracked) for (const k of ["proof", "matchedBy", "proofAt"]) expect(t).not.toHaveProperty(k);
 
       // ── Les vidéos : celles des comptes actifs, chacune dit si elle cite son app ──
       const videos = new Map((await exportAll("trackedVideos")).filter((x) => (x.videoId as string).startsWith(m)).map((x) => [x.videoId as string, x.cites]));
       expect(Object.fromEntries([...videos].sort())).toEqual(
         // La vidéo du compte au pseudo de l'app la cite par le pseudo (règle du Radar).
-        Object.fromEntries([[vid(1, 1), true], [vid(1, 2), false], [vid(3, 1), true], [vid(4, 1), true], [vid(4, 2), true], [vid(4, 3), false]].sort()),
+        // Celle du compte que rien ne relie plus à son app part encore (compte actif), et dit qu'elle ne la cite pas : Swarm ne la compte pas.
+        Object.fromEntries([[vid(1, 1), true], [vid(1, 2), false], [vid(3, 1), true], [vid(4, 1), true], [vid(4, 2), true], [vid(4, 3), false], [vid(5, 1), false]].sort()),
       );
       expect(videos.has(vid(2, 1))).toBe(false);
 

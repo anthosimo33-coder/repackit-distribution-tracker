@@ -3,7 +3,7 @@ import type { QueryCtx } from "./_generated/server";
 import { MARKET_CURRENCY } from "./radarMarketMath";
 import { MEDIAN_WINDOW, videoCitesApp } from "./radarNetworkMath";
 import { storeUrl } from "./radarStoreMath";
-import { proofDetail, type ProofDetail } from "./radarVetMath";
+import { proofDetail } from "./radarVetMath";
 
 /**
  * Les pages de l'export vers Swarm (convex/swarmExport) : ce qui part de chaque table, réduit et filtré. À part des
@@ -15,7 +15,7 @@ export type ExportTable = (typeof TABLES)[number];
 
 /**
  * Taille d'une page : assez petite pour rester loin des limites d'une requête (transcriptions des signaux). Pour
- * `tracked`, ce sont des comptes dont chacun fait lire ses 30 dernières vidéos (sa preuve). Swarm lit au plus 500
+ * `tracked`, ce sont des comptes dont chacun fait lire ses 30 dernières vidéos (ce qui le relie à son app). Swarm lit au plus 500
  * pages par table : 1 000 vidéos par page tiennent 500 000 vidéos.
  */
 const PAGE: Record<ExportTable, number> = { apps: 200, tracked: 200, trackedVideos: 1000, formats: 200, signals: 200 };
@@ -44,17 +44,17 @@ function projectApp(a: Doc<"radarApps">) {
   };
 }
 
-function projectTracked(t: Doc<"radarTracked">, proof: ProofDetail | null) {
+/**
+ * Un compte suivi, tel que Swarm le reçoit. La JUSTIFICATION d'un compte (comment il est entré, ce qui le relie à son
+ * app : `matchedBy`, `proofAt`, preuve par pseudo, bio ou vidéos) reste interne au Radar — décision du 14/11/2026 :
+ * elle ne part plus. Un compte que plus rien ne relie à son app ne part pas du tout (cf `exportPage`).
+ */
+function projectTracked(t: Doc<"radarTracked">) {
   return {
     id: t._id,
     handle: t.handle,
     appId: t.appId,
     status: t.status,
-    // Comment il est entré (« seed » : liste de départ, « manual » : à la main, « caption » : trouvé par une vidéo)
-    // et ce qui le relie à son app aujourd'hui, sur ses 30 dernières vidéos rangées.
-    matchedBy: t.matchedBy,
-    proofAt: t.proofAt ?? null,
-    proof,
     fans: t.fans,
     bio: t.bio ?? null,
     lang: t.lang ?? null,
@@ -177,14 +177,16 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       return { rows: r.page.map(projectApp), cursor: r.continueCursor, done: r.isDone };
     }
     case "tracked": {
-      // Les comptes actifs seulement, chacun avec ce qui le relie à son app (ses 30 dernières vidéos rangées).
+      // Les comptes actifs que quelque chose relie encore à leur app (pseudo, bio, vidéos, liste de départ, ajout à la
+      // main, sur ses 30 dernières vidéos rangées) ; la preuve elle-même ne part pas.
       const r = await ctx.db.query("radarTracked").paginate(opts);
       const rows = [];
       for (const t of r.page) {
         if (t.status !== "active") continue;
         const app = apps.get(t.appId);
         const texts = (await videosOf(ctx, t._id, MEDIAN_WINDOW)).filter((x) => !x.platform).map((x) => `${x.caption ?? ""} ${x.hook ?? ""}`);
-        rows.push(projectTracked(t, app ? proofDetail(t.handle, t.bio, texts, app, t.matchedBy) : null));
+        if (app && proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by === null) continue;
+        rows.push(projectTracked(t));
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };
     }
