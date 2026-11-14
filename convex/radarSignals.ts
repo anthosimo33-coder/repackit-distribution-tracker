@@ -15,7 +15,7 @@
  * par une équipe, et « concurrent » (une app est concurrente d'un projet donné),
  * se lisent par projet. Règles : convex/radarSignalsMath.
  */
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import {
   internalAction,
@@ -30,8 +30,8 @@ import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx 
 import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
-import { DISCOVERY_ROTATION, isRelationFind, signalThemes } from "./radarDiscoveryQueries";
-import { SEED_APPS, appNet, candidatesOf, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { DISCOVERY_ROTATION, isRelationFind, isWebFind, signalThemes } from "./radarDiscoveryQueries";
+import { SEED_APPS, appNet, candidatesOf, hashtagCandidates, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { REJECTED_KEEP_MS } from "./radarVetMath";
 import { isTextOnShot } from "./radarDisplay";
 import { LANG_BY_HAND, OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
@@ -424,8 +424,10 @@ export async function noteCandidates(
   now: number,
   apps: readonly Doc<"radarApps">[],
   fromApp?: Id<"radarApps">,
+  // Une vidéo trouvée par une recherche de produit web (radarDiscoveryQueries.isWebFind) : ses hashtags aussi.
+  withHashtags = false,
 ): Promise<void> {
-  for (const c of candidatesOf(s)) {
+  for (const c of [...candidatesOf(s), ...(withHashtags ? hashtagCandidates(s.caption) : [])]) {
     if (findApp(c.label, "", apps)) continue;
     const got = await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", c.key)).first();
     const example = { handle: s.authorHandle, url: s.url };
@@ -615,7 +617,27 @@ export const dueCurve = internalQuery({
  */
 export const upsertDiscovered = internalMutation({
   args: { videos: v.array(signalInput), foundBy: v.string(), now: v.number() },
-  handler: async (ctx, { videos, foundBy, now }): Promise<{ inserted: number; updated: number; admitted: number; attached: number }> => {
+  handler: (ctx, args): Promise<{ inserted: number; updated: number; admitted: number; attached: number }> => upsertDiscoveredCore(ctx, args),
+});
+
+/** e2e : range des vidéos comme les rangerait une recherche de découverte (`foundBy` : « ce site·fr »…). */
+export const e2eUpsertDiscovered = e2eMutation({
+  args: { videos: v.array(signalInput), foundBy: v.string() },
+  handler: (ctx, { videos, foundBy }) => upsertDiscoveredCore(ctx, { videos, foundBy, now: Date.now() }),
+});
+
+/** e2e : les apps repérées dont la clé contient ce marqueur (genre, auteurs). */
+export const e2eCandidates = e2eMutation({
+  args: { marker: v.string() },
+  handler: async (ctx, { marker }) =>
+    (await ctx.db.query("radarAppCandidates").collect()).filter((c) => c.key.includes(marker)).map((c) => ({ key: c.key, kind: c.kind, authorCount: c.authorCount })),
+});
+
+async function upsertDiscoveredCore(
+  ctx: MutationCtx,
+  { videos, foundBy, now }: { videos: Infer<typeof signalInput>[]; foundBy: string; now: number },
+): Promise<{ inserted: number; updated: number; admitted: number; attached: number }> {
+  {
     const settings = await ensureSettings(ctx);
     const budget = normalizeBudget(settings);
     const apps = await activeApps(ctx);
@@ -633,7 +655,7 @@ export const upsertDiscovered = internalMutation({
         attached++;
         grown.add(app._id);
       }
-      await noteCandidates(ctx, s, now, apps, app?._id);
+      await noteCandidates(ctx, s, now, apps, app?._id, isWebFind(foundBy));
       const existing = await ctx.db
         .query("radarSignals")
         .withIndex("by_video", (q) => q.eq("platform", "tiktok").eq("videoId", s.videoId))
@@ -670,8 +692,8 @@ export const upsertDiscovered = internalMutation({
     // Le résumé du réseau des apps qui ont gagné un compte suit tout de suite (sinon à la tâche de l'heure).
     for (const id of grown) await refreshAppNet(ctx, id, now);
     return { inserted, updated, admitted, attached };
-  },
-});
+  }
+}
 
 /** Range un relevé de courbe ; `video: null` = vidéo disparue (privée, supprimée) → courbe finie. */
 export const applyCurve = internalMutation({

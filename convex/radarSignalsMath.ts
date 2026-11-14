@@ -318,7 +318,7 @@ export const POSTES: readonly PosteDef[] = [
  * courbe et plafond passent au cran au-dessus. Des réglages plus anciens relus
  * prennent pour ces postes, et pour le plafond, les valeurs par défaut.
  */
-export const BUDGET_VERSION = 8;
+export const BUDGET_VERSION = 9;
 // v4 : Instagram, transcriptions et pubs branchés (éteints tant qu'ils ne l'étaient pas).
 // v5 : l'analyse IA branchée (familles de hooks) ; le plafond et les autres postes d'une v4 sont gardés.
 const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
@@ -330,6 +330,9 @@ const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
   { before: 7, postes: ["search"] },
   // v8 : le Radar devient un produit vendu (13/11/2026) — 15 000 comptes suivis au plus, des centaines d'apps.
   { before: 8, postes: ["tiktok", "network"] },
+  // v9 : 150 recherches/jour (14/11/2026, accord du fondateur) : les produits web (« ce site », pubs déclarées,
+  // allemand, polonais, néerlandais, italien) passent chaque jour, comme le thème « argent ».
+  { before: 9, postes: ["search"] },
 ];
 /** Le plafond se garde à partir de cette version. */
 const CAP_KEPT_FROM = 4;
@@ -358,13 +361,14 @@ export type BudgetSettings = {
 // les autres chaque semaine). Prévu au plus : ~178 $/mois sous un plafond de 300 $.
 // Analyse IA : ~1 $ par mois prévu (Claude Haiku, quelques centaines de hooks), 2 $ au plus.
 // Découverte : 20 recherches/jour du 09/11/2026 (60 avant) — 170 de ses 190 signaux étaient hors niche ;
-// 100 depuis le 12/11/2026 : les 76 recherches du thème « argent » (side hustle) chaque jour, en plus (~4,50 $/mois).
+// 100 depuis le 12/11/2026 : les 76 recherches du thème « argent » (side hustle) chaque jour, en plus (~4,50 $/mois) ;
+// 150 depuis le 14/11/2026 : les ~40 recherches des produits web chaque jour (JobStep, Pimzi : jamais trouvés), +2,82 $/mois.
 // Depuis le 13/11/2026 (le Radar devient un produit vendu) : 9 000 relevés/jour suivent 15 000 comptes au rythme
 // mesuré ce jour-là (0,62 relevé par compte et par jour, 87 $/mois pour 2 162 comptes), et la recherche des
 // réseaux passe à 40 000 crédits/mois (des centaines d'apps, chacune cherchée à fond). Prévu au plus :
 // ~630 $/mois sous un plafond de 650 $ — environ 10 000 comptes au prix du pack de 25 000 crédits, le double
 // avec celui de 500 000.
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 100, curve: 100, tiktok: 9_000, network: 40_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 150, curve: 100, tiktok: 9_000, network: 40_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
   capUsd: 650,
