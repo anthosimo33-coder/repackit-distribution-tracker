@@ -1099,6 +1099,8 @@ export async function getRadarBudgetCore(ctx: ProjectQueryCtx) {
       lastError: settings?.lastError ?? null,
       creditsRemaining: settings?.creditsRemaining ?? null,
       creditsSeenAt: settings?.creditsSeenAt ?? null,
+      // Sous ce solde, les postes payants s'arrêtent (radarSignalsMath.CREDIT_RESERVE).
+      creditReserve: CREDIT_RESERVE,
     },
     alertHere: settings?.alertProjectId === ctx.projectId,
   };
