@@ -16,8 +16,8 @@ import { TABLES, exportPage, type ExportTable } from "./swarmExportPage";
  * viennent pas d'un compte en pause, les membres actifs des formats. Jusque-là tout partait, et Swarm comptait sous
  * une app les vidéos de ses comptes mis en pause « hors sujet » : 55 % des vues affichées le 13/11, l'accueil tenu
  * par Hush (117,9 M de vues, dont 278 de comptes actifs), une recette italienne en tête de Piatto. Un compte que
- * plus rien ne relie à son app ne part pas ; la justification des autres (pseudo, bio, vidéos) reste interne au
- * Radar (14/11/2026). Chaque vidéo et chaque signal disent s'ils citent leur app (`cites`, la règle du Radar :
+ * plus rien ne relie à son app part « en pause » (pas un créateur pour Swarm) ; aucune justification ne part
+ * (pseudo, bio, vidéos : interne au Radar, 14/11/2026). Chaque vidéo et chaque signal disent s'ils citent leur app (`cites`, la règle du Radar :
  * légende, texte à l'écran, transcription, pseudo), pour que Swarm ne compte que celles-là.
  */
 

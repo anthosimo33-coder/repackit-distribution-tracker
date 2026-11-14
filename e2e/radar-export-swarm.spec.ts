@@ -110,8 +110,11 @@ test.describe("Radar → Swarm — l'export", () => {
       const mine = new Set([h(1), h(2), `${p}a_fan${ts}`, h(4), h(5)]);
       const tracked = (await exportAll("tracked")).filter((t) => mine.has(t.handle as string));
       const byHandle = new Map(tracked.map((t) => [t.handle as string, t]));
-      // Le compte en pause et celui que plus rien ne relie à son app ne partent pas.
-      expect([...byHandle.keys()].sort()).toEqual([h(1), h(4), `${p}a_fan${ts}`].sort());
+      // Le compte en pause ne part pas ; celui que plus rien ne relie à son app part « en pause » (pas un créateur pour
+      // Swarm), pour que ses vidéos gardent leur pseudo.
+      expect([...byHandle.keys()].sort()).toEqual([h(1), h(4), h(5), `${p}a_fan${ts}`].sort());
+      expect(byHandle.get(h(5))).toMatchObject({ handle: h(5), status: "paused" });
+      expect(tracked.filter((t) => t.status === "active").map((t) => t.handle as string).sort()).toEqual([h(1), h(4), `${p}a_fan${ts}`].sort());
       expect(byHandle.get(h(1))).toMatchObject({ status: "active", bio: `J'utilise ${p}a tous les jours` });
       // Aucune justification ne part, pour aucun compte.
       for (const t of tracked) for (const k of ["proof", "matchedBy", "proofAt"]) expect(t).not.toHaveProperty(k);
