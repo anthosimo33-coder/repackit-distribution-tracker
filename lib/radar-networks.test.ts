@@ -43,6 +43,7 @@ import {
   shouldPromote,
   videoCitesApp,
 } from "../convex/radarNetworkMath";
+import { accountProof } from "../convex/radarVetMath";
 import { NETWORK_SEARCH_STALE_MS, networkSearchOutcome, networkSearchPhase } from "../convex/radarNetworkSearch";
 import { OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "../convex/radarSeedAccounts";
 import { cleanText, mentionLabel, parseScVideo } from "../convex/radarSignalsMath";
@@ -157,12 +158,29 @@ describe("WRizz et Wing AI, concurrentes de BLUSH (10/11/2026)", () => {
     expect(citesApp("Texting fine baddie on Instagram #rizz #rizzler #wrizzapp #textingstory", "wrizzz.app", rizzApp)).toBe(false);
     expect(citesApp("Shorting the best rizz that I have to my girlfriend using wrizz app.", "x", rizzApp)).toBe(false);
     // Les siennes tiennent, y compris à côté d'une citation de WRizz.
-    expect(citesApp("it's a cold world we live in 😤 @Plug AI #plugairizz #textstories #rizzapp", "x", rizzApp)).toBe(true);
     expect(citesApp("get it on rizz.app", "x", rizzApp)).toBe(true);
-    expect(citesApp("How to rizz on text 💕 #wrizz #rizzapp #explore", "x", rizzApp)).toBe(true);
+    expect(citesApp("How to rizz on text 💕 #wrizz using Rizz App #explore", "x", rizzApp)).toBe(true);
+    // Depuis le 14/11/2026, le dièse #rizzapp seul ne cite plus Rizz App (dièse de catégorie, cf le test suivant).
+    expect(citesApp("it's a cold world we live in 😤 @Plug AI #plugairizz #textstories #rizzapp", "x", rizzApp)).toBe(false);
+    expect(citesApp("How to rizz on text 💕 #wrizz #rizzapp #explore", "x", rizzApp)).toBe(false);
     // Rangée sous la bonne app, dans l'ordre de la liste comme dans celui de la prod (Rizz App créée avant).
     expect(findApp("#wrizz #wrizzapp", "wrizz.app", SEED_APPS)?.name).toBe("WRizz");
     expect(findApp("#wrizz #wrizzapp", "wrizz.app", [rizzApp, wrizz])?.name).toBe("WRizz");
+  });
+
+  it("#rizzapp seul ne prouve plus Rizz App : les fermes d'histoires de textos ne sont plus rangées sous elle (14/11/2026)", () => {
+    // Le gabarit des fermes relevé en prod le 13/11/2026 (33 comptes à pseudo aléatoire), et une app voisine.
+    expect(citesApp("nvisible#redditstories #DIY #maker#rizzapp", "q5ercef7g5", rizzApp)).toBe(false);
+    expect(citesApp("she left me on read 💀 #textvibe #rizzapp #textingstory", "textvibe.daily", rizzApp)).toBe(false);
+    // Le nom de l'app, son arobase, son site et un pseudo qui la porte restent des preuves.
+    expect(citesApp("I use Rizz App for every reply", "x", rizzApp)).toBe(true);
+    expect(citesApp("thanks @rizzapp for this one #rizzapp", "x", rizzApp)).toBe(true);
+    expect(citesApp("download rizz.app", "x", rizzApp)).toBe(true);
+    expect(citesApp("#rizzapp #textstory", "rizzapp.official", rizzApp)).toBe(true);
+    // Une ferme qui n'écrit que le dièse n'est plus prouvée par ses vidéos ; jugée sur 9 vidéos, elle est hors sujet.
+    const ferme = Array.from({ length: 9 }, (_, i) => ({ caption: `nvisible#redditstories #DIY #maker#rizzapp ${i}` }));
+    expect(accountProof("q5ercef7g5", null, ferme.map((v) => v.caption), rizzApp)).toBeNull();
+    expect(accountVerdict("caption", ferme, "q5ercef7g5", rizzApp, []).kind).toBe("offTopic");
   });
 
   it("les comptes suivent : 3 de Plug AI vers Wing AI, 3 de Rizz App vers WRizz, 5 « W rizz » hors sujet", () => {
@@ -1104,6 +1122,14 @@ describe("le résumé du réseau d'une app, rangé sur l'app (13/11/2026)", () =
     expect(sameAppNet({ ...net, best: { ...net.best!, views: 90_001 } }, net)).toBe(false);
     expect(sameAppNet({ accounts: 3, active: 2, posts7d: 5 }, net)).toBe(false);
     expect(sameAppNet(appNet([comptes[2]]), appNet([comptes[2]]))).toBe(true);
+  });
+
+  it("compte à part les comptes en pause « hors sujet » : ils ne prennent pas de place sous le plafond (14/11/2026)", () => {
+    const avec = [...comptes, { handle: "dina", status: "paused" as const, pausedReason: "offTopic" as const }, { handle: "eli", status: "paused" as const, pausedReason: "vetting" as const }];
+    // bob est en pause sans motif (relevés en échec) : il garde sa place, comme eli qui attend le filtre.
+    expect(appNet(avec)).toMatchObject({ accounts: 5, active: 2, offTopic: 1 });
+    expect(appNet(comptes).offTopic).toBeUndefined();
+    expect(sameAppNet(appNet(comptes), appNet(avec.filter((t) => t.handle !== "eli")))).toBe(false);
   });
 });
 

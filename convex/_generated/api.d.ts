@@ -321,6 +321,7 @@ import type * as soloDays from "../soloDays.js";
 import type * as storage from "../storage.js";
 import type * as storageCleanup from "../storageCleanup.js";
 import type * as swarmExport from "../swarmExport.js";
+import type * as swarmExportPage from "../swarmExportPage.js";
 import type * as syncScope from "../syncScope.js";
 import type * as talentBriefFields from "../talentBriefFields.js";
 import type * as talentPay from "../talentPay.js";
@@ -677,6 +678,7 @@ declare const fullApi: ApiFromModules<{
   storage: typeof storage;
   storageCleanup: typeof storageCleanup;
   swarmExport: typeof swarmExport;
+  swarmExportPage: typeof swarmExportPage;
   syncScope: typeof syncScope;
   talentBriefFields: typeof talentBriefFields;
   talentPay: typeof talentPay;

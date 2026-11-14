@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DORMANT_AFTER_MS, DORMANT_EVERY_MS, nextReadAt } from "../convex/radarNetworkMath";
-import { accountProof, REJECTED_KEEP_MS, VET_MAX_WAIT_MS, VET_MIN_SHARE, VET_MIN_VIDEOS, vetOutcome, waitedTooLong } from "../convex/radarVetMath";
+import { accountProof, proofDetail, REJECTED_KEEP_MS, VET_MAX_WAIT_MS, VET_MIN_SHARE, VET_MIN_VIDEOS, vetOutcome, waitedTooLong } from "../convex/radarVetMath";
 
 /**
  * Radar — le filtre d'entrée d'un compte (13/11/2026). Un compte trouvé par une recherche n'entre que s'il POUSSE
@@ -54,6 +54,20 @@ describe("Radar — filtre d'entrée : ce qui prouve qu'un compte pousse une app
     // « declic ». Le compte de médecine, lui, entrerait par son pseudo : d'où le hashtag prouvé, « hyperapp ».
     expect(accountProof("lavilla_tfx", "", villa, app("declic"))).toBeNull();
     expect(accountProof("_hyperr", "", medecine, app("hyper"))).toBe("handle");
+  });
+
+  it("ce que l'export vers Swarm dit de la preuve d'un compte : son genre, et combien de vidéos citent l'app (14/11/2026)", () => {
+    const dix = (cites: number) => Array.from({ length: 10 }, (_, i) => (i < cites ? `Mon astuce du jour #snitchy ${i}` : `Ma routine du matin ${i}`));
+    expect(proofDetail("sia.loves.to.read", "", dix(7), SNITCHY, "caption")).toEqual({ by: "videos", cites: 7, of: 10 });
+    expect(proofDetail("snitchy_app", null, dix(0), SNITCHY, "caption")).toEqual({ by: "handle", cites: 0, of: 10 });
+    expect(proofDetail("lulu", "j'utilise Snitchy chaque jour", dix(1), SNITCHY, "caption")).toEqual({ by: "bio", cites: 1, of: 10 });
+    // Entré par une légende, plus rien ne le prouve : null (il sera jugé « hors sujet » à son relevé).
+    expect(proofDetail("scenezyy3", "", dix(1), SNITCHY, "caption")).toEqual({ by: null, cites: 1, of: 10 });
+    // Choisi à la main ou de la liste de départ, sans preuve dans ses vidéos rangées : on le dit.
+    expect(proofDetail("ambassadrice", "", dix(0), SNITCHY, "seed")).toEqual({ by: "seed", cites: 0, of: 10 });
+    expect(proofDetail("ambassadrice", "", [], SNITCHY, "manual")).toEqual({ by: "manual", cites: 0, of: 0 });
+    // Une preuve l'emporte sur l'origine.
+    expect(proofDetail("ambassadrice", "", dix(3), SNITCHY, "seed").by).toBe("videos");
   });
 
   it("un mot courant de l'app ne compte qu'avec son contexte, comme partout ailleurs", () => {

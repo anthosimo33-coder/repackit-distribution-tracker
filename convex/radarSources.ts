@@ -113,7 +113,7 @@ export const runAdsSearch = internalAction({
     const now = Date.now();
     if (!scKeyPresent()) return { skipped: "no-key" };
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    const left = allowance(st.budget, budgetState(st.budget, st.usage), "ads", todayCredits(st, "ads"), ADS_RUNS_PER_DAY);
+    const left = allowance(st.budget, budgetState(st.budget, st.usage, st.balance), "ads", todayCredits(st, "ads"), ADS_RUNS_PER_DAY);
     const due: DueAdApp[] = await ctx.runQuery(internal.radarSources.dueAdApps, { now });
     let credits = 0;
     let calls = 0;
@@ -355,7 +355,7 @@ export const runInstaReads = internalAction({
     const now = Date.now();
     if (!scKeyPresent()) return { skipped: "no-key" };
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    const left = allowance(st.budget, budgetState(st.budget, st.usage), "insta", todayCredits(st, "insta"), INSTA_RUNS_PER_DAY);
+    const left = allowance(st.budget, budgetState(st.budget, st.usage, st.balance), "insta", todayCredits(st, "insta"), INSTA_RUNS_PER_DAY);
     const due: DueIg[] = await ctx.runQuery(internal.radarSources.dueIgAccounts, { now, limit: left });
     let credits = 0;
     let calls = 0;
@@ -450,7 +450,7 @@ export const runTranscripts = internalAction({
     const now = Date.now();
     if (!scKeyPresent()) return { skipped: "no-key" };
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    const n = allowance(st.budget, budgetState(st.budget, st.usage), "transcript", todayCredits(st, "transcript"), TRANSCRIPT_RUNS_PER_DAY);
+    const n = allowance(st.budget, budgetState(st.budget, st.usage, st.balance), "transcript", todayCredits(st, "transcript"), TRANSCRIPT_RUNS_PER_DAY);
     const due: DueTranscript[] = await ctx.runQuery(internal.radarSources.dueTranscripts, { now, limit: n });
     let credits = 0;
     let errors = 0;

@@ -43,6 +43,25 @@ export function accountProof(handle: string, bio: string | null | undefined, tex
   return cites >= VET_MIN_VIDEOS || (cites >= 1 && cites >= texts.length * VET_MIN_SHARE) ? "videos" : null;
 }
 
+/**
+ * Ce qui relie un compte à son app, tel qu'on peut le montrer : la preuve (`by`), et combien de ses dernières vidéos
+ * citent l'app (`cites` sur `of`). `by` vaut « seed » ou « manual » pour un compte choisi à la main que ses vidéos
+ * rangées ne prouvent pas, `null` pour un compte entré par une légende qu'elles ne prouvent plus.
+ */
+export type ProofDetail = { by: Proof | "seed" | "manual" | null; cites: number; of: number };
+
+export function proofDetail(
+  handle: string,
+  bio: string | null | undefined,
+  texts: readonly string[],
+  rule: AppRule,
+  matchedBy: "caption" | "manual" | "seed",
+): ProofDetail {
+  const cites = texts.filter((t) => citesNormalized(normalize(t), rule)).length;
+  const proof = accountProof(handle, bio, texts, rule);
+  return { by: proof ?? (matchedBy === "caption" ? null : matchedBy), cites, of: texts.length };
+}
+
 // ─── Un passage du filtre ────────────────────────────────────────────────────
 
 /** Comptes vérifiés au plus par passage (un passage toutes les 5 minutes, une page par compte). */

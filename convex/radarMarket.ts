@@ -273,7 +273,7 @@ export const runMarketJudge = internalAction({
     if (!process.env.ANTHROPIC_API_KEY) return { skipped: "no-key" };
     const now = Date.now();
     const st = await ctx.runQuery(internal.radarSignals.jobState, { now });
-    if (allowanceUsd(st.budget, budgetState(st.budget, st.usage), "ai") < MIN_ALLOWANCE_USD) return { skipped: "budget" };
+    if (allowanceUsd(st.budget, budgetState(st.budget, st.usage, st.balance), "ai") < MIN_ALLOWANCE_USD) return { skipped: "budget" };
     const batch: MarketToJudge[] = await ctx.runQuery(internal.radarMarket.campaignsToJudge, { limit: MARKET_JUDGE_BATCH });
     if (batch.length === 0) return { skipped: "rien" };
 

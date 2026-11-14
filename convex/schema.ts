@@ -4281,6 +4281,11 @@ export default defineSchema({
     curveAdmitted: v.number(), // vidéos admises dans la courbe ce jour-là
     creditsRemaining: v.optional(v.number()), // solde ScrapeCreators au dernier appel
     creditsSeenAt: v.optional(v.number()),
+    lowCreditsAlertDay: v.optional(v.string()), // jour (Paris) de la dernière alerte « moins de 3 jours de crédits »
+    reserveAlertDay: v.optional(v.string()), // jour (Paris) de la dernière alerte « réserve atteinte »
+    accountsLeaseUntil: v.optional(v.number()), // un passage de relevé de comptes tourne jusqu'à cette heure (verrou)
+    accountsRerun: v.optional(v.boolean()), // un passage a été demandé pendant qu'un autre tournait : relancé à sa fin
+    rejudgeCursor: v.optional(v.string()), // où reprend le rejugement des comptes en pause (convex/radarNetworks)
     lastDiscoveryAt: v.optional(v.number()),
     lastCurveAt: v.optional(v.number()),
     lastAccountsAt: v.optional(v.number()),
@@ -4322,6 +4327,8 @@ export default defineSchema({
       v.object({
         accounts: v.number(),
         active: v.number(),
+        // Comptes en pause « hors sujet » : ils ne comptent pas dans le plafond de comptes de l'app.
+        offTopic: v.optional(v.number()),
         posts7d: v.number(),
         best: v.optional(v.object({ handle: v.string(), url: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number() })),
         countries: v.optional(v.array(v.object({ code: v.string(), accounts: v.number() }))),

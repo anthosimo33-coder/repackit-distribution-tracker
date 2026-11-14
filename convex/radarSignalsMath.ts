@@ -432,14 +432,46 @@ export type BudgetState = {
   capReached: boolean;
   /** 80 % du plafond dépassés. */
   over80: boolean;
+  /**
+   * Crédits que le Radar peut encore dépenser sur le SOLDE réel du compte ScrapeCreators (solde − réserve), ou
+   * `null` quand le solde n'a jamais été lu. Le plafond en dollars ne dit rien du solde : le 13/11/2026, il valait
+   * 650 $ (≈ 345 000 crédits) pour 7 784 crédits en compte, et seul le refus de l'API (HTTP 402) arrêtait tout.
+   */
+  balanceLeft: number | null;
+  /** Le solde est passé sous la réserve : les postes payants s'arrêtent (une sonde le relit, cf `needsBalanceProbe`). */
+  reserveReached: boolean;
+  /** Le dernier solde lu date de plus de `BALANCE_PROBE_MS` : une sonde peut le relire. */
+  balanceStale: boolean;
 };
+
+/**
+ * Crédits laissés en compte, que le Radar ne dépense jamais. Les relevés de vues de la paie des créatrices peuvent
+ * passer par la même clé (convex/scrapeCreatorsViews.releveScKey, quand la clé dédiée n'est pas posée) : un Radar
+ * qui vide le compte arrêterait aussi ces relevés. 1 500 crédits ≈ une journée de Radar, plusieurs jours de paie.
+ */
+export const CREDIT_RESERVE = 1_500;
+/**
+ * Sous la réserve, aucun appel payant ne part, donc le solde n'est plus relu (il n'arrive qu'avec les réponses de
+ * l'API) : sans sonde, un pack acheté ne relancerait jamais le Radar. La tâche des relevés (chaque heure) fait donc UN
+ * appel d'un crédit quand le dernier solde lu a plus de 50 minutes — quels que soient les réglages des postes, et même
+ * sans compte à relever en payant. 50 et pas 60 : la tâche passe toutes les heures, une sonde à « une heure pile »
+ * en sauterait une sur deux.
+ */
+export const BALANCE_PROBE_MS = 50 * 60_000;
+
+/** Faut-il relire le solde par un appel d'un crédit (solde sous la réserve, lu il y a plus de 50 minutes) ? */
+export const needsBalanceProbe = (state: Pick<BudgetState, "reserveReached" | "balanceStale">): boolean => state.reserveReached && state.balanceStale;
+
+/** Le solde lu (radarSettings) : `remaining` crédits à la date `seenAt`, relu par la tâche à `now`. */
+export type Balance = { remaining: number; seenAt: number; now: number };
 
 /**
  * L'état du budget du mois. Chaque poste a son enveloppe ; au plafond, tout
  * s'arrête. Entre 80 % et 100 %, si la projection du mois dépasse le plafond, on
- * coupe dans l'ORDRE DE COUPURE jusqu'à ce qu'elle repasse dessous.
+ * coupe dans l'ORDRE DE COUPURE jusqu'à ce qu'elle repasse dessous. `balance` : le
+ * solde réel du compte, qui borne tout (sous la réserve, rien ne part).
  */
-export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[]): BudgetState {
+export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[], balance?: Balance | null): BudgetState {
   const byPoste = {} as BudgetState["byPoste"];
   for (const k of POSTE_KEYS) byPoste[k] = { credits: 0, usd: 0, envelopeUsd: envelopeUsd(s, k) };
   let spentCredits = 0;
@@ -471,13 +503,61 @@ export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[]):
       projectedUsd -= remainingOf(k);
     }
   }
-  return { spentCredits, spentUsd, byPoste, projectedUsd, cut, capReached, over80 };
+  const balanceLeft = balance ? Math.max(0, Math.floor(balance.remaining - CREDIT_RESERVE)) : null;
+  return {
+    spentCredits,
+    spentUsd,
+    byPoste,
+    projectedUsd,
+    cut,
+    capReached,
+    over80,
+    balanceLeft,
+    reserveReached: balanceLeft === 0,
+    balanceStale: !!balance && balance.now - balance.seenAt >= BALANCE_PROBE_MS,
+  };
+}
+
+/**
+ * Jours de crédits qu'il reste au rythme des derniers jours : `remaining` ÷ la dépense moyenne des jours COMPLETS les
+ * plus récents (3 au plus, aujourd'hui exclu : il n'est pas fini). `null` sans aucun jour complet.
+ */
+export function daysOfCredits(remaining: number, usage: readonly UsageRow[], today: string, days = 3): number | null {
+  const byDay = new Map<string, number>();
+  for (const u of usage) if (u.day && u.day < today) byDay.set(u.day, (byDay.get(u.day) ?? 0) + u.credits);
+  const recent = [...byDay].sort((a, b) => b[0].localeCompare(a[0])).slice(0, days);
+  if (recent.length === 0) return null;
+  const perDay = recent.reduce((sum, [, c]) => sum + c, 0) / recent.length;
+  return perDay > 0 ? remaining / perDay : null;
+}
+
+/** Sous ce nombre de jours de crédits, Telegram prévient (une fois par jour). */
+export const LOW_CREDIT_DAYS = 3;
+
+/**
+ * Quelle alerte de solde envoyer maintenant, au plus une par jour et par genre : « reserve » quand le Radar a
+ * arrêté ses postes payants, « low » quand il reste moins de 3 jours AVANT cet arrêt (le solde au-dessus de la
+ * réserve, au rythme des derniers jours). `alerted` : les jours (Paris) où chaque genre est déjà parti.
+ */
+export function creditAlert(
+  state: Pick<BudgetState, "balanceLeft" | "reserveReached">,
+  usage: readonly UsageRow[],
+  today: string,
+  alerted: { low?: string; reserve?: string },
+): { kind: "reserve" | "low"; days: number | null } | null {
+  if (state.balanceLeft === null) return null;
+  if (state.reserveReached) return alerted.reserve === today ? null : { kind: "reserve", days: null };
+  const days = daysOfCredits(state.balanceLeft, usage, today);
+  if (days !== null && days < LOW_CREDIT_DAYS && alerted.low !== today) return { kind: "low", days };
+  return null;
 }
 
 /**
  * Crédits qu'un poste a le droit de dépenser MAINTENANT : la part d'un passage
- * (jour ÷ passages), bornée par le reste du jour et le reste de l'enveloppe du
- * mois ; 0 si le poste est éteint, non branché, coupé, ou le plafond atteint.
+ * (jour ÷ passages), bornée par le reste du jour, le reste de l'enveloppe du
+ * mois, le plafond et le SOLDE réel moins la réserve ; 0 si le poste est éteint,
+ * non branché, coupé, ou le plafond atteint (sous la réserve, seule la sonde de
+ * la tâche des relevés part, cf `needsBalanceProbe`).
  */
 export function allowance(
   s: BudgetSettings,
@@ -493,7 +573,8 @@ export function allowance(
   const leftToday = Math.max(0, Math.floor(perDay - todayCredits));
   const leftMonth = Math.max(0, Math.floor(def.monthlyCredits(p.qty) - state.byPoste[k].credits));
   const leftCap = Math.max(0, Math.floor((s.capUsd - state.spentUsd) / SC_PRICE_PER_CREDIT));
-  return Math.min(Math.ceil(perDay / Math.max(1, runsPerDay)), leftToday, leftMonth, leftCap);
+  const leftBalance = state.balanceLeft ?? Infinity;
+  return Math.min(Math.ceil(perDay / Math.max(1, runsPerDay)), leftToday, leftMonth, leftCap, leftBalance);
 }
 
 /**

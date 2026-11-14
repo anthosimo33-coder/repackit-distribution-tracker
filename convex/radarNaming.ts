@@ -69,7 +69,7 @@ export const runNaming = internalAction({
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const spent = st.usage.filter((u) => u.poste === "search" && u.day === dayKeyParis(now)).reduce((sum, u) => sum + u.credits, 0);
     // Ce qui reste du jour sur le poste « recherche », au plus une page par tournure.
-    const n = Math.min(NAMING_PER_RUN, allowance(st.budget, budgetState(st.budget, st.usage), "search", spent, 1));
+    const n = Math.min(NAMING_PER_RUN, allowance(st.budget, budgetState(st.budget, st.usage, st.balance), "search", spent, 1));
     let credits = 0;
     let calls = 0;
     let errors = 0;
