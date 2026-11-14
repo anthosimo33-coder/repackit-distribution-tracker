@@ -224,7 +224,8 @@
     "reglages": "Settings",
     "collecteActive": "Collection on · {depense} spent of {plafond} this month",
     "collectePlafond": "Collection stopped: {plafond} cap reached this month",
-    "collecteSansCle": "Collection paused: no ScrapeCreators key"
+    "collecteSansCle": "Collection paused: no ScrapeCreators key",
+    "collecteReserve": "Paid collection paused: balance below the {reserve}-credit reserve"
   },
   "RadarSignals": {
     "rechercher": "Search",
@@ -360,7 +361,7 @@
     "cleAbsente": "Collection paused: the ScrapeCreators key is not set on this deployment (SCRAPECREATORS_API_KEY).",
     "etatCollecte": "Last discovery: {decouverte}. Curve: {courbe}. Accounts: {comptes}. Networks: {reseaux}.",
     "creditsRestants": "Credits left at ScrapeCreators: {n}.",
-    "joursDeCollecte": "About {n} days at the planned pace.",
+    "joursDeCollecte": "About {n} days at the planned pace before the {reserve}-credit reserve.",
     "derniereErreur": "Last error: {erreur}",
     "plafondMensuel": "Monthly cap",
     "depenseCeMois": "spent this month, out of a {plafond} cap",
@@ -442,7 +443,8 @@
     "depenseParJour": "Spend per day",
     "aucuneDepense": "Nothing spent this month.",
     "creditsCourt": "{n} cr.",
-    "relevesDeComptes": "Account readings"
+    "relevesDeComptes": "Account readings",
+    "reserveAtteinte": "The balance is below the {reserve}-credit reserve: paid reads, network searches and discovery are paused; free reads go on. Everything restarts on its own within an hour of buying a pack."
   },
   "RadarNetworks": {
     "comptesSuivis": "{actifs} accounts read out of {max} possible · {total} in total",

@@ -77,7 +77,8 @@ function BudgetEditor({ data }: { data: BudgetData }) {
     });
   const totalCredits = POSTE_KEYS.reduce((sum, p) => sum + envelopeCredits(draft, p), 0);
   const perDay = totalCredits / DAYS_PER_MONTH;
-  const daysLeft = data.jobs.creditsRemaining !== null && perDay > 0 ? Math.floor(data.jobs.creditsRemaining / perDay) : null;
+  // Jusqu'à l'arrêt à la réserve (le solde au-dessus d'elle), pas jusqu'à zéro.
+  const daysLeft = data.state.balanceLeft !== null && perDay > 0 ? Math.floor(data.state.balanceLeft / perDay) : null;
 
   async function onSave() {
     setSaving(true);
@@ -111,7 +112,9 @@ function BudgetEditor({ data }: { data: BudgetData }) {
               <>
                 {" "}
                 {tr("creditsRestants", { n: int(data.jobs.creditsRemaining) })}
-                {daysLeft !== null && ` ${tr("joursDeCollecte", { n: daysLeft })}`}
+                {data.state.reserveReached
+                  ? ` ${tr("reserveAtteinte", { reserve: int(data.jobs.creditReserve) })}`
+                  : daysLeft !== null && ` ${tr("joursDeCollecte", { n: daysLeft, reserve: int(data.jobs.creditReserve) })}`}
               </>
             )}
             {data.jobs.lastError && <span className="mt-1 block text-red-700">{tr("derniereErreur", { erreur: data.jobs.lastError })}</span>}

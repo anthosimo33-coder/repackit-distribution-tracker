@@ -122,12 +122,14 @@ function RadarPageInner() {
         <div className="flex flex-wrap items-center gap-3">
           {budget && (
             <span className="inline-flex items-center gap-2 text-[13px] text-slate-600" data-testid="radar-etat">
-              <span className={cn("size-2 rounded-full", budget.jobs.keyPresent && !budget.state.capReached ? "bg-emerald-600" : "bg-amber-500")} aria-hidden />
+              <span className={cn("size-2 rounded-full", budget.jobs.keyPresent && !budget.state.capReached && !budget.state.reserveReached ? "bg-emerald-600" : "bg-amber-500")} aria-hidden />
               {!budget.jobs.keyPresent
                 ? tr("collecteSansCle")
                 : budget.state.capReached
                   ? tr("collectePlafond", { plafond: money(budget.budget.capUsd) })
-                  : tr("collecteActive", { depense: money(budget.state.spentUsd), plafond: money(budget.budget.capUsd) })}
+                  : budget.state.reserveReached
+                    ? tr("collecteReserve", { reserve: budget.jobs.creditReserve.toLocaleString(loc) })
+                    : tr("collecteActive", { depense: money(budget.state.spentUsd), plafond: money(budget.budget.capUsd) })}
             </span>
           )}
           <Link

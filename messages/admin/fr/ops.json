@@ -224,7 +224,8 @@
     "reglages": "Réglages",
     "collecteActive": "Collecte active · {depense} dépensés sur {plafond} ce mois",
     "collectePlafond": "Collecte arrêtée : plafond de {plafond} atteint ce mois",
-    "collecteSansCle": "Collecte en pause : pas de clé ScrapeCreators"
+    "collecteSansCle": "Collecte en pause : pas de clé ScrapeCreators",
+    "collecteReserve": "Collecte payante en pause : solde sous la réserve de {reserve} crédits"
   },
   "RadarSignals": {
     "rechercher": "Rechercher",
@@ -360,7 +361,7 @@
     "cleAbsente": "Collecte en pause : la clé ScrapeCreators n'est pas posée sur ce déploiement (SCRAPECREATORS_API_KEY).",
     "etatCollecte": "Dernière découverte : {decouverte}. Courbe : {courbe}. Comptes : {comptes}. Réseaux : {reseaux}.",
     "creditsRestants": "Crédits restants chez ScrapeCreators : {n}.",
-    "joursDeCollecte": "Environ {n} jours au rythme prévu.",
+    "joursDeCollecte": "Environ {n} jours au rythme prévu avant la réserve de {reserve} crédits.",
     "derniereErreur": "Dernière erreur : {erreur}",
     "plafondMensuel": "Plafond mensuel",
     "depenseCeMois": "dépensés ce mois-ci, sur un plafond de {plafond}",
@@ -442,7 +443,8 @@
     "depenseParJour": "Dépense par jour",
     "aucuneDepense": "Rien de dépensé ce mois-ci.",
     "creditsCourt": "{n} cr.",
-    "relevesDeComptes": "Relevés de comptes"
+    "relevesDeComptes": "Relevés de comptes",
+    "reserveAtteinte": "Le solde est sous la réserve de {reserve} crédits : relevés payants, recherches de réseaux et découverte sont en pause, les relevés gratuits continuent. Tout repart seul dans l’heure qui suit l’achat d’un pack."
   },
   "RadarNetworks": {
     "comptesSuivis": "{actifs} comptes relevés sur {max} possibles · {total} au total",
