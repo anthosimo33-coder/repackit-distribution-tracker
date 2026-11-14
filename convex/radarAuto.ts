@@ -35,7 +35,7 @@ type AutoRun = { followed: number; kept: number; attached: number };
 
 /** Les apps repérées à regarder à ce passage : jamais regardées, les plus prouvées d'abord. */
 async function pickCandidates(ctx: QueryCtx, only?: (key: string) => boolean): Promise<Doc<"radarAppCandidates">[]> {
-  const pick = async (kind: "store" | "market") =>
+  const pick = async (kind: "store" | "market" | "ia") =>
     (
       await ctx.db
         .query("radarAppCandidates")
@@ -45,7 +45,7 @@ async function pickCandidates(ctx: QueryCtx, only?: (key: string) => boolean): P
     )
       .filter((c) => c.autoAt === undefined && (!only || only(c.key)))
       .slice(0, AUTO_BATCH);
-  return [...(await pick("store")), ...(await pick("market"))];
+  return [...(await pick("store")), ...(await pick("market")), ...(await pick("ia"))];
 }
 
 /** Celles qui entreraient : à faire juger (leur motif est-il un mot de tous les jours ?). */
@@ -56,7 +56,7 @@ export const autoToJudge = internalQuery({
     for (const c of await pickCandidates(ctx)) {
       const plan = autoPlan(c);
       if ("skip" in plan) continue;
-      const what = c.store ? `${c.store.genre} app by ${c.store.artist}` : c.market ? (c.market.productKind === "app" ? "mobile app" : "web software") : "";
+      const what = c.store ? `${c.store.genre} app by ${c.store.artist}` : c.market ? (c.market.productKind === "app" ? "mobile app" : "web software") : c.kind === "ia" ? "product promoted by TikTok creators" : "";
       out.push({ id: c._id, name: c.label, what, patterns: plan.patterns });
     }
     return out;
