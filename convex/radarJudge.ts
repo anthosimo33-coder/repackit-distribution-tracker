@@ -18,6 +18,9 @@ import { FAMILY_MODEL, haikuCostUsd } from "./radarFamiliesMath";
 import { NICHE_BIOS_MAX, nicheTexts } from "./radarFicheMath";
 import {
   ACCOUNT_BATCH,
+  outOfScope,
+  verdictAction,
+  type VerdictAction,
   ACCOUNT_SCHEMA,
   ACCOUNT_SYSTEM,
   ACCOUNT_VERDICTS,
@@ -39,7 +42,9 @@ import {
   type NatureToJudge,
   type WeakWhy,
 } from "./radarJudgeMath";
-import { MEDIAN_WINDOW } from "./radarNetworkMath";
+import { MEDIAN_WINDOW, findApp } from "./radarNetworkMath";
+import { productKey } from "./radarMarketMath";
+import { moveAccount, refreshAppNet } from "./radarSignals";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { proofDetail, type ProofDetail } from "./radarVetMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
@@ -88,7 +93,13 @@ async function natureWorkCore(ctx: QueryCtx, now: number, limit: number, only?: 
     .sort((a, b) => (a.natureAt ?? 0) - (b.natureAt ?? 0) || a.createdAt - b.createdAt)
     .slice(0, limit);
   const out: NatureToJudge[] = [];
-  for (const app of apps) out.push(await natureEvidence(ctx, app));
+  for (const app of apps) {
+    const e = await natureEvidence(ctx, app);
+    // Rien à lire (aucun texte de créateur, ni fiche, ni phrase) : l'IA rangerait « autre » sans preuve (vu le 14/11 :
+    // Crush Tracker, Snitch). L'app attend d'avoir des comptes qui en parlent.
+    if (e.texts.length === 0 && e.bios.length === 0 && !e.store && !e.market && !e.pitch) continue;
+    out.push(e);
+  }
   return out;
 }
 
@@ -365,3 +376,137 @@ export const e2eJudgeAccounts = e2eMutation({
     return { asked: asked.map((a) => ({ handle: a.handle, weak: a.weak, proof: a.proof, texts: a.texts.length })), prompt: accountPrompt(asked), written, statuses };
   },
 });
+
+// ─── Phase B : les jugements agissent (définitions du fondateur du 14/11/2026) ─
+
+/** Jugements de comptes appliqués par passage, et apps regardées pour le périmètre. */
+const APPLY_BATCH = 60;
+
+/** L'app suivie qui porte ce nom (nom collé identique, sinon ses motifs dans le nom), parmi les apps non fondues. */
+function followedByName(name: string, apps: readonly Doc<"radarApps">[]): Doc<"radarApps"> | null {
+  const key = productKey(name);
+  const live = apps.filter((a) => a.mergedInto === undefined);
+  return (key.length >= 4 ? live.find((a) => productKey(a.name) === key) : undefined) ?? findApp(name, "", live) ?? null;
+}
+
+/** Une piste : l'app que ce compte pousse à la place de la sienne, rangée parmi les apps repérées (kind « ia »). */
+async function noteLead(ctx: MutationCtx, product: string, handle: string, fromApp: Id<"radarApps">, now: number): Promise<void> {
+  const key = `ia:${productKey(product)}`;
+  const got = await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", key)).first();
+  const example = { handle, url: `https://www.tiktok.com/@${handle}` };
+  if (!got) {
+    await ctx.db.insert("radarAppCandidates", {
+      key,
+      kind: "ia",
+      label: product,
+      authors: [handle],
+      authorCount: 1,
+      fromApps: [fromApp],
+      examples: [example],
+      status: "new",
+      firstSeenAt: now,
+      lastSeenAt: now,
+    });
+    return;
+  }
+  if (got.authors.includes(handle)) return;
+  await ctx.db.patch(got._id, {
+    authors: [...got.authors, handle].slice(0, 50),
+    authorCount: got.authorCount + 1,
+    fromApps: got.fromApps.includes(fromApp) ? got.fromApps : [...got.fromApps, fromApp],
+    examples: [...got.examples, example].slice(0, 10),
+    lastSeenAt: now,
+    // Un deuxième compte la désigne : le suivi d'office la regarde de nouveau (radarAutoMath.autoPlan, « ia »).
+    autoAt: undefined,
+    autoNote: undefined,
+  });
+}
+
+/** Applique les jugements de comptes pas encore appliqués. Rend ce qui a été fait, par genre. */
+async function applyVerdictsCore(ctx: MutationCtx, now: number, only?: (handle: string) => boolean): Promise<Record<string, number>> {
+  const done: Record<string, number> = {};
+  const rows = await ctx.db
+    .query("radarAccountJudgments")
+    .withIndex("by_applied", (q) => q.eq("appliedAt", undefined))
+    .take(APPLY_BATCH * 4);
+  const apps = await ctx.db.query("radarApps").collect();
+  const touched = new Set<Id<"radarApps">>();
+  let n = 0;
+  for (const j of rows) {
+    if (only && !only(j.handle)) continue;
+    if (n++ >= APPLY_BATCH) break;
+    const acc = await ctx.db.get(j.accountId);
+    let action: VerdictAction = { kind: "none" };
+    // Jugé sous une autre app que la sienne aujourd'hui (déplacé depuis) : le jugement ne vaut plus.
+    if (acc && acc.appId === j.appId) {
+      action = verdictAction(j, acc, (name) => {
+        const a = followedByName(name, apps);
+        return a ? { id: a._id, active: a.status === "active" } : null;
+      });
+    }
+    if (acc && action.kind === "pause") {
+      await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
+      touched.add(acc.appId);
+    } else if (acc && action.kind === "placement") {
+      await ctx.db.patch(acc._id, { placement: true });
+      touched.add(acc.appId);
+    } else if (acc && action.kind === "move") {
+      const from = apps.find((a) => a._id === acc.appId);
+      const to = apps.find((a) => a._id === action.to);
+      if (from && to && from._id !== to._id) {
+        const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc._id)).order("desc").take(100);
+        await moveAccount(ctx, acc, from, to, recent);
+        // Relevé tout de suite sous sa nouvelle app : jugé sur ses motifs.
+        await ctx.db.patch(acc._id, { nextReadAt: now });
+        touched.add(from._id);
+        touched.add(to._id);
+      }
+    } else if (acc && action.kind === "lead") {
+      await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
+      await noteLead(ctx, action.product, acc.handle, acc.appId, now);
+      touched.add(acc.appId);
+    }
+    await ctx.db.patch(j._id, { appliedAt: now, applied: action.kind });
+    done[action.kind] = (done[action.kind] ?? 0) + 1;
+  }
+  for (const id of touched) await refreshAppNet(ctx, id, now);
+  return done;
+}
+
+/**
+ * Les apps qui ne sont ni une app, ni un SaaS, ni un jeu mobile, sur un verdict net (radarJudgeMath.outOfScope) :
+ * en pause dans le Radar — plus relevées, plus cherchées, plus envoyées à Swarm. Jamais une concurrente d'un projet,
+ * ni une app remise en route à la main (`scopeByHand`).
+ */
+async function applyPerimeterCore(ctx: MutationCtx, now: number, only?: (slug: string) => boolean): Promise<string[]> {
+  const paused: string[] = [];
+  for (const a of await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect()) {
+    if (only && !only(a.slug)) continue;
+    if (a.mergedInto !== undefined || a.rivalOf.length > 0 || a.scopeByHand || !outOfScope(a.nature, !!a.store)) continue;
+    await ctx.db.patch(a._id, { status: "paused", pausedReason: "perimetre" });
+    await refreshAppNet(ctx, a._id, now);
+    paused.push(a.slug);
+  }
+  return paused;
+}
+
+export const applyJudgmentsNow = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ verdicts: Record<string, number>; perimeter: string[] }> => {
+    const now = Date.now();
+    return { perimeter: await applyPerimeterCore(ctx, now), verdicts: await applyVerdictsCore(ctx, now) };
+  },
+});
+
+/** e2e : applique les jugements des comptes et des apps donnés (rien d'autre n'est touché). */
+export const e2eApplyJudgments = e2eMutation({
+  args: { handles: v.array(v.string()), slugs: v.array(v.string()) },
+  handler: async (ctx, { handles, slugs }) => {
+    const now = Date.now();
+    return {
+      perimeter: await applyPerimeterCore(ctx, now, (s) => slugs.includes(s)),
+      verdicts: await applyVerdictsCore(ctx, now, (h) => handles.includes(h)),
+    };
+  },
+});
+

@@ -41,6 +41,9 @@ function projectApp(a: Doc<"radarApps">) {
     store: a.store ? { ...a.store, url: storeUrl(a.store.storeId) } : null,
     market: a.market ? { ...a.market, rateCents: a.market.rateCents ?? null, about: a.market.about ?? null, currency: MARKET_CURRENCY } : null,
     countries: a.net?.countries ?? [],
+    // Ce qu'est le produit d'après l'IA (radarJudge) : app, saas, jeu_mobile… ; `null` tant qu'elle n'est pas jugée.
+    // Les apps hors périmètre (ni app, ni SaaS, ni jeu mobile) sont en pause dans le Radar : Swarm ne les montre pas.
+    kind: a.nature?.kind ?? null,
   };
 }
 
@@ -55,6 +58,9 @@ function projectTracked(t: Doc<"radarTracked">) {
     handle: t.handle,
     appId: t.appId,
     status: t.status,
+    // Placement payé (jugement de l'IA) : pas un créateur de l'app, mais ses vidéos qui la citent comptent dans ses
+    // vues, étiquetées « placement payé » (définition du fondateur, 14/11/2026).
+    placement: t.placement === true,
     fans: t.fans,
     bio: t.bio ?? null,
     lang: t.lang ?? null,
@@ -185,7 +191,8 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
         if (t.status !== "active") continue;
         const app = apps.get(t.appId);
         const texts = (await videosOf(ctx, t._id, MEDIAN_WINDOW)).filter((x) => !x.platform).map((x) => `${x.caption ?? ""} ${x.hook ?? ""}`);
-        if (app && proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by === null) continue;
+        // Un placement payé cite peu son app par nature : il part quand même, marqué, pour que Swarm compte et étiquette sa vidéo.
+        if (app && !t.placement && proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by === null) continue;
         rows.push(projectTracked(t));
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };

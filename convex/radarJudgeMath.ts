@@ -7,10 +7,9 @@
  * Condos, menugo.pt), sujet d'actualité (#examencivique2026), fermes d'histoires (#rizzapp), app non suivie
  * (KakoBuy). Et des « apps » n'en sont pas : une salle d'escalade (Arkose+), un agent d'achat de vêtements (Hipobuy).
  *
- * PHASE A (cette version) : l'IA juge, RIEN N'AGIT. Le jugement de chaque app (`radarApps.nature`) et celui des
- * comptes à preuve faible (`radarAccountJudgments`) sont rangés à part, pour mesurer leur justesse (contre
- * l'échantillon jugé à la main du dig) et laisser le fondateur fixer les deux définitions qui décident ensuite :
- * quels types de produits Swarm montre, et ce qu'on fait d'un compte que l'IA dit sans rapport.
+ * PHASE A (#511) : l'IA juge, rangé à part (`radarApps.nature`, `radarAccountJudgments`).
+ * PHASE B : les jugements agissent, selon les deux définitions du fondateur du 14/11/2026 — ce que le Radar et
+ * Swarm gardent (`outOfScope`), et le sort d'un compte selon son verdict (`verdictAction`).
  */
 import { cleanText } from "./radarSignalsMath";
 import type { ProofDetail } from "./radarVetMath";
@@ -30,13 +29,25 @@ export type About = (typeof ABOUT)[number];
 export type AppNature = { digital: boolean; kind: ProductKind; aboutIt: About; why: string };
 
 /**
- * DÉFINITION du fondateur (14/11/2026) : Swarm montre les apps, les SaaS et les jeux MOBILES — pas l'e-commerce
- * (agents d'achat comme Hipobuy), ni les marques physiques, les médias, les jeux console ou PC. Une app pas encore
- * jugée reste montrée (absent n'est pas exclu). Lu à partir de la phase B ; la phase A ne fait que juger.
+ * DÉFINITION du fondateur (14/11/2026) : le Radar et Swarm ne gardent que les apps, les SaaS et les jeux MOBILES —
+ * pas l'e-commerce (agents d'achat comme Hipobuy), ni les marques physiques, les médias, les jeux console ou PC.
+ *
+ * La qualité d'abord : une app n'est écartée que sur un verdict NET, c'est-à-dire quand l'IA dit que ses créateurs
+ * parlent bien de CE produit (`aboutIt` « oui ») ET qu'il est hors périmètre. Rejoué sur la prod le 14/11 :
+ *  - quand ses créateurs parlent d'autre chose (« non »), l'IA décrit ce dont ils parlent, pas le produit — Umax
+ *    (looksmaxxing) et Airbuds (partage de musique) sortaient « non numériques ». C'est le réseau qui est faux, et il
+ *    se juge compte par compte ;
+ *  - sans texte (« incertain »), ou rangée « autre » mais numérique : elle reste (Crush Tracker, Snitch) ;
+ *  - une app qui a sa fiche App Store est numérique : seule l'e-commerce peut l'écarter (un agent d'achat a son app).
  */
 export const SWARM_KINDS: readonly ProductKind[] = ["app", "saas", "jeu_mobile"];
-export const shownInSwarm = (nature: Pick<AppNature, "digital" | "kind"> | null | undefined): boolean =>
-  !nature || (nature.digital && SWARM_KINDS.includes(nature.kind));
+export const EXCLUDED_KINDS: readonly ProductKind[] = ["jeu", "ecommerce", "marque", "media"];
+export function outOfScope(nature: Pick<AppNature, "digital" | "kind" | "aboutIt"> | null | undefined, hasStore = false): boolean {
+  if (!nature || nature.aboutIt !== "oui") return false;
+  if (hasStore) return nature.kind === "ecommerce";
+  return !nature.digital || EXCLUDED_KINDS.includes(nature.kind);
+}
+export const shownInSwarm = (nature: Pick<AppNature, "digital" | "kind" | "aboutIt"> | null | undefined, hasStore = false): boolean => !outOfScope(nature, hasStore);
 
 export const NATURE_BATCH = 20;
 /** Une app jugée est rejugée au bout de 30 jours (ses comptes ont changé). */
@@ -243,3 +254,46 @@ export function accountAnswer(raw: unknown, batch: readonly { id: string }[]): A
   }
   return out;
 }
+
+// ─── Phase B : ce que fait chaque verdict ────────────────────────────────────
+
+/**
+ * DÉFINITION du fondateur (14/11/2026) :
+ *  - « pousse », « incertain » : rien ne change ;
+ *  - « sans_rapport » : en pause « hors sujet » (réversible) ;
+ *  - « autre_app » : déplacé sous cette app si on la suit ; sinon en pause, et l'app devient une piste — dès que
+ *    2 comptes la désignent, le suivi d'office la suit, y range ces comptes et cherche ses autres créateurs ;
+ *  - « placement » : un créateur généraliste payé une ou deux fois n'est PAS un créateur de l'app (Swarm cherche des
+ *    ambassadeurs), mais sa vidéo compte dans les vues de l'app, étiquetée « placement payé ». Le compte reste
+ *    relevé, marqué `placement`, et n'est plus mis en pause faute de citer assez l'app.
+ * Un compte gardé à la main (`keptByHand`) ou ajouté à la main n'est jamais touché.
+ */
+export type VerdictAction = { kind: "none" } | { kind: "pause" } | { kind: "placement" } | { kind: "move"; to: string } | { kind: "lead"; product: string };
+
+export function verdictAction(
+  j: { verdict: AccountVerdict; other?: string },
+  acc: { status: "active" | "paused"; keptByHand?: boolean; matchedBy: "caption" | "manual" | "seed" },
+  followed: (name: string) => { id: string; active: boolean } | null,
+): VerdictAction {
+  if (acc.status !== "active" || acc.keptByHand || acc.matchedBy === "manual") return { kind: "none" };
+  switch (j.verdict) {
+    case "sans_rapport":
+      return { kind: "pause" };
+    case "placement":
+      return { kind: "placement" };
+    case "autre_app": {
+      const name = (j.other ?? "").trim();
+      if (!name) return { kind: "none" };
+      const app = followed(name);
+      if (app?.active) return { kind: "move", to: app.id };
+      // Suivie mais en pause (hors périmètre, à la main) : le compte ne pousse pas l'app où il est rangé.
+      return app ? { kind: "pause" } : { kind: "lead", product: name };
+    }
+    default:
+      return { kind: "none" };
+  }
+}
+
+/** Comptes qui doivent désigner la même app pour qu'elle soit suivie d'office (une mention isolée ne prouve rien). */
+export const LEAD_MIN_ACCOUNTS = 2;
+

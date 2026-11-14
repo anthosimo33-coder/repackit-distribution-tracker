@@ -657,6 +657,11 @@ export function nextReadAtFor(lastPostAt: number | undefined, now: number, fresh
   return first >= earliest ? first : first + Math.ceil((earliest - first) / DAY) * DAY;
 }
 
+/** Un compte relevé sans aucune vidéo depuis son entrée, plus de 3 jours après : en pause (rien à montrer, lot 4 du dig, A6). */
+export const EMPTY_ACCOUNT_MS = 3 * DAY;
+export const isEmptyAccount = (a: { videosSeen: number; addedAt: number }, rangees: number, lues: number, now: number): boolean =>
+  rangees === 0 && lues === 0 && a.videosSeen === 0 && now - a.addedAt > EMPTY_ACCOUNT_MS;
+
 /** Trois relevés d'affilée en échec (compte supprimé, privé) : le compte passe en pause. */
 export const MAX_READ_ERRORS = 3;
 

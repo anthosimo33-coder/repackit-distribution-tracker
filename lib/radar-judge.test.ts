@@ -4,6 +4,8 @@ import {
   ACCOUNT_TEXTS_MAX,
   NATURE_BATCH,
   NATURE_REFRESH_MS,
+  EXCLUDED_KINDS,
+  LEAD_MIN_ACCOUNTS,
   SWARM_KINDS,
   WEAK_SHARE,
   accountAnswer,
@@ -12,7 +14,9 @@ import {
   natureAnswer,
   natureDue,
   naturePrompt,
+  outOfScope,
   shownInSwarm,
+  verdictAction,
   weakProof,
 } from "../convex/radarJudgeMath";
 
@@ -61,16 +65,31 @@ describe("Radar — jugement : ce qu'est une app", () => {
     expect(natureAnswer(null, batch)).toEqual([]);
   });
 
-  it("ce que Swarm montre (définition du 14/11) : apps, SaaS, jeux mobiles ; pas encore jugée = montrée", () => {
+  it("ce que le Radar et Swarm gardent (définition du 14/11) : apps, SaaS, jeux mobiles ; écarté seulement sur un verdict net", () => {
     expect(SWARM_KINDS).toEqual(["app", "saas", "jeu_mobile"]);
-    expect(shownInSwarm({ digital: true, kind: "app" })).toBe(true);
-    expect(shownInSwarm({ digital: true, kind: "saas" })).toBe(true);
-    expect(shownInSwarm({ digital: true, kind: "jeu_mobile" })).toBe(true);
-    for (const kind of ["jeu", "ecommerce", "marque", "media", "autre"] as const) expect(shownInSwarm({ digital: true, kind })).toBe(false);
-    // Non numérique : jamais, quel que soit le type rendu.
-    expect(shownInSwarm({ digital: false, kind: "app" })).toBe(false);
-    expect(shownInSwarm(undefined)).toBe(true);
-    expect(shownInSwarm(null)).toBe(true);
+    expect(EXCLUDED_KINDS).toEqual(["jeu", "ecommerce", "marque", "media"]);
+    const n = (kind: (typeof EXCLUDED_KINDS)[number] | (typeof SWARM_KINDS)[number] | "autre", digital = true, aboutIt: "oui" | "non" | "incertain" = "oui") => ({ kind, digital, aboutIt });
+    for (const k of SWARM_KINDS) expect(outOfScope(n(k))).toBe(false);
+    for (const k of EXCLUDED_KINDS) expect(outOfScope(n(k))).toBe(true);
+    // Non numérique : écarté, quel que soit le type.
+    expect(outOfScope(n("app", false))).toBe(true);
+    // Pas de verdict net : gardée — pas encore jugée, ses créateurs n'en disent pas assez, ou numérique mais pas rangée.
+    expect(outOfScope(undefined)).toBe(false);
+    expect(outOfScope(null)).toBe(false);
+    expect(outOfScope(n("ecommerce", true, "incertain"))).toBe(false);
+    expect(outOfScope(n("app", false, "incertain"))).toBe(false);
+    expect(outOfScope(n("autre"))).toBe(false);
+    // Ses créateurs parlent d'autre chose (« non ») : l'IA décrit ce dont ils parlent, pas le produit — rejoué sur la
+    // prod le 14/11, Umax et Airbuds sortaient « non numériques ». Gardée ; c'est son réseau qui se juge, compte par compte.
+    expect(outOfScope(n("autre", false, "non"))).toBe(false);
+    expect(outOfScope(n("media", true, "non"))).toBe(false);
+    // Une app qui a sa fiche App Store est numérique : seule l'e-commerce l'écarte.
+    expect(outOfScope(n("ecommerce"), true)).toBe(true);
+    expect(outOfScope(n("app", false), true)).toBe(false);
+    expect(outOfScope(n("media"), true)).toBe(false);
+    expect(outOfScope(n("jeu"), true)).toBe(false);
+    expect(shownInSwarm(n("ecommerce"))).toBe(false);
+    expect(shownInSwarm(n("jeu_mobile"))).toBe(true);
   });
 
   it("jugée une fois, rejugée au bout de 30 jours", () => {
@@ -133,3 +152,32 @@ describe("Radar — jugement : pousse-t-il CE produit ?", () => {
     expect(p).toContain("latest videos (on-screen text — caption): (none)");
   });
 });
+
+describe("Radar — jugement, phase B : ce que fait chaque verdict (définition du 14/11)", () => {
+  const actif = { status: "active" as const, matchedBy: "caption" as const };
+  const suivies: Record<string, { id: string; active: boolean }> = { "the cringe": { id: "cringe", active: true }, arkose: { id: "arkose", active: false } };
+  const followed = (name: string) => suivies[name.toLowerCase()] ?? null;
+
+  it("rien à voir : en pause ; placement : marqué, gardé ; pousse et incertain : rien", () => {
+    expect(verdictAction({ verdict: "sans_rapport" }, actif, followed)).toEqual({ kind: "pause" });
+    expect(verdictAction({ verdict: "placement" }, actif, followed)).toEqual({ kind: "placement" });
+    expect(verdictAction({ verdict: "pousse" }, actif, followed)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "incertain" }, actif, followed)).toEqual({ kind: "none" });
+  });
+
+  it("une autre app : déplacé si on la suit ; en pause si elle est en pause ; sinon une piste, suivie dès 2 comptes", () => {
+    expect(verdictAction({ verdict: "autre_app", other: "The Cringe" }, actif, followed)).toEqual({ kind: "move", to: "cringe" });
+    expect(verdictAction({ verdict: "autre_app", other: "Arkose" }, actif, followed)).toEqual({ kind: "pause" });
+    expect(verdictAction({ verdict: "autre_app", other: "Mokascore" }, actif, followed)).toEqual({ kind: "lead", product: "Mokascore" });
+    // Sans nom, on ne peut rien en faire.
+    expect(verdictAction({ verdict: "autre_app", other: "  " }, actif, followed)).toEqual({ kind: "none" });
+    expect(LEAD_MIN_ACCOUNTS).toBe(2);
+  });
+
+  it("jamais un compte déjà en pause, gardé à la main ou ajouté à la main", () => {
+    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, status: "paused" }, followed)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, keptByHand: true }, followed)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, matchedBy: "manual" }, followed)).toEqual({ kind: "none" });
+  });
+});
+
