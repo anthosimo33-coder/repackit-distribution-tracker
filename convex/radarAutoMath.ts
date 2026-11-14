@@ -10,7 +10,7 @@ export const shortenedPattern = (tag: string): string | null => (tagCore(tag) !=
 export type AutoPlan = { patterns: string[] } | { skip: string };
 
 type Candidate = {
-  kind: "mention" | "domain" | "store" | "market";
+  kind: "mention" | "domain" | "store" | "market" | "hashtag";
   label: string;
   store?: { tag: string; creators: readonly { handle: string; why: CreatorWhy }[] };
   market?: { handle: string };

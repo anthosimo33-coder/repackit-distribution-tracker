@@ -828,7 +828,36 @@ export function domainsIn(text: string): string[] {
 }
 
 export type Mention = { id: string; label: string };
-export type Candidate = { key: string; kind: "mention" | "domain"; label: string };
+export type Candidate = { key: string; kind: "mention" | "domain" | "hashtag"; label: string };
+
+/**
+ * Les hashtags qui ne nomment jamais un produit : la mise en avant (#fyp, #pourtoi), la pub déclarée (#anzeige,
+ * #publicité), les mots du sujet lui-même (#app, #site, #ia), les pays. Une vidéo de produit web en porte aussi de
+ * catégorie (#lebenslauf, #courses) : ceux-là se reconnaissent ensuite à ce qu'ils sont des mots de tous les jours
+ * (garde « nom courant » du suivi d'office, radarAutoMath).
+ */
+const NOT_PRODUCT_TAGS: ReadonlySet<string> = new Set([
+  "fyp", "fy", "fypage", "foryou", "foryoupage", "foryourpage", "pourtoi", "pourtoii", "parati", "paratii", "parativ", "fur", "furdich", "furdichseite",
+  "viral", "viralvideo", "trend", "trending", "tiktok", "tiktokviral", "xyzbca", "capcut", "edit", "explore", "explorepage",
+  "ad", "ads", "anzeige", "werbung", "reklama", "publicite", "publicidad", "publi", "pub", "sponsored", "sponso", "partenariat", "collab", "ugc", "ugccreator",
+  "app", "apps", "application", "appli", "site", "website", "web", "ai", "ia", "ki", "tips", "tip", "astuce", "astuces", "hack", "hacks", "lifehack", "tuto", "tutorial",
+  "life", "funny", "humour", "humor", "love", "couple", "girl", "girls", "fun", "pov", "storytime", "relatable", "fy", "duet", "greenscreen",
+  "france", "deutschland", "germany", "polska", "espana", "mexico", "brasil", "brazil", "italia", "italy", "nederland", "belgique", "belgie", "usa",
+]);
+
+/** Les hashtags d'une légende qui pourraient nommer un produit (4 à 30 lettres ou chiffres, pas un mot de mise en avant). */
+export function productHashtags(caption: string): string[] {
+  const out = new Set<string>();
+  for (const m of caption.matchAll(/#([\p{L}\p{N}_]+)/gu)) {
+    const tag = m[1].normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    if (tag.length < 4 || tag.length > 30 || /^\d+$/.test(tag) || NOT_PRODUCT_TAGS.has(tag)) continue;
+    out.add(tag);
+  }
+  return [...out];
+}
+
+/** Les hashtags d'une vidéo de produit web, comme apps repérées (lot 5 du dig, 14/11/2026 : #jobstep, #pimzi). */
+export const hashtagCandidates = (caption: string): Candidate[] => productHashtags(caption).map((tag) => ({ key: `#${tag}`, kind: "hashtag", label: tag }));
 
 /**
  * Ce qu'un compte cite et qui pourrait être une app : les comptes mentionnés dans
