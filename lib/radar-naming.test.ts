@@ -70,3 +70,18 @@ describe("Radar — petits réseaux : le témoin du jour", () => {
     expect([k.videos, k.authors.length]).toEqual([40, 30]);
   });
 });
+
+describe("Radar — JobStep et Pimzi dans la liste de départ (14/11/2026)", () => {
+  it("leurs vraies légendes les citent par le hashtag ; « job step(s) » n'est pas JobStep", () => {
+    const of = (caption: string, handle = "x") => findApp(caption, handle, SEED_APPS)?.name;
+    expect(of("diese seite ist so crazy 🫡😱 #jobstep #ki #lebenslauf #bewerbungen #viral")).toBe("JobStep");
+    expect(of("Für alle die keine Jobs bekommen 🙃 #cv #lebenslauf #jobstep")).toBe("JobStep");
+    expect(of("Je l'ai crée gratuitement avec Jobstep.io ! #jobstepio")).toBe("JobStep");
+    expect(of("5€ pour 4 burgers pour 4 personnes ? 🤔 #pimzi #courses #pascher #economies #magasin")).toBe("Pimzi");
+    expect(of("utiliser ce site avant de faire vos courses la prochaine fois 😉 #hackcourses #pimzi #lidl")).toBe("Pimzi");
+    expect(of("my next job step is to quit")).toBeUndefined();
+    expect(of("Job Steps for beginners #career")).toBeUndefined();
+    expect(of("jobsteps.com")).toBeUndefined();
+  });
+});
+
