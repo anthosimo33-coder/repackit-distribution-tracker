@@ -4351,7 +4351,7 @@ export default defineSchema({
     nature: v.optional(
       v.object({
         digital: v.boolean(),
-        kind: v.union(v.literal("app"), v.literal("saas"), v.literal("jeu"), v.literal("ecommerce"), v.literal("marque"), v.literal("media"), v.literal("autre")),
+        kind: v.union(v.literal("app"), v.literal("saas"), v.literal("jeu_mobile"), v.literal("jeu"), v.literal("ecommerce"), v.literal("marque"), v.literal("media"), v.literal("autre")),
         aboutIt: v.union(v.literal("oui"), v.literal("non"), v.literal("incertain")),
         why: v.string(),
       }),

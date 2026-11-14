@@ -21,13 +21,22 @@ const quoted = (xs: readonly string[]): string => xs.map((x) => `"${x.replace(/"
 
 // ─── Les apps : ce qu'est le produit ─────────────────────────────────────────
 
-export const PRODUCT_KINDS = ["app", "saas", "jeu", "ecommerce", "marque", "media", "autre"] as const;
+export const PRODUCT_KINDS = ["app", "saas", "jeu_mobile", "jeu", "ecommerce", "marque", "media", "autre"] as const;
 export type ProductKind = (typeof PRODUCT_KINDS)[number];
 export const ABOUT = ["oui", "non", "incertain"] as const;
 export type About = (typeof ABOUT)[number];
 
 /** Le jugement d'une app : numérique ou non, son type, et si ses créateurs parlent bien de CE produit. */
 export type AppNature = { digital: boolean; kind: ProductKind; aboutIt: About; why: string };
+
+/**
+ * DÉFINITION du fondateur (14/11/2026) : Swarm montre les apps, les SaaS et les jeux MOBILES — pas l'e-commerce
+ * (agents d'achat comme Hipobuy), ni les marques physiques, les médias, les jeux console ou PC. Une app pas encore
+ * jugée reste montrée (absent n'est pas exclu). Lu à partir de la phase B ; la phase A ne fait que juger.
+ */
+export const SWARM_KINDS: readonly ProductKind[] = ["app", "saas", "jeu_mobile"];
+export const shownInSwarm = (nature: Pick<AppNature, "digital" | "kind"> | null | undefined): boolean =>
+  !nature || (nature.digital && SWARM_KINDS.includes(nature.kind));
 
 export const NATURE_BATCH = 20;
 /** Une app jugée est rejugée au bout de 30 jours (ses comptes ont changé). */
@@ -50,7 +59,7 @@ export const NATURE_SYSTEM = [
   "You review products that short-form video creators promote, for a catalogue of mobile apps and web tools.",
   "For each product, answer from the evidence only:",
   "- digital: true when the product is software the user installs or opens (mobile app, web app, browser extension, desktop software, online service used through an app or a site); false for a physical product, a shop or marketplace of physical goods, a place (gym, restaurant, hotel), a person, a show, a song, a team.",
-  '- kind: "app" (mobile app), "saas" (web tool or software, AI tools used on the web included), "jeu" (video game or game app), "ecommerce" (store, marketplace or shopping agent selling physical goods), "marque" (physical brand or product), "media" (show, series, film, music, podcast, streamer, news), "autre".',
+  '- kind: "app" (mobile app that is not a game), "saas" (web tool or software, AI tools used on the web included), "jeu_mobile" (game played on a phone, from the App Store or Google Play), "jeu" (any other video game: console, PC, browser), "ecommerce" (store, marketplace or shopping agent selling physical goods), "marque" (physical brand or product), "media" (show, series, film, music, podcast, streamer, news), "autre".',
   '- aboutIt: do the creators\' texts and bios talk about THIS product (the product itself, what it does, its publisher)? "oui"; "non" when the name only appears as an ordinary word, a song, a person, a genre hashtag, or another product; "incertain" when there is too little text.',
   "- why: one plain French sentence of at most 120 characters with the decisive clue (no brand-free paraphrase needed, no emoji).",
   "Never guess from the name alone. Answer for every product, using its id.",

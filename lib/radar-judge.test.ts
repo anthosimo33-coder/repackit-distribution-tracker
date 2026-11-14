@@ -4,6 +4,7 @@ import {
   ACCOUNT_TEXTS_MAX,
   NATURE_BATCH,
   NATURE_REFRESH_MS,
+  SWARM_KINDS,
   WEAK_SHARE,
   accountAnswer,
   accountPrompt,
@@ -11,6 +12,7 @@ import {
   natureAnswer,
   natureDue,
   naturePrompt,
+  shownInSwarm,
   weakProof,
 } from "../convex/radarJudgeMath";
 
@@ -57,6 +59,18 @@ describe("Radar — jugement : ce qu'est une app", () => {
     };
     expect(natureAnswer(raw, batch)).toEqual([{ id: "a1", nature: { digital: true, kind: "app", aboutIt: "oui", why: "Les vidéos montrent l'appli de flashcards" } }]);
     expect(natureAnswer(null, batch)).toEqual([]);
+  });
+
+  it("ce que Swarm montre (définition du 14/11) : apps, SaaS, jeux mobiles ; pas encore jugée = montrée", () => {
+    expect(SWARM_KINDS).toEqual(["app", "saas", "jeu_mobile"]);
+    expect(shownInSwarm({ digital: true, kind: "app" })).toBe(true);
+    expect(shownInSwarm({ digital: true, kind: "saas" })).toBe(true);
+    expect(shownInSwarm({ digital: true, kind: "jeu_mobile" })).toBe(true);
+    for (const kind of ["jeu", "ecommerce", "marque", "media", "autre"] as const) expect(shownInSwarm({ digital: true, kind })).toBe(false);
+    // Non numérique : jamais, quel que soit le type rendu.
+    expect(shownInSwarm({ digital: false, kind: "app" })).toBe(false);
+    expect(shownInSwarm(undefined)).toBe(true);
+    expect(shownInSwarm(null)).toBe(true);
   });
 
   it("jugée une fois, rejugée au bout de 30 jours", () => {
