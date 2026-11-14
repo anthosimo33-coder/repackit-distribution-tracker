@@ -170,6 +170,11 @@ export const SEED_APPS: readonly SeedApp[] = [
   // — sous le seuil de la découverte ; sa croissance passe par la pub, que le Radar cherche ici sous son nom.
   { slug: "shortfy", name: "Shortfy", rivalOf: [], strong: ["shortfy"], searches: ["shortfy", "#shortfy", "shortfy.io"] },
   { slug: "trendsaas", name: "TrendSaaS", rivalOf: [], strong: ["trendsaas"], searches: ["trendsaas", "trendsaas.ai"] },
+  // Deux produits web suivis à la main le 14/11/2026 sous leur domaine (« jobstep.io », « pimzi.app ») : leurs créateurs
+  // écrivent surtout #jobstep et #pimzi, que ces motifs ne prenaient pas (1 légende sur 3 pour JobStep, 0 sur 3 pour
+  // Pimzi). Adoptées par la liste de départ sous leur nom nu. « job step(s) » est une tournure courante, pas JobStep.
+  { slug: "jobstep", name: "JobStep", rivalOf: [], strong: ["jobstep"], not: ["job step", "jobsteps"], searches: ["jobstep", "#jobstep", "jobstep.io", "#jobstepio"] },
+  { slug: "pimzi", name: "Pimzi", rivalOf: [], strong: ["pimzi"], searches: ["pimzi", "#pimzi", "pimzi.app"] },
   // Les 5 premières apps trouvées par les classements de l'App Store et confirmées par le fondateur (13/11/2026) :
   // trois apps de révision francophones, une app de langues (66 000 vidéos sous #pingoai), un compteur de
   // calories, une app de rencontre. Aucune n'est concurrente d'un projet. « diane ai » seul n'est pas un motif
