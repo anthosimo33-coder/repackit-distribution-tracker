@@ -442,7 +442,46 @@ export type BudgetState = {
   reserveReached: boolean;
   /** Le dernier solde lu date de plus de `BALANCE_PROBE_MS` : une sonde peut le relire. */
   balanceStale: boolean;
+  /** Le palier du solde (cf `creditTier`) et les jours de crédits qu'il reste avant la réserve (`null` : inconnu). */
+  tier: CreditTier;
+  daysLeft: number | null;
 };
+
+/**
+ * LES PALIERS DU SOLDE (14/11/2026). La qualité d'abord : tant que le solde tient plus de 2 jours, rien ne change.
+ * En dessous, le Radar REPORTE ce qui se rattrape sans perte une fois un pack acheté, au lieu de tout couper d'un
+ * coup à la réserve. Les relevés des comptes déjà suivis ne sont jamais touchés.
+ *  - economie (moins de 2 jours) : découverte et tournures (« search »), transcriptions, pubs ; les recherches
+ *    COMPLÈTES des apps non concurrentes (leur recherche courte de routine continue). Découverte et transcriptions
+ *    portent sur la semaine, les pubs se revoient tous les 3 à 7 jours : un report de 2 jours ne perd rien.
+ *  - survie (moins d'un jour) : en plus, la routine des apps non concurrentes et le premier relevé des nouveaux
+ *    comptes (ils restent dus et passent dès que le solde remonte).
+ *  - reserve : tout s'arrête (cf CREDIT_RESERVE), sauf la sonde.
+ */
+export type CreditTier = "normal" | "economie" | "survie" | "reserve";
+export const ECONOMY_DAYS = 2;
+export const SURVIVAL_DAYS = 1;
+export const TIER_CUT: Record<CreditTier, readonly PosteKey[]> = {
+  normal: [],
+  economie: ["search", "transcript", "ads"],
+  survie: ["search", "transcript", "ads"],
+  reserve: [],
+};
+/** Le palier reporte les recherches complètes (`deep`), la routine (`routine`) des apps non concurrentes, les premiers relevés. */
+export const tierDefers = (tier: CreditTier): { deep: boolean; routine: boolean; firstReads: boolean } => ({
+  deep: tier === "economie" || tier === "survie",
+  routine: tier === "survie",
+  firstReads: tier === "survie",
+});
+
+/** Le palier du solde : `perDay`, la dépense moyenne des derniers jours complets (cf `recentPerDay`). */
+export function creditTier(balanceLeft: number | null, perDay: number | null | undefined): { tier: CreditTier; daysLeft: number | null } {
+  if (balanceLeft === null) return { tier: "normal", daysLeft: null };
+  if (balanceLeft === 0) return { tier: "reserve", daysLeft: 0 };
+  const daysLeft = perDay && perDay > 0 ? balanceLeft / perDay : null;
+  if (daysLeft === null) return { tier: "normal", daysLeft };
+  return { tier: daysLeft < SURVIVAL_DAYS ? "survie" : daysLeft < ECONOMY_DAYS ? "economie" : "normal", daysLeft };
+}
 
 /**
  * Crédits laissés en compte, que le Radar ne dépense jamais. Les relevés de vues de la paie des créatrices peuvent
@@ -462,8 +501,11 @@ export const BALANCE_PROBE_MS = 50 * 60_000;
 /** Faut-il relire le solde par un appel d'un crédit (solde sous la réserve, lu il y a plus de 50 minutes) ? */
 export const needsBalanceProbe = (state: Pick<BudgetState, "reserveReached" | "balanceStale">): boolean => state.reserveReached && state.balanceStale;
 
-/** Le solde lu (radarSettings) : `remaining` crédits à la date `seenAt`, relu par la tâche à `now`. */
-export type Balance = { remaining: number; seenAt: number; now: number };
+/**
+ * Le solde lu (radarSettings) : `remaining` crédits à la date `seenAt`, relu par la tâche à `now`. `perDay` : la
+ * dépense moyenne des derniers jours complets (cf `recentPerDay`), qui dit combien de jours il tient (le palier).
+ */
+export type Balance = { remaining: number; seenAt: number; now: number; perDay?: number | null };
 
 /**
  * L'état du budget du mois. Chaque poste a son enveloppe ; au plafond, tout
@@ -504,6 +546,8 @@ export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[], 
     }
   }
   const balanceLeft = balance ? Math.max(0, Math.floor(balance.remaining - CREDIT_RESERVE)) : null;
+  const { tier, daysLeft } = creditTier(balanceLeft, balance?.perDay);
+  for (const k of TIER_CUT[tier]) if (open.includes(k) && !cut.includes(k)) cut.push(k);
   return {
     spentCredits,
     spentUsd,
@@ -515,6 +559,8 @@ export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[], 
     balanceLeft,
     reserveReached: balanceLeft === 0,
     balanceStale: !!balance && balance.now - balance.seenAt >= BALANCE_PROBE_MS,
+    tier,
+    daysLeft,
   };
 }
 
@@ -523,12 +569,17 @@ export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[], 
  * plus récents (3 au plus, aujourd'hui exclu : il n'est pas fini). `null` sans aucun jour complet.
  */
 export function daysOfCredits(remaining: number, usage: readonly UsageRow[], today: string, days = 3): number | null {
+  const perDay = recentPerDay(usage, today, days);
+  return perDay !== null && perDay > 0 ? remaining / perDay : null;
+}
+
+/** La dépense moyenne par jour des jours COMPLETS les plus récents (3 au plus, aujourd'hui exclu) ; `null` sans aucun. */
+export function recentPerDay(usage: readonly UsageRow[], today: string, days = 3): number | null {
   const byDay = new Map<string, number>();
   for (const u of usage) if (u.day && u.day < today) byDay.set(u.day, (byDay.get(u.day) ?? 0) + u.credits);
   const recent = [...byDay].sort((a, b) => b[0].localeCompare(a[0])).slice(0, days);
   if (recent.length === 0) return null;
-  const perDay = recent.reduce((sum, [, c]) => sum + c, 0) / recent.length;
-  return perDay > 0 ? remaining / perDay : null;
+  return recent.reduce((sum, [, c]) => sum + c, 0) / recent.length;
 }
 
 /** Sous ce nombre de jours de crédits, Telegram prévient (une fois par jour). */
@@ -539,17 +590,21 @@ export const LOW_CREDIT_DAYS = 3;
  * arrêté ses postes payants, « low » quand il reste moins de 3 jours AVANT cet arrêt (le solde au-dessus de la
  * réserve, au rythme des derniers jours). `alerted` : les jours (Paris) où chaque genre est déjà parti.
  */
+export type CreditAlertKind = "reserve" | "survie" | "economie" | "low";
+
 export function creditAlert(
   state: Pick<BudgetState, "balanceLeft" | "reserveReached">,
   usage: readonly UsageRow[],
   today: string,
-  alerted: { low?: string; reserve?: string },
-): { kind: "reserve" | "low"; days: number | null } | null {
+  alerted: Partial<Record<CreditAlertKind, string>>,
+): { kind: CreditAlertKind; days: number | null } | null {
   if (state.balanceLeft === null) return null;
   if (state.reserveReached) return alerted.reserve === today ? null : { kind: "reserve", days: null };
   const days = daysOfCredits(state.balanceLeft, usage, today);
-  if (days !== null && days < LOW_CREDIT_DAYS && alerted.low !== today) return { kind: "low", days };
-  return null;
+  if (days === null) return null;
+  // La plus grave qui n'est pas encore partie aujourd'hui : un palier franchi se dit même si « moins de 3 jours » est parti ce matin.
+  const kind: CreditAlertKind | null = days < SURVIVAL_DAYS ? "survie" : days < ECONOMY_DAYS ? "economie" : days < LOW_CREDIT_DAYS ? "low" : null;
+  return kind && alerted[kind] !== today ? { kind, days } : null;
 }
 
 /**

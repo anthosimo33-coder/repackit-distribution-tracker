@@ -4,21 +4,36 @@ import {
   FREE_FRESH_MS,
   FREE_LANE_MAX_MS,
   FREE_REGION_PAGES,
+  GAP_PAGES,
+  LANE_FRESH_POST_MS,
+  LANE_WAIT_FRESH_MS,
+  LANE_WAIT_MS,
   freeNote,
   freePlan,
   freeProfileUrl,
   freeRead,
   freeStart,
   freeVideoUrl,
+  gapReached,
+  laneOrder,
+  listGap,
+  overflowToPay,
   paced,
   runFreeLane,
   parseFreeProfile,
   parseFreeVideo,
   retrying,
   videoIdTime,
+  TRIAL_DETAIL_MAX,
+  TRIAL_EVERY,
+  TRIAL_PER_DAY,
+  TRIAL_TOTAL,
+  trialPick,
+  trialPlan,
   type FreePage,
   type KnownVideo,
 } from "../convex/radarFreeMath";
+import { profileNextCursor } from "../convex/scrapeCreatorsApi";
 
 /**
  * Radar — le relevé gratuit d'un compte sur les pages publiques de TikTok (13/11/2026). Les pages d'essai ont la
@@ -174,6 +189,64 @@ describe("Radar — relevé gratuit : ce qu'on lit en entier", () => {
     // Le compte a déjà un pays : rien de plus n'est lu.
     expect(freePlan(cinq, known, NOW).detail.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER]);
   });
+
+  it("une vidéo PROGRAMMÉE : son identifiant date son téléversement, la fraîcheur se juge sur sa publication rangée (14/11)", () => {
+    // Téléversée il y a 6 jours (identifiant), publiée il y a 5 heures (relevé payant, page de la vidéo) : fraîche.
+    const programmee: KnownVideo = { videoId: V_SEMAINE, publishedAt: NOW - 5 * HOUR };
+    expect(freePlan(liste, [{ videoId: V_HIER }, programmee, { videoId: V_VIEILLE }], NOW).detail.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER, V_SEMAINE]);
+    // Sans date rangée, l'identifiant décide encore (ancienne : seules ses vues).
+    expect(freePlan(liste, [{ videoId: V_HIER }, { videoId: V_SEMAINE }, { videoId: V_VIEILLE }], NOW).detail.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER]);
+    // Et l'inverse : rangée publiée il y a 3 jours, même si l'identifiant la dit d'il y a 5 heures.
+    expect(freePlan(liste, [{ videoId: V_NEUVE, publishedAt: NOW - 72 * HOUR }, { videoId: V_HIER }, { videoId: V_SEMAINE }, { videoId: V_VIEILLE }], NOW).detail.map((v) => v.videoId)).toEqual([V_HIER]);
+  });
+});
+
+describe("Radar — relevé gratuit : la liste trouée (14/11/2026)", () => {
+  const liste = [V_NEUVE, V_HIER, V_SEMAINE].map((videoId) => ({ videoId, caption: "", views: 1, publishedAt: videoIdTime(videoId) }));
+
+  it("la dernière vidéo qu'on avait du compte n'est plus dans sa liste : trou", () => {
+    expect(listGap(liste, { videoId: V_SEMAINE, publishedAt: videoIdTime(V_SEMAINE) })).toBe(false);
+    expect(listGap(liste, { videoId: V_VIEILLE, publishedAt: videoIdTime(V_VIEILLE) })).toBe(true);
+    // Rien de connu (compte jamais relevé, ou vidéo déjà vérifiée supprimée) : pas de contrôle.
+    expect(listGap(liste, null)).toBe(false);
+    expect(listGap([], { videoId: V_VIEILLE, publishedAt: 0 })).toBe(false);
+  });
+
+  it("le relevé payant d'un trou s'arrête à la vidéo retrouvée, ou passé sa date sans la voir ; 3 pages au plus", () => {
+    expect(GAP_PAGES).toBe(3);
+    const cible = { videoId: V_SEMAINE, publishedAt: videoIdTime(V_SEMAINE) };
+    expect(gapReached(liste.slice(0, 2), cible)).toEqual({ done: false, found: false });
+    expect(gapReached(liste, cible)).toEqual({ done: true, found: true });
+    // Une vidéo plus ancienne que la cible est arrivée, sans la cible : elle n'est plus en ligne.
+    expect(gapReached([liste[0], { videoId: V_VIEILLE, publishedAt: videoIdTime(V_VIEILLE) }], cible)).toEqual({ done: true, found: false });
+  });
+});
+
+describe("Radar — relevé gratuit : ce qui attend la voie, ce qui part au payant (14/11/2026)", () => {
+  const MIN = 60_000;
+  const acc = (name: string, dueMinAgo: number, postHoursAgo?: number) => ({
+    name,
+    dueAt: NOW - dueMinAgo * MIN,
+    ...(postHoursAgo !== undefined ? { lastPostAt: NOW - postHoursAgo * HOUR } : {}),
+  });
+
+  it("d'abord les comptes qui ont publié ces dernières 24 heures, puis les plus en retard", () => {
+    expect(LANE_FRESH_POST_MS).toBe(24 * HOUR);
+    const order = laneOrder([acc("calme", 300, 72), acc("frais-recent", 5, 18), acc("vieux", 500), acc("frais-ancien", 30, 20)], NOW).map((a) => a.name);
+    expect(order).toEqual(["frais-ancien", "frais-recent", "vieux", "calme"]);
+  });
+
+  it("voie ouverte : un compte frais attend 20 min, un autre 1 h ; au-delà, payant « retard »", () => {
+    expect([LANE_WAIT_FRESH_MS, LANE_WAIT_MS]).toEqual([20 * MIN, 60 * MIN]);
+    const r = overflowToPay([acc("frais-19", 19, 18), acc("frais-20", 20, 18), acc("calme-59", 59, 72), acc("calme-60", 60, 72), acc("jamais-publie", 61)], true, NOW);
+    expect(r.reason).toBe("retard");
+    expect(r.pay.map((a) => a.name)).toEqual(["frais-20", "calme-60", "jamais-publie"]);
+  });
+
+  it("voie fermée (coupe-circuit) : tout ce qui n'a pas été pris part au payant, comme avant", () => {
+    const r = overflowToPay([acc("a", 0, 1), acc("b", 1)], false, NOW);
+    expect(r).toEqual({ pay: [acc("a", 0, 1), acc("b", 1)], reason: "coupure" });
+  });
 });
 
 describe("Radar — relevé gratuit : le relevé d'un compte, de bout en bout", () => {
@@ -327,7 +400,7 @@ describe("Radar — relevé gratuit : la voie gratuite d'un passage (13/11/2026)
     expect(order).toEqual(["pause", "page a", "pause", "page b"]);
   });
 
-  type Out = { ok: true } | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail"; reason?: string };
+  type Out = { ok: true } | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail" | "gap"; reason?: string };
   const lane = (issues: Record<string, Out>, alive: () => boolean = () => true) => {
     const read: string[] = [];
     return {
@@ -338,12 +411,13 @@ describe("Radar — relevé gratuit : la voie gratuite d'un passage (13/11/2026)
   const ok: Out = { ok: true };
   const refus: Out = { ok: false, why: "suspect", reason: "HTTP 403" };
 
-  it("un compte après l'autre ; ce que le gratuit ne relève pas part au payant", async () => {
+  it("un compte après l'autre ; ce que le gratuit ne relève pas part au payant, avec son motif", async () => {
     expect(FREE_LANE_MAX_MS).toBe(5 * 60_000);
     const t = lane({ a: ok, b: { ok: false, why: "private" }, c: ok, d: { ok: false, why: "detail" }, e: refus, f: ok });
     const r = await t.run;
     expect(t.read).toEqual(["a", "b", "c", "d", "e", "f"]);
-    expect(r.toPay).toEqual(["b", "d", "e"]);
+    expect(r.failed.map((m) => [m.account, m.why])).toEqual([["b", "private"], ["d", "detail"], ["e", "suspect"]]);
+    expect(r.notReached).toEqual([]);
     expect(r.state).toMatchObject({ on: true, ok: 3, fallback: 3, stopped: null });
   });
 
@@ -355,16 +429,67 @@ describe("Radar — relevé gratuit : la voie gratuite d'un passage (13/11/2026)
     const t = lane(issues);
     const r = await t.run;
     expect(t.read).toEqual(["a", "r1", "r2", "r3", "r4", "r5", "r6"]);
-    expect(r.toPay).toEqual(["r1", "r2", "r3", "r4", "r5", "r6", "x", "y"]);
+    expect(r.failed.map((m) => m.account)).toEqual(["r1", "r2", "r3", "r4", "r5", "r6"]);
+    // Pas demandés : la voie fermée les rend à `overflowToPay`, qui les paie tous (« coupure »).
+    expect(r.notReached).toEqual(["x", "y"]);
     expect(r.state).toMatchObject({ on: false, ok: 1, fallback: 6, stopped: "6 profils refusés d'affilée (HTTP 403)" });
   });
 
-  it("le temps imparti écoulé : les comptes restants partent au payant, la voie n'est pas « arrêtée »", async () => {
+  it("le temps imparti écoulé : les comptes restants ne sont pas pris, la voie n'est pas « arrêtée » (ils attendent le passage suivant)", async () => {
     let left = 2;
     const t = lane({ a: ok, b: ok, c: ok, d: ok }, () => left-- > 0);
     const r = await t.run;
     expect(t.read).toEqual(["a", "b"]);
-    expect(r.toPay).toEqual(["c", "d"]);
+    expect(r.failed).toEqual([]);
+    expect(r.notReached).toEqual(["c", "d"]);
     expect(r.state).toMatchObject({ on: true, ok: 2, fallback: 0, stopped: null });
+  });
+
+  it("une liste trouée part au payant avec la vidéo à retrouver, AVANT toute page de vidéo", async () => {
+    const P = freeProfileUrl("lea.revise");
+    const asked: string[] = [];
+    const page = async (url: string): Promise<FreePage> => {
+      asked.push(url);
+      return url === P ? { ok: true, text: profil([{ id: V_NEUVE }, { id: V_HIER }]) } : { ok: false, kind: "absent" };
+    };
+    const newest = { videoId: V_SEMAINE, publishedAt: videoIdTime(V_SEMAINE) };
+    expect(await freeRead("lea.revise", { page, known: async () => [], newest: async () => newest }, NOW)).toEqual({ ok: false, why: "gap", pages: 1, newest });
+    expect(asked).toEqual([P]);
+    // La dernière vidéo connue est dans la liste : relevé gratuit normal.
+    expect(await freeRead("lea.revise", { page, known: async () => [], newest: async () => ({ videoId: V_HIER, publishedAt: videoIdTime(V_HIER) }) }, NOW)).toMatchObject({ ok: true, pages: 3 });
+    // Une liste trouée n'est pas un refus de TikTok : le coupe-circuit ne compte pas.
+    expect(freeNote(freeStart(), "gap")).toMatchObject({ on: true, fallback: 1, streak: 0 });
+  });
+});
+
+describe("Radar — la mesure du premier relevé gratuit (14/11/2026)", () => {
+  it("un compte sur 4, toujours le même ; au plus 100 par jour et 400 en tout", () => {
+    expect([TRIAL_EVERY, TRIAL_PER_DAY, TRIAL_TOTAL, TRIAL_DETAIL_MAX]).toEqual([4, 100, 400, 9]);
+    const handles = Array.from({ length: 4_000 }, (_, i) => `compte.${i}`);
+    const picked = handles.filter(trialPick).length;
+    // ~1 000 sur 4 000, à ±10 %.
+    expect(picked).toBeGreaterThan(900);
+    expect(picked).toBeLessThan(1_100);
+    // Le pseudo décide, majuscules comprises.
+    expect(trialPick("Lea.Revise")).toBe(trialPick("lea.revise"));
+  });
+
+  it("les vidéos lues sur leur page : celles de moins de 14 jours, 9 au plus, les plus récentes d'abord", () => {
+    const list = Array.from({ length: 13 }, (_, i) => ({ videoId: idAt(NOW - i * 26 * HOUR, i + 10), caption: "", views: 1, publishedAt: NOW - i * 26 * HOUR }));
+    expect(trialPlan(list, NOW).map((v) => v.videoId)).toEqual(list.slice(0, 9).map((v) => v.videoId));
+    const vieilles = list.map((v) => ({ ...v, publishedAt: v.publishedAt - 30 * 24 * HOUR }));
+    expect(trialPlan(vieilles, NOW)).toEqual([]);
+  });
+});
+
+describe("Radar — relevé payant d'un compte : la page suivante (14/11/2026)", () => {
+  it("max_cursor quand has_more le dit ; jamais le même curseur, ni 0, ni vide", () => {
+    expect(profileNextCursor({ has_more: true, max_cursor: 1_731_000_000_000 })).toBe("1731000000000");
+    expect(profileNextCursor({ has_more: 1, max_cursor: "1731" })).toBe("1731");
+    expect(profileNextCursor({ has_more: false, max_cursor: "1731" })).toBeNull();
+    expect(profileNextCursor({ has_more: true })).toBeNull();
+    expect(profileNextCursor({ has_more: true, max_cursor: "1731" }, "1731")).toBeNull();
+    expect(profileNextCursor({ has_more: true, max_cursor: 0 })).toBeNull();
+    expect(profileNextCursor({ has_more: true, max_cursor: "" })).toBeNull();
   });
 });

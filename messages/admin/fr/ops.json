@@ -225,7 +225,9 @@
     "collecteActive": "Collecte active · {depense} dépensés sur {plafond} ce mois",
     "collectePlafond": "Collecte arrêtée : plafond de {plafond} atteint ce mois",
     "collecteSansCle": "Collecte en pause : pas de clé ScrapeCreators",
-    "collecteReserve": "Collecte payante en pause : solde sous la réserve de {reserve} crédits"
+    "collecteReserve": "Collecte payante en pause : solde sous la réserve de {reserve} crédits",
+    "collecteEconomie": "Économie : moins de 2 jours de crédits, découverte et nouvelles apps reportées",
+    "collecteSurvie": "Survie : moins d’un jour de crédits, seuls les comptes suivis sont relevés"
   },
   "RadarSignals": {
     "rechercher": "Rechercher",
@@ -444,7 +446,17 @@
     "aucuneDepense": "Rien de dépensé ce mois-ci.",
     "creditsCourt": "{n} cr.",
     "relevesDeComptes": "Relevés de comptes",
-    "reserveAtteinte": "Le solde est sous la réserve de {reserve} crédits : relevés payants, recherches de réseaux et découverte sont en pause, les relevés gratuits continuent. Tout repart seul dans l’heure qui suit l’achat d’un pack."
+    "reserveAtteinte": "Le solde est sous la réserve de {reserve} crédits : relevés payants, recherches de réseaux et découverte sont en pause, les relevés gratuits continuent. Tout repart seul dans l’heure qui suit l’achat d’un pack.",
+    "palierEconomie": "Moins de 2 jours de crédits avant la réserve : découverte, transcriptions, pubs et recherches complètes des apps non concurrentes sont reportées, les comptes suivis restent relevés. Tout reprend, sans rien perdre, à l’achat d’un pack.",
+    "palierSurvie": "Moins d’un jour de crédits avant la réserve : seuls les relevés des comptes suivis et la recherche de routine des concurrentes continuent ; les nouveaux comptes et les autres apps attendent. Tout reprend, sans rien perdre, à l’achat d’un pack.",
+    "relevesPayesDuJour": "Relevés de comptes payés aujourd’hui : {detail}.",
+    "attenteVoieGratuite": "{n, plural, =0 {Aucun compte n’attend la voie gratuite.} one {# compte attend la voie gratuite (passage toutes les 10 minutes).} other {# comptes attendent la voie gratuite (passage toutes les 10 minutes).}}",
+    "motifPremier": "{n} premiers relevés",
+    "motifRepli": "{n} replis du gratuit",
+    "motifTrou": "{n} listes trouées",
+    "motifRetard": "{n} en retard",
+    "motifCoupure": "{n} voie gratuite fermée",
+    "motifSonde": "{n} sonde du solde"
   },
   "RadarNetworks": {
     "comptesSuivis": "{actifs} comptes relevés sur {max} possibles · {total} au total",

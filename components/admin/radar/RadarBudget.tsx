@@ -79,6 +79,11 @@ function BudgetEditor({ data }: { data: BudgetData }) {
   const perDay = totalCredits / DAYS_PER_MONTH;
   // Jusqu'à l'arrêt à la réserve (le solde au-dessus d'elle), pas jusqu'à zéro.
   const daysLeft = data.state.balanceLeft !== null && perDay > 0 ? Math.floor(data.state.balanceLeft / perDay) : null;
+  // Les relevés payés aujourd'hui, par motif (convex/radarFreeMath.PaidReason), dans un ordre fixe.
+  const reasonLabel = { premier: "motifPremier", repli: "motifRepli", trou: "motifTrou", retard: "motifRetard", coupure: "motifCoupure", sonde: "motifSonde" } as const;
+  const paidReads = (Object.keys(reasonLabel) as (keyof typeof reasonLabel)[])
+    .filter((k) => (data.readsToday?.[k] ?? 0) > 0)
+    .map((k) => tr(reasonLabel[k], { n: int(data.readsToday?.[k] ?? 0) }));
 
   async function onSave() {
     setSaving(true);
@@ -114,9 +119,19 @@ function BudgetEditor({ data }: { data: BudgetData }) {
                 {tr("creditsRestants", { n: int(data.jobs.creditsRemaining) })}
                 {data.state.reserveReached
                   ? ` ${tr("reserveAtteinte", { reserve: int(data.jobs.creditReserve) })}`
-                  : daysLeft !== null && ` ${tr("joursDeCollecte", { n: daysLeft, reserve: int(data.jobs.creditReserve) })}`}
+                  : data.state.tier === "survie"
+                    ? ` ${tr("palierSurvie")}`
+                    : data.state.tier === "economie"
+                      ? ` ${tr("palierEconomie")}`
+                      : daysLeft !== null && ` ${tr("joursDeCollecte", { n: daysLeft, reserve: int(data.jobs.creditReserve) })}`}
               </>
             )}
+            {paidReads.length > 0 && (
+              <span className="mt-1 block" data-testid="radar-releves-payes">
+                {tr("relevesPayesDuJour", { detail: paidReads.join(", ") })}
+              </span>
+            )}
+            {data.jobs.freeWaiting !== null && data.jobs.freeWaiting > 0 && <span className="mt-1 block">{tr("attenteVoieGratuite", { n: data.jobs.freeWaiting })}</span>}
             {data.jobs.lastError && <span className="mt-1 block text-red-700">{tr("derniereErreur", { erreur: data.jobs.lastError })}</span>}
           </p>
         )}

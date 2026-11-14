@@ -156,8 +156,11 @@ export function parseFreeVideo(html: string, handle: string, fallbackLang?: stri
   };
 }
 
-/** Ce qu'on sait déjà d'une vidéo du compte : son texte à l'écran et son son, tels que rangés, et si son pays est connu. */
-export type KnownVideo = { videoId: string; hook?: string; musicId?: string; musicTitle?: string; region?: string };
+/**
+ * Ce qu'on sait déjà d'une vidéo du compte : son texte à l'écran et son son, tels que rangés, si son pays est connu,
+ * et sa VRAIE date de publication (`publishedAt`, lue sur sa page ou au relevé payant).
+ */
+export type KnownVideo = { videoId: string; hook?: string; musicId?: string; musicTitle?: string; region?: string; publishedAt?: number };
 /** Vidéos déjà rangées relues en entier pour situer un compte dont on ne connaît pas encore le pays. */
 export const FREE_REGION_PAGES = 2;
 /** Une vidéo connue et plus toute neuve : seules ses vues (et sa miniature, qui expire) sont rafraîchies. */
@@ -168,6 +171,10 @@ export type LightVideo = { videoId: string; views: number; coverUrl?: string };
  * est lue sur sa page ; les autres sont déjà rangées, leurs vues suffisent. `wantRegion` : le compte n'a pas encore
  * de pays — ses deux vidéos rangées les plus récentes dont on ignore le pays sont relues elles aussi (le pays d'une
  * vidéo ne se lit que sur sa page).
+ *
+ * « Moins de 48 heures » se juge sur la date de PUBLICATION quand on la connaît. La liste ne donne que la date lue
+ * dans l'identifiant, qui est celle du TÉLÉVERSEMENT : une vidéo programmée la porte des jours avant de sortir
+ * (14/11/2026 : @catsen191, 9 vidéos téléversées le 12, publiées du 12 au 14), et passait pour vieille dès sa sortie.
  */
 export function freePlan(listed: readonly FreeListed[], known: readonly KnownVideo[], now: number, wantRegion = false): { detail: FreeListed[]; light: LightVideo[] } {
   const have = new Map(known.map((k) => [k.videoId, k]));
@@ -176,7 +183,7 @@ export function freePlan(listed: readonly FreeListed[], known: readonly KnownVid
   let forRegion = wantRegion ? FREE_REGION_PAGES : 0;
   for (const v of listed) {
     const k = have.get(v.videoId);
-    const fresh = now - v.publishedAt < FREE_FRESH_MS;
+    const fresh = now - (k?.publishedAt ?? v.publishedAt) < FREE_FRESH_MS;
     const locate = !!k && !fresh && !k.region && forRegion > 0;
     if (locate) forRegion--;
     if (!k || fresh || locate) detail.push(v);
@@ -205,23 +212,62 @@ export function retrying(page: (url: string) => Promise<FreePage>, pause: () => 
   };
 }
 
+/** La vidéo la plus récente qu'on a déjà de ce compte (sa vraie date de publication). */
+export type NewestKnown = { videoId: string; publishedAt: number };
+
+/**
+ * Pourquoi le relevé gratuit n'a pas abouti — le compte passe alors au relevé payant :
+ *  absent : le profil n'existe plus à cette adresse · suspect : TikTok n'a pas servi le profil ·
+ *  private / empty : rien à lire sur le profil · detail : la page d'une vidéo inconnue ne s'est pas lue ·
+ *  gap : la liste ne va pas jusqu'à la dernière vidéo qu'on a de lui (cf `listGap`).
+ */
+export type FreeWhy = "absent" | "suspect" | "private" | "empty" | "detail" | "gap";
+
 export type FreeRead =
   | { ok: true; videos: SignalInput[]; light: LightVideo[]; profile: { fans: number; bio: string }; pages: number }
-  /**
-   * Pourquoi le relevé gratuit n'a pas abouti — le compte passe alors au relevé payant :
-   *  absent : le profil n'existe plus à cette adresse · suspect : TikTok n'a pas servi le profil ·
-   *  private / empty : rien à lire sur le profil · detail : la page d'une vidéo inconnue ne s'est pas lue.
-   */
-  | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail"; pages: number; reason?: string };
+  | { ok: false; why: FreeWhy; pages: number; reason?: string; newest?: NewestKnown };
+
+/**
+ * La liste d'un profil ne donne que ses 10 à 13 dernières vidéos (le relevé payant, 9). Un compte qui en publie plus
+ * entre deux relevés en perd : celles d'avant la liste ne seraient jamais vues. On le sait quand la vidéo la plus
+ * récente qu'on avait de lui n'y est plus — elle a été poussée hors de la liste (ou supprimée : le relevé payant le
+ * dira, cf `gapChecked`). Le compte est alors relevé en payant, page après page, jusqu'à la retrouver.
+ */
+export const listGap = (listed: readonly FreeListed[], newest: NewestKnown | null): boolean =>
+  newest !== null && listed.length > 0 && !listed.some((v) => v.videoId === newest.videoId);
+
+/** Pages payantes au plus pour combler un trou (9 vidéos chacune) : 3 crédits pour ~27 vidéos publiées entre deux relevés. */
+export const GAP_PAGES = 3;
+
+/**
+ * Le relevé payant d'un trou peut s'arrêter : il a retrouvé la vidéo (`found`), ou il est passé avant sa date sans
+ * la voir — elle n'est plus en ligne (`done` sans `found`).
+ */
+export function gapReached(videos: readonly { videoId: string; publishedAt: number }[], newest: NewestKnown): { done: boolean; found: boolean } {
+  const found = videos.some((v) => v.videoId === newest.videoId);
+  return { found, done: found || videos.some((v) => v.publishedAt < newest.publishedAt) };
+}
+
+/**
+ * Pourquoi un relevé payant est parti, compté à part dans `radarUsage.reasons` (l'écran du budget le montre) :
+ * premier (le premier relevé d'un compte), repli (le gratuit n'a pas abouti), trou (liste trouée, cf `listGap`),
+ * retard / coupure (pas pris par la voie gratuite, cf `overflowToPay`), sonde (relire le solde sous la réserve).
+ */
+export type PaidReason = "premier" | "repli" | "trou" | "retard" | "coupure" | "sonde";
 
 /**
  * Le relevé gratuit d'un compte, de bout en bout. `page` lit une adresse ; `known` dit ce qu'on a déjà de ces
- * vidéos. Rend les vidéos lues en entier (dans la forme du relevé payant), celles dont seules les vues bougent,
- * et le profil — ou la raison de passer au payant.
+ * vidéos ; `newest`, la plus récente qu'on a de lui (sans elle, pas de contrôle de la liste). Rend les vidéos lues
+ * en entier (dans la forme du relevé payant), celles dont seules les vues bougent, et le profil — ou la raison de
+ * passer au payant.
  */
 export async function freeRead(
   handle: string,
-  io: { page: (url: string) => Promise<FreePage>; known: (videoIds: string[]) => Promise<KnownVideo[]> },
+  io: {
+    page: (url: string) => Promise<FreePage>;
+    known: (videoIds: string[]) => Promise<KnownVideo[]>;
+    newest?: () => Promise<NewestKnown | null>;
+  },
   now: number,
   fallbackLang?: string,
   // Le compte n'a pas encore de pays : on en profite pour situer deux de ses vidéos déjà rangées.
@@ -234,6 +280,9 @@ export async function freeRead(
   if (!profile) return { ok: false, why: "suspect", pages, reason: "page sans profil" };
   if (profile.private) return { ok: false, why: "private", pages };
   if (profile.videos.length === 0) return { ok: false, why: "empty", pages };
+  // Avant toute page de vidéo : un trou dans la liste se comble en payant, ces pages-là seraient perdues.
+  const newest = io.newest ? await io.newest() : null;
+  if (newest && listGap(profile.videos, newest)) return { ok: false, why: "gap", pages, newest };
   const known = await io.known(profile.videos.map((v) => v.videoId));
   const byId = new Map(known.map((k) => [k.videoId, k]));
   const plan = freePlan(profile.videos, known, now, wantRegion);
@@ -248,7 +297,7 @@ export async function freeRead(
     if (parsed === "gone" || (!page.ok && page.kind === "absent")) {
       // Une vidéo rangée et plus toute neuve n'était relue que pour situer le compte : sans sa page, ses vues
       // suffisent, comme à tout autre relevé. Sinon, supprimée entre la liste et sa page : elle n'est plus à relever.
-      if (before && now - listed.publishedAt >= FREE_FRESH_MS) asLight();
+      if (before && now - (before.publishedAt ?? listed.publishedAt) >= FREE_FRESH_MS) asLight();
       continue;
     }
     if (!parsed) {
@@ -277,7 +326,7 @@ export type FreeState = { on: boolean; ok: number; fallback: number; streak: num
 export const freeStart = (): FreeState => ({ on: true, ok: 0, fallback: 0, streak: 0, stopped: null });
 
 /** Note l'issue d'un relevé gratuit. Seul un profil que TikTok n'a pas servi compte pour le coupe-circuit, qui dit pourquoi. */
-export function freeNote(state: FreeState, outcome: "ok" | "absent" | "suspect" | "private" | "empty" | "detail", reason?: string): FreeState {
+export function freeNote(state: FreeState, outcome: "ok" | FreeWhy, reason?: string): FreeState {
   if (outcome === "ok") return { ...state, ok: state.ok + 1, streak: 0 };
   const streak = outcome === "suspect" ? state.streak + 1 : 0;
   const off = streak >= FREE_BREAKER;
@@ -291,10 +340,42 @@ export function freeNote(state: FreeState, outcome: "ok" | "absent" | "suspect" 
  * Les serveurs sont donc servis moins volontiers. Ce que TikTok leur sert sans arrêt, c'est le contrôle des
  * classements (convex/radarStore) : UNE page à la fois, 0,3 à 0,7 seconde entre deux. La voie gratuite prend ce
  * rythme : un compte après l'autre, une pause avant chaque page, pendant FREE_LANE_MAX_MS au plus.
- * Ce qu'elle ne relève pas (refus, page qui manque, temps écoulé, coupe-circuit) part au relevé payant, dans la
- * limite du budget : un compte n'attend jamais plus qu'avant.
+ * Un compte dont le relevé gratuit n'aboutit pas (refus, page qui manque, liste trouée) part au relevé payant. Ceux
+ * qu'elle n'a pas eu le temps de prendre attendent le passage suivant (toutes les 10 minutes), sauf s'ils sont en
+ * retard ou que la voie s'est fermée : cf `overflowToPay`.
  */
 export const FREE_LANE_MAX_MS = 5 * 60_000;
+
+/** Ce que la voie gratuite sait d'un compte dû pour le ranger et décider s'il peut attendre. */
+export type LaneAccount = { dueAt: number; lastPostAt?: number };
+
+/** Une publication de moins de 24 heures : son second regard (à H+18) ne doit pas glisser après H+24. */
+export const LANE_FRESH_POST_MS = 24 * HOUR;
+/**
+ * Combien un compte pas encore pris peut attendre la voie gratuite au-delà de son heure : 20 minutes s'il a publié
+ * ces dernières 24 heures (le second regard, cf radarNetworkMath.SECOND_LOOK_MS), une heure sinon. Au-delà, il est
+ * relevé en payant comme avant le 14/11/2026.
+ */
+export const LANE_WAIT_FRESH_MS = 20 * 60_000;
+export const LANE_WAIT_MS = 60 * 60_000;
+
+const freshPost = (a: LaneAccount, now: number) => a.lastPostAt !== undefined && now - a.lastPostAt < LANE_FRESH_POST_MS;
+
+/** L'ordre de la voie : d'abord les comptes qui ont publié ces dernières 24 heures, puis les plus en retard. */
+export function laneOrder<A extends LaneAccount>(accounts: readonly A[], now: number): A[] {
+  return [...accounts].sort((a, b) => Number(freshPost(b, now)) - Number(freshPost(a, now)) || a.dueAt - b.dueAt);
+}
+
+/**
+ * Parmi les comptes que la voie gratuite n'a pas pris, ceux qu'il faut relever en payant MAINTENANT : tous si la
+ * voie s'est fermée (coupe-circuit : TikTok ne sert plus les profils, l'attente ne servirait à rien) ; sinon ceux qui
+ * ont trop attendu. Les autres restent dus et passent au gratuit au passage suivant : même donnée (mesuré le 13/11),
+ * quelques minutes plus tard.
+ */
+export function overflowToPay<A extends LaneAccount>(notReached: readonly A[], laneOpen: boolean, now: number): { pay: A[]; reason: "coupure" | "retard" } {
+  if (!laneOpen) return { pay: [...notReached], reason: "coupure" };
+  return { pay: notReached.filter((a) => now - a.dueAt >= (freshPost(a, now) ? LANE_WAIT_FRESH_MS : LANE_WAIT_MS)), reason: "retard" };
+}
 
 /** Une pause AVANT chaque page (le rythme auquel les serveurs sont servis). */
 export function paced(page: (url: string) => Promise<FreePage>, pause: () => Promise<void>): (url: string) => Promise<FreePage> {
@@ -304,26 +385,56 @@ export function paced(page: (url: string) => Promise<FreePage>, pause: () => Pro
   };
 }
 
+/** Un compte que la voie gratuite n'a pas relevé : pourquoi, et (liste trouée) la vidéo à retrouver en payant. */
+export type LaneMiss<A> = { account: A; why: FreeWhy; newest?: NewestKnown };
+
 /**
  * Déroule la voie gratuite : chaque compte est relevé à son tour tant qu'elle est ouverte (`alive` : le temps
- * imparti) et que le coupe-circuit n'a pas sauté. Rend l'état du passage et les comptes à relever en payant —
- * ceux dont le relevé gratuit n'a pas abouti, et tous ceux qu'elle n'a pas eu le temps de prendre.
+ * imparti) et que le coupe-circuit n'a pas sauté. Rend l'état du passage, les comptes dont le relevé gratuit n'a pas
+ * abouti (`failed`, au relevé payant) et ceux qu'elle n'a pas eu le temps de prendre (`notReached`, cf `overflowToPay`).
  */
 export async function runFreeLane<A>(
   accounts: readonly A[],
-  read: (account: A) => Promise<{ ok: true } | { ok: false; why: "absent" | "suspect" | "private" | "empty" | "detail"; reason?: string }>,
+  read: (account: A) => Promise<{ ok: true } | { ok: false; why: FreeWhy; reason?: string; newest?: NewestKnown }>,
   alive: () => boolean,
-): Promise<{ state: FreeState; toPay: A[] }> {
+): Promise<{ state: FreeState; failed: LaneMiss<A>[]; notReached: A[] }> {
   let state = freeStart();
-  const toPay: A[] = [];
+  const failed: LaneMiss<A>[] = [];
+  const notReached: A[] = [];
   for (const account of accounts) {
     if (!state.on || !alive()) {
-      toPay.push(account);
+      notReached.push(account);
       continue;
     }
     const r = await read(account);
     state = freeNote(state, r.ok ? "ok" : r.why, r.ok ? undefined : r.reason);
-    if (!r.ok) toPay.push(account);
+    if (!r.ok) failed.push({ account, why: r.why, ...(r.newest ? { newest: r.newest } : {}) });
   }
-  return { state, toPay };
+  return { state, failed, notReached };
 }
+
+/**
+ * LA MESURE DU PREMIER RELEVÉ GRATUIT (C4 du dig du 13/11, mesurée avant d'être branchée, 14/11/2026). Le premier
+ * relevé d'un compte reste payant ; pour un compte sur 4 (au plus 100 par jour, 400 en tout), le même compte est
+ * aussi relevé gratuitement à côté — la liste de son profil, puis la page de chacune de ses vidéos de moins de
+ * 14 jours (9 au plus, autant que le payant) — et les deux sont rangés côte à côte (radarFirstReadTrials). Rien de
+ * ce relevé gratuit ne sert : on compare (mêmes vidéos, mêmes vues, même texte à l'écran, même son, même pays) et on
+ * ne bascule que si le gratuit vaut le payant partout. 0 crédit ; ~5 à 10 pages TikTok par compte.
+ */
+export const TRIAL_EVERY = 4;
+export const TRIAL_PER_DAY = 100;
+export const TRIAL_TOTAL = 400;
+export const TRIAL_DETAIL_MAX = 9;
+export const TRIAL_WINDOW_MS = 14 * 24 * HOUR;
+
+/** Un compte sur TRIAL_EVERY, toujours le même (le pseudo décide) : l'échantillon ne dépend pas de l'heure. */
+export function trialPick(handle: string): boolean {
+  let h = 2166136261;
+  for (const c of handle.toLowerCase()) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  return h % TRIAL_EVERY === 0;
+}
+
+/** Les vidéos de la liste à lire sur leur page : celles de moins de 14 jours (identifiant), les plus récentes d'abord. */
+export const trialPlan = (listed: readonly FreeListed[], now: number): FreeListed[] =>
+  listed.filter((v) => now - v.publishedAt < TRIAL_WINDOW_MS).slice(0, TRIAL_DETAIL_MAX);
+

@@ -4269,6 +4269,9 @@ export default defineSchema({
     lastFreeOk: v.optional(v.number()),
     lastFreeFallback: v.optional(v.number()),
     lastFreeStop: v.optional(v.string()),
+    // Comptes que la voie gratuite n'a pas eu le temps de prendre au dernier passage, et qui attendent le suivant
+    // (au lieu d'être relevés en payant, cf radarFreeMath.overflowToPay).
+    lastFreeWaiting: v.optional(v.number()),
     // Place de marché de campagnes (convex/radarMarket) : campagnes connues, lues, jugées ; dernier passage et son arrêt.
     marketSeen: v.optional(v.number()),
     marketRead: v.optional(v.number()),
@@ -4283,6 +4286,8 @@ export default defineSchema({
     creditsSeenAt: v.optional(v.number()),
     lowCreditsAlertDay: v.optional(v.string()), // jour (Paris) de la dernière alerte « moins de 3 jours de crédits »
     reserveAlertDay: v.optional(v.string()), // jour (Paris) de la dernière alerte « réserve atteinte »
+    economieAlertDay: v.optional(v.string()), // jour (Paris) de la dernière alerte « palier économie » (radarSignalsMath.creditTier)
+    survieAlertDay: v.optional(v.string()), // jour (Paris) de la dernière alerte « palier survie »
     accountsLeaseUntil: v.optional(v.number()), // un passage de relevé de comptes tourne jusqu'à cette heure (verrou)
     accountsRerun: v.optional(v.boolean()), // un passage a été demandé pendant qu'un autre tournait : relancé à sa fin
     rejudgeCursor: v.optional(v.string()), // où reprend le rejugement des comptes en pause (convex/radarNetworks)
@@ -4410,6 +4415,9 @@ export default defineSchema({
     readAt: v.optional(v.number()),
     nextReadAt: v.number(),
     readErrors: v.number(),
+    // La vidéo la plus récente qu'on avait de lui, qu'un relevé payant « trou » n'a pas retrouvée (supprimée) : elle
+    // ne déclenche plus de relevé payant (radarFreeMath.listGap).
+    gapChecked: v.optional(v.string()),
     // Agrégats tenus à chaque relevé : l'écran lit les comptes, jamais leurs vidéos.
     posts7d: v.optional(v.number()),
     best7d: v.optional(
@@ -4437,6 +4445,31 @@ export default defineSchema({
 
   // Toutes les vidéos relevées d'un compte suivi (sa médiane en vient) ; celles
   // qui sortent du lot sont aussi promues dans radarSignals.
+  // La mesure du premier relevé GRATUIT (radarFreeMath, « LA MESURE DU PREMIER RELEVÉ GRATUIT ») : le premier relevé
+  // payant d'un compte sur 4, et à côté le même compte relevé gratuitement. Rien n'en sert : on compare, puis on
+  // décide (14/11/2026). Au plus 400 lignes.
+  radarFirstReadTrials: defineTable({
+    accountId: v.id("radarTracked"),
+    handle: v.string(),
+    state: v.union(v.literal("pending"), v.literal("done")),
+    paidAt: v.number(),
+    paid: v.array(v.object({ videoId: v.string(), publishedAt: v.number(), views: v.number(), caption: v.optional(v.string()), hook: v.optional(v.string()), musicId: v.optional(v.string()), region: v.optional(v.string()), lang: v.optional(v.string()) })),
+    freeAt: v.optional(v.number()),
+    free: v.optional(
+      v.object({
+        ok: v.boolean(),
+        why: v.optional(v.string()),
+        listed: v.number(), // vidéos de la liste du profil
+        pages: v.number(),
+        // La liste du profil (vues, date de l'identifiant) et ce que les pages des vidéos ont donné.
+        list: v.array(v.object({ videoId: v.string(), publishedAt: v.number(), views: v.number() })),
+        videos: v.array(v.object({ videoId: v.string(), publishedAt: v.number(), views: v.number(), caption: v.optional(v.string()), hook: v.optional(v.string()), musicId: v.optional(v.string()), region: v.optional(v.string()), lang: v.optional(v.string()) })),
+      }),
+    ),
+  })
+    .index("by_state_paid", ["state", "paidAt"])
+    .index("by_paid", ["paidAt"]),
+
   radarTrackedVideos: defineTable({
     accountId: v.id("radarTracked"),
     appId: v.id("radarApps"),
@@ -4678,6 +4711,8 @@ export default defineSchema({
     calls: v.number(),
     errors: v.number(),
     usd: v.optional(v.number()), // dépense en dollars (l'analyse IA), hors crédits
+    // Crédits par motif (relevés de comptes : premier, repli, trou, retard, coupure, sonde ; cf radarFreeMath.PaidReason).
+    reasons: v.optional(v.record(v.string(), v.number())),
   })
     .index("by_month", ["month"])
     .index("by_day_poste", ["day", "poste"]),

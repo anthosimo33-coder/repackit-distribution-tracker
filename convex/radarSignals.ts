@@ -57,7 +57,9 @@ import {
   ratioOf,
   creditAlert,
   CREDIT_RESERVE,
+  recentPerDay,
   type Balance,
+  type CreditAlertKind,
   type BudgetSettings,
   type SignalInput,
 } from "./radarSignalsMath";
@@ -551,7 +553,7 @@ export type JobState = {
   /** Le solde ScrapeCreators lu au dernier appel payant (`null` : jamais lu). Il borne chaque poste (budgetState). */
   balance: Balance | null;
   /** Jours (Paris) où l'alerte de solde de chaque genre est déjà partie. */
-  creditAlerted: { low?: string; reserve?: string };
+  creditAlerted: Partial<Record<CreditAlertKind, string>>;
   /** La dépense des 4 derniers jours, mois précédent compris : le rythme qui dit combien de jours le solde tient. */
   recentUsage: { poste: string; credits: number; day: string }[];
 };
@@ -574,9 +576,11 @@ export const jobState = internalQuery({
       usage: usage.map((u) => ({ poste: u.poste, credits: u.credits, day: u.day, ...(u.usd !== undefined ? { usd: u.usd } : {}) })),
       day,
       month,
-      balance: remaining !== undefined ? { remaining, seenAt: settings?.creditsSeenAt ?? 0, now } : null,
+      balance: remaining !== undefined ? { remaining, seenAt: settings?.creditsSeenAt ?? 0, now, perDay: recentPerDay(recent, day) } : null,
       creditAlerted: {
         ...(settings?.lowCreditsAlertDay ? { low: settings.lowCreditsAlertDay } : {}),
+        ...(settings?.economieAlertDay ? { economie: settings.economieAlertDay } : {}),
+        ...(settings?.survieAlertDay ? { survie: settings.survieAlertDay } : {}),
         ...(settings?.reserveAlertDay ? { reserve: settings.reserveAlertDay } : {}),
       },
       recentUsage: recent.map((u) => ({ poste: u.poste, credits: u.credits, day: u.day })),
@@ -720,6 +724,8 @@ export const recordRun = internalMutation({
     cursor: v.optional(v.number()),
     // Dépense en dollars (l'analyse IA), en plus des crédits.
     usd: v.optional(v.number()),
+    // Crédits de ce passage par motif (déjà comptés dans `credits`).
+    reasons: v.optional(v.record(v.string(), v.number())),
   },
   handler: async (ctx, a): Promise<void> => {
     const settings = await ensureSettings(ctx);
@@ -730,10 +736,13 @@ export const recordRun = internalMutation({
         .withIndex("by_day_poste", (q) => q.eq("day", day).eq("poste", a.poste))
         .first();
       const usd = a.usd !== undefined ? { usd: (row?.usd ?? 0) + a.usd } : {};
+      const reasons: Record<string, number> = { ...(row?.reasons ?? {}) };
+      for (const [k, c] of Object.entries(a.reasons ?? {})) reasons[k] = (reasons[k] ?? 0) + c;
+      const why = Object.keys(reasons).length ? { reasons } : {};
       if (row) {
-        await ctx.db.patch(row._id, { credits: row.credits + a.credits, calls: row.calls + a.calls, errors: row.errors + a.errors, ...usd });
+        await ctx.db.patch(row._id, { credits: row.credits + a.credits, calls: row.calls + a.calls, errors: row.errors + a.errors, ...usd, ...why });
       } else {
-        await ctx.db.insert("radarUsage", { day, month: monthKeyParis(a.now), poste: a.poste, credits: a.credits, calls: a.calls, errors: a.errors, ...usd });
+        await ctx.db.insert("radarUsage", { day, month: monthKeyParis(a.now), poste: a.poste, credits: a.credits, calls: a.calls, errors: a.errors, ...usd, ...why });
       }
     }
     const field = LAST_RUN_FIELD[a.poste];
@@ -762,10 +771,10 @@ export const claimAlert = internalMutation({
 
 /** Réserve l'alerte de solde d'un genre pour la journée (Paris) : vrai une seule fois par jour. */
 export const claimCreditAlert = internalMutation({
-  args: { kind: v.union(v.literal("low"), v.literal("reserve")), day: v.string() },
+  args: { kind: v.union(v.literal("low"), v.literal("economie"), v.literal("survie"), v.literal("reserve")), day: v.string() },
   handler: async (ctx, { kind, day }): Promise<boolean> => {
     const s = await ensureSettings(ctx);
-    const field = kind === "low" ? "lowCreditsAlertDay" : "reserveAlertDay";
+    const field = ({ low: "lowCreditsAlertDay", economie: "economieAlertDay", survie: "survieAlertDay", reserve: "reserveAlertDay" } as const)[kind];
     if (s[field] === day) return false;
     await ctx.db.patch(s._id, { [field]: day });
     return true;
@@ -828,7 +837,11 @@ export async function maybeAlert(ctx: ActionCtx, now: number): Promise<void> {
     lines.push(
       credit.kind === "reserve"
         ? `🛑 Radar : plus que ${left} crédits ScrapeCreators, sous la réserve de ${int(CREDIT_RESERVE)}. Relevés payants, recherches de réseaux et découverte sont à l'arrêt (les relevés gratuits continuent). Ils repartent seuls dans l'heure qui suit l'achat d'un pack.`
-        : `⛽ Radar : plus que ${left} crédits ScrapeCreators. Au rythme des derniers jours, le Radar arrête ses relevés payants dans environ ${int(Math.max(0, credit.days ?? 0) * 24)} heures (sous la réserve de ${int(CREDIT_RESERVE)} crédits).`,
+        : credit.kind === "survie"
+          ? `🔻 Radar en survie : plus que ${left} crédits ScrapeCreators, moins d'un jour avant la réserve. Seuls les relevés des comptes suivis et la recherche de routine des concurrentes continuent ; les nouveaux comptes et les autres apps attendent. Tout reprend, sans rien perdre, à l'achat d'un pack.`
+          : credit.kind === "economie"
+            ? `⚠️ Radar en économie : plus que ${left} crédits ScrapeCreators, moins de 2 jours avant la réserve. Découverte, transcriptions, pubs et recherches complètes des apps non concurrentes sont reportées ; les comptes suivis restent relevés. Tout reprend, sans rien perdre, à l'achat d'un pack.`
+            : `⛽ Radar : plus que ${left} crédits ScrapeCreators. Au rythme des derniers jours, le Radar arrête ses relevés payants dans environ ${int(Math.max(0, credit.days ?? 0) * 24)} heures (sous la réserve de ${int(CREDIT_RESERVE)} crédits).`,
     );
   }
   if (b.over80 && (await ctx.runMutation(internal.radarSignals.claimAlert, { month: st.month }))) {
@@ -1074,7 +1087,10 @@ export async function getRadarBudgetCore(ctx: ProjectQueryCtx) {
   const month = monthKeyParis(now);
   const usage = await monthUsage(ctx, month);
   const remaining = settings?.creditsRemaining;
-  const state = budgetState(budget, usage, remaining !== undefined ? { remaining, seenAt: settings?.creditsSeenAt ?? 0, now } : null);
+  // Le rythme des derniers jours complets, mois précédent compris (comme jobState) : il dit le palier du solde.
+  const recent = await ctx.db.query("radarUsage").withIndex("by_day_poste", (q) => q.gte("day", dayKeyParis(now - 4 * DAY))).collect();
+  const perDay = recentPerDay(recent, dayKeyParis(now));
+  const state = budgetState(budget, usage, remaining !== undefined ? { remaining, seenAt: settings?.creditsSeenAt ?? 0, now, perDay } : null);
   return {
     month,
     budget,
@@ -1101,7 +1117,11 @@ export async function getRadarBudgetCore(ctx: ProjectQueryCtx) {
       creditsSeenAt: settings?.creditsSeenAt ?? null,
       // Sous ce solde, les postes payants s'arrêtent (radarSignalsMath.CREDIT_RESERVE).
       creditReserve: CREDIT_RESERVE,
+      // Comptes que la voie gratuite n'a pas eu le temps de prendre au dernier passage, et qui l'attendent.
+      freeWaiting: settings?.lastFreeWaiting ?? null,
     },
+    // Les relevés de comptes payés aujourd'hui, par motif (radarFreeMath.PaidReason).
+    readsToday: recent.find((u) => u.day === dayKeyParis(now) && u.poste === "tiktok")?.reasons ?? null,
     alertHere: settings?.alertProjectId === ctx.projectId,
   };
 }

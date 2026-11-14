@@ -81,10 +81,28 @@ export async function scSearchRecent(query: string, region: string, lang: string
 
 /** Les dernières vidéos d'un compte (9 par crédit, vérifié le 06/11/2026). */
 export async function scProfileVideos(handle: string): Promise<ScCall<SignalInput[]>> {
-  const r = await scGet("/v3/tiktok/profile/videos", { handle, sort_by: "latest" });
+  const r = await scProfileVideosPage(handle);
+  return r.ok ? { ...r, value: r.value.videos } : r;
+}
+
+/**
+ * Une page des vidéos d'un compte, 1 crédit. `cursor` : le `max_cursor` de la page d'avant (doc ScrapeCreators,
+ * /v3/tiktok/profile/videos) ; `next` est `null` quand il n'y a plus rien derrière.
+ */
+export async function scProfileVideosPage(handle: string, cursor?: string): Promise<ScCall<{ videos: SignalInput[]; next: string | null }>> {
+  const r = await scGet("/v3/tiktok/profile/videos", { handle, sort_by: "latest", ...(cursor ? { max_cursor: cursor } : {}) });
   if (!r.ok) return r;
   const list = Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];
-  return { ...r, value: list.map((it) => parseScVideo(it)).filter((x): x is SignalInput => x !== null) };
+  return { ...r, value: { videos: list.map((it) => parseScVideo(it)).filter((x): x is SignalInput => x !== null), next: profileNextCursor(r.value, cursor) } };
+}
+
+/** Le curseur de la page suivante : `max_cursor` quand `has_more` le dit, jamais le même que celui demandé (sinon on tournerait en rond). */
+export function profileNextCursor(body: Record<string, unknown>, cursor?: string): string | null {
+  const more = body.has_more === true || body.has_more === 1;
+  const raw = body.max_cursor;
+  if (!more || (typeof raw !== "string" && typeof raw !== "number")) return null;
+  const next = String(raw);
+  return next !== "" && next !== "0" && next !== cursor ? next : null;
 }
 
 /**
