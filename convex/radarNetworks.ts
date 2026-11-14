@@ -2004,6 +2004,7 @@ export const e2eClearNetwork = e2eMutation({
         for (const vid of await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", t._id)).collect()) {
           await ctx.db.delete(vid._id);
         }
+        for (const j of await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect()) await ctx.db.delete(j._id);
         await ctx.db.delete(t._id);
       }
       await ctx.db.delete(a._id);
