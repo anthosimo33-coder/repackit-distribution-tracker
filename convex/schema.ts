@@ -4291,6 +4291,7 @@ export default defineSchema({
     accountsLeaseUntil: v.optional(v.number()), // un passage de relevé de comptes tourne jusqu'à cette heure (verrou)
     accountsRerun: v.optional(v.boolean()), // un passage a été demandé pendant qu'un autre tournait : relancé à sa fin
     rejudgeCursor: v.optional(v.string()), // où reprend le rejugement des comptes en pause (convex/radarNetworks)
+    judgeCursor: v.optional(v.string()), // où reprend le jugement IA des comptes à preuve faible (convex/radarJudge)
     lastDiscoveryAt: v.optional(v.number()),
     lastCurveAt: v.optional(v.number()),
     lastAccountsAt: v.optional(v.number()),
@@ -4346,6 +4347,16 @@ export default defineSchema({
     pitch: v.optional(v.string()),
     nicheBy: v.optional(v.union(v.literal("hand"), v.literal("ai"))),
     nicheAt: v.optional(v.number()),
+    // Ce qu'est le produit, jugé par l'IA (convex/radarJudge, phase A du lot 4 : rangé, RIEN ne le lit pour décider).
+    nature: v.optional(
+      v.object({
+        digital: v.boolean(),
+        kind: v.union(v.literal("app"), v.literal("saas"), v.literal("jeu"), v.literal("ecommerce"), v.literal("marque"), v.literal("media"), v.literal("autre")),
+        aboutIt: v.union(v.literal("oui"), v.literal("non"), v.literal("incertain")),
+        why: v.string(),
+      }),
+    ),
+    natureAt: v.optional(v.number()),
     // Sa fiche App Store, quand elle vient des classements.
     store: v.optional(v.object({ storeId: v.string(), artist: v.string(), genre: v.string(), released: v.string() })),
     // Ce qu'elle paie aux créateurs, quand elle vient d'une place de marché de campagnes.
@@ -4445,6 +4456,20 @@ export default defineSchema({
 
   // Toutes les vidéos relevées d'un compte suivi (sa médiane en vient) ; celles
   // qui sortent du lot sont aussi promues dans radarSignals.
+  // Le jugement de l'IA sur un compte à preuve faible (convex/radarJudge, phase A du lot 4 du dig, 14/11/2026) :
+  // pousse-t-il CE produit ? Rangé à part, le compte ne change pas ; sert à mesurer avant de décider.
+  radarAccountJudgments: defineTable({
+    accountId: v.id("radarTracked"),
+    appId: v.id("radarApps"),
+    handle: v.string(),
+    weak: v.string(), // pourquoi sa preuve est faible (radarJudgeMath.WeakWhy)
+    proof: v.object({ by: v.union(v.string(), v.null()), cites: v.number(), of: v.number() }),
+    verdict: v.union(v.literal("pousse"), v.literal("autre_app"), v.literal("sans_rapport"), v.literal("placement"), v.literal("incertain")),
+    other: v.optional(v.string()), // l'autre produit qu'il pousse (« autre_app »)
+    why: v.string(),
+    at: v.number(),
+  }).index("by_account", ["accountId"]),
+
   // La mesure du premier relevé GRATUIT (radarFreeMath, « LA MESURE DU PREMIER RELEVÉ GRATUIT ») : le premier relevé
   // payant d'un compte sur 4, et à côté le même compte relevé gratuitement. Rien n'en sert : on compare, puis on
   // décide (14/11/2026). Au plus 400 lignes.
