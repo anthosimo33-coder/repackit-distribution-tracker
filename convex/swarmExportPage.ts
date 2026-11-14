@@ -191,9 +191,13 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
         if (t.status !== "active") continue;
         const app = apps.get(t.appId);
         const texts = (await videosOf(ctx, t._id, MEDIAN_WINDOW)).filter((x) => !x.platform).map((x) => `${x.caption ?? ""} ${x.hook ?? ""}`);
-        // Un placement payé cite peu son app par nature : il part quand même, marqué, pour que Swarm compte et étiquette sa vidéo.
-        if (app && !t.placement && proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by === null) continue;
-        rows.push(projectTracked(t));
+        // Relié à son app : par sa preuve, par un placement payé (il cite peu son app par nature, mais sa vidéo compte et
+        // s'étiquette), ou parce que l'IA dit qu'il la pousse. Sinon il part « en pause » : pas un créateur pour Swarm,
+        // qui ne liste que les comptes actifs, mais ses vidéos gardent leur pseudo et leur lien (#513). Aucune
+        // justification ne part.
+        const judged = app ? await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).first() : null;
+        const linked = !app || t.placement === true || judged?.verdict === "pousse" || proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
+        rows.push(linked ? projectTracked(t) : { ...projectTracked(t), status: "paused" as const });
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };
     }
