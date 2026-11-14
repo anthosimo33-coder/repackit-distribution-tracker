@@ -84,9 +84,12 @@ crons.hourly("radar-signals-curve", { minuteUTC: 40 }, internal.radarSignals.run
 crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radarSignals.purgeOldSignals, {});
 // Réseaux d'apps (convex/radarNetworks) : recherche du réseau des apps dues chaque heure
 // (la première recherche d'une app est complète, les suivantes courtes, chaque semaine), relevé
-// des comptes suivis chaque heure (chacun à son rythme : actif chaque jour, calme tous les 3 jours).
+// des comptes suivis toutes les 10 minutes (chacun à son rythme : actif chaque jour, calme tous les 3 jours) : ce que
+// la voie gratuite n'a pas eu le temps de prendre attend le passage suivant au lieu d'être payé (radarFreeMath).
 crons.interval("radar-networks-search", { hours: 1 }, internal.radarNetworks.runNetworkSearch, {});
-crons.hourly("radar-networks-accounts", { minuteUTC: 20 }, internal.radarNetworks.runAccountReads, {});
+crons.interval("radar-networks-accounts", { minutes: 10 }, internal.radarNetworks.runAccountReads, {});
+// La mesure du premier relevé gratuit (convex/radarFirstReadTrial) : 0 crédit, ~100 comptes par jour au plus, 400 en tout.
+crons.interval("radar-first-read-trials", { minutes: 15 }, internal.radarFirstReadTrial.runFirstReadTrials, {});
 // Le résumé du réseau de chaque app (ce que montre l'onglet Comptes suivis), refait chaque heure après les relevés.
 crons.hourly("radar-networks-summary", { minuteUTC: 35 }, internal.radarNetworks.refreshAppNets, {});
 crons.daily("radar-networks-purge", { hourUTC: 3, minuteUTC: 55 }, internal.radarNetworks.purgeNetworks, {});

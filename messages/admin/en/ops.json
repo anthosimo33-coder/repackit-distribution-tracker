@@ -225,7 +225,9 @@
     "collecteActive": "Collection on · {depense} spent of {plafond} this month",
     "collectePlafond": "Collection stopped: {plafond} cap reached this month",
     "collecteSansCle": "Collection paused: no ScrapeCreators key",
-    "collecteReserve": "Paid collection paused: balance below the {reserve}-credit reserve"
+    "collecteReserve": "Paid collection paused: balance below the {reserve}-credit reserve",
+    "collecteEconomie": "Economy: under 2 days of credits, discovery and new apps postponed",
+    "collecteSurvie": "Survival: under 1 day of credits, only tracked accounts are read"
   },
   "RadarSignals": {
     "rechercher": "Search",
@@ -444,7 +446,17 @@
     "aucuneDepense": "Nothing spent this month.",
     "creditsCourt": "{n} cr.",
     "relevesDeComptes": "Account readings",
-    "reserveAtteinte": "The balance is below the {reserve}-credit reserve: paid reads, network searches and discovery are paused; free reads go on. Everything restarts on its own within an hour of buying a pack."
+    "reserveAtteinte": "The balance is below the {reserve}-credit reserve: paid reads, network searches and discovery are paused; free reads go on. Everything restarts on its own within an hour of buying a pack.",
+    "palierEconomie": "Under 2 days of credits before the reserve: discovery, transcripts, ads and full searches of non-rival apps are postponed; tracked accounts are still read. Everything resumes, with nothing lost, when a pack is bought.",
+    "palierSurvie": "Under 1 day of credits before the reserve: only tracked-account reads and rival apps’ routine searches go on; new accounts and other apps wait. Everything resumes, with nothing lost, when a pack is bought.",
+    "relevesPayesDuJour": "Paid account reads today: {detail}.",
+    "attenteVoieGratuite": "{n, plural, =0 {No account is waiting for the free lane.} one {# account is waiting for the free lane (runs every 10 minutes).} other {# accounts are waiting for the free lane (runs every 10 minutes).}}",
+    "motifPremier": "{n} first reads",
+    "motifRepli": "{n} free-read fallbacks",
+    "motifTrou": "{n} gapped lists",
+    "motifRetard": "{n} late",
+    "motifCoupure": "{n} free lane closed",
+    "motifSonde": "{n} balance probe"
   },
   "RadarNetworks": {
     "comptesSuivis": "{actifs} accounts read out of {max} possible · {total} in total",

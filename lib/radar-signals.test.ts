@@ -17,8 +17,13 @@ import {
   BALANCE_PROBE_MS,
   CREDIT_RESERVE,
   creditAlert,
+  creditTier,
   daysOfCredits,
   needsBalanceProbe,
+  recentPerDay,
+  tierDefers,
+  ECONOMY_DAYS,
+  SURVIVAL_DAYS,
 } from "../convex/radarSignalsMath";
 import {
   DISCOVERY_QUERIES,
@@ -402,6 +407,46 @@ describe("budget", () => {
     expect(creditAlert(etat(CREDIT_RESERVE), usage, "2026-11-14", { reserve: "2026-11-14" })).toBeNull();
     // Solde jamais lu : aucune alerte (absent n'est pas nul).
     expect(creditAlert(etat(null), usage, "2026-11-14", {})).toBeNull();
+  });
+
+  it("les paliers du solde (14/11) : rien ne change au-delà de 2 jours ; ensuite on REPORTE, les comptes suivis jamais", () => {
+    expect([ECONOMY_DAYS, SURVIVAL_DAYS]).toEqual([2, 1]);
+    // 2 000 crédits par jour : 4 000 au-dessus de la réserve = 2 jours pile, normal ; un crédit de moins, économie.
+    expect(creditTier(4_000, 2_000)).toEqual({ tier: "normal", daysLeft: 2 });
+    expect(creditTier(3_999, 2_000).tier).toBe("economie");
+    expect(creditTier(2_000, 2_000).tier).toBe("economie");
+    expect(creditTier(1_999, 2_000).tier).toBe("survie");
+    expect(creditTier(0, 2_000)).toEqual({ tier: "reserve", daysLeft: 0 });
+    // Rythme ou solde inconnus : rien ne change (absent n'est pas nul).
+    expect(creditTier(10, null).tier).toBe("normal");
+    expect(creditTier(null, 2_000).tier).toBe("normal");
+    // Le rythme : les 3 derniers jours complets, aujourd'hui exclu.
+    const jour = (day: string, credits: number) => ({ poste: "tiktok", credits, day });
+    expect(recentPerDay([jour("2026-11-11", 1_000), jour("2026-11-12", 2_000), jour("2026-11-13", 3_000), jour("2026-11-14", 9_999)], "2026-11-14")).toBe(2_000);
+    // L'état du budget coupe découverte, transcriptions et pubs en économie et en survie ; rien d'autre.
+    const lu = (remaining: number) => ({ remaining, seenAt: 0, now: 0, perDay: 2_000 });
+    expect(budgetState(d, [], lu(CREDIT_RESERVE + 10_000)).cut).toEqual([]);
+    const eco = budgetState(d, [], lu(CREDIT_RESERVE + 3_000));
+    expect([eco.tier, [...eco.cut].sort()]).toEqual(["economie", ["ads", "search", "transcript"]]);
+    for (const k of ["tiktok", "network", "insta", "curve"] as const) expect(eco.cut).not.toContain(k);
+    expect(allowance(d, eco, "search", 0, 4)).toBe(0);
+    expect(allowance(d, eco, "tiktok", 0, 24)).toBeGreaterThan(0);
+    expect(budgetState(d, [], lu(CREDIT_RESERVE + 1_000)).tier).toBe("survie");
+    // Ce que chaque palier reporte en plus, hors postes.
+    expect(tierDefers("normal")).toEqual({ deep: false, routine: false, firstReads: false });
+    expect(tierDefers("economie")).toEqual({ deep: true, routine: false, firstReads: false });
+    expect(tierDefers("survie")).toEqual({ deep: true, routine: true, firstReads: true });
+    expect(tierDefers("reserve")).toEqual({ deep: false, routine: false, firstReads: false });
+  });
+
+  it("l'alerte d'un palier part une fois par jour, même si « moins de 3 jours » est déjà parti", () => {
+    const jour = (day: string, credits: number) => ({ poste: "tiktok", credits, day });
+    const usage = [jour("2026-11-11", 2_000), jour("2026-11-12", 2_000), jour("2026-11-13", 2_000)];
+    const etat = (remaining: number) => budgetState(d, [], { remaining, seenAt: 0, now: 0 });
+    expect(creditAlert(etat(CREDIT_RESERVE + 5_000), usage, "2026-11-14", {})?.kind).toBe("low");
+    expect(creditAlert(etat(CREDIT_RESERVE + 3_000), usage, "2026-11-14", { low: "2026-11-14" })?.kind).toBe("economie");
+    expect(creditAlert(etat(CREDIT_RESERVE + 3_000), usage, "2026-11-14", { low: "2026-11-14", economie: "2026-11-14" })).toBeNull();
+    expect(creditAlert(etat(CREDIT_RESERVE + 1_000), usage, "2026-11-14", { low: "2026-11-14", economie: "2026-11-14" })?.kind).toBe("survie");
   });
 
   it("donne à un passage sa part du jour, bornée par ce qui reste aujourd'hui", () => {

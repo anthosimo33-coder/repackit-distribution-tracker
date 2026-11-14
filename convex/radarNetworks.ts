@@ -74,8 +74,26 @@ import { LANG_BY_HAND, OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
 import { screenLang } from "./radarTextLang";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
-import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot } from "./radarSignalsMath";
-import { FREE_LANE_MAX_MS, FREE_READS_PER_RUN, FREE_RETRY_MS, freeRead, paced, retrying, runFreeLane, type FreePage, type KnownVideo } from "./radarFreeMath";
+import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot, tierDefers, type SignalInput } from "./radarSignalsMath";
+import {
+  FREE_LANE_MAX_MS,
+  FREE_READS_PER_RUN,
+  FREE_RETRY_MS,
+  GAP_PAGES,
+  freeRead,
+  gapReached,
+  laneOrder,
+  overflowToPay,
+  paced,
+  retrying,
+  runFreeLane,
+  trialPick,
+  type FreePage,
+  type KnownVideo,
+  type NewestKnown,
+  type PaidReason,
+} from "./radarFreeMath";
+import { asTrialVideo } from "./radarFirstReadTrial";
 import { fetchEmbedPage, storePauseMs, storeUrl } from "./radarStoreMath";
 import { linkCandidate } from "./radarFiche";
 import { accountProof } from "./radarVetMath";
@@ -97,7 +115,7 @@ import {
   type RunResult,
   type TrackedCounter,
 } from "./radarSignals";
-import { scKeyPresent, scNetworkPage, scProfileVideos } from "./scrapeCreatorsApi";
+import { scKeyPresent, scNetworkPage, scProfileVideosPage } from "./scrapeCreatorsApi";
 import { deliver } from "./notifications";
 import { escapeTelegram, notifyConfig } from "./notifyApi";
 
@@ -121,7 +139,8 @@ const videoUrl = (handle: string, videoId: string) => `https://www.tiktok.com/@$
 
 type DueApp = { id: Id<"radarApps">; name: string; searches: string[]; rival: boolean; deep: boolean };
 /** `located` : on connaît déjà le pays d'où le compte publie. `first` : il n'a encore jamais été relevé. */
-type DueAccount = { id: Id<"radarTracked">; handle: string; located: boolean; first: boolean };
+/** Un compte dû : `dueAt` (son `nextReadAt`) et `lastPostAt` disent à la voie gratuite s'il peut attendre (radarFreeMath.overflowToPay). */
+type DueAccount = { id: Id<"radarTracked">; handle: string; located: boolean; first: boolean; dueAt: number; lastPostAt?: number };
 
 export const dueApps = internalQuery({
   args: { now: v.number() },
@@ -154,7 +173,14 @@ async function freeKnownCore(ctx: QueryCtx, accountId: Id<"radarTracked">, video
     const k = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", videoId)).first();
     // Une vidéo n'est « connue » que rangée sous CE compte.
     if (k && k.accountId === accountId) {
-      out.push({ videoId, ...(k.hook ? { hook: k.hook } : {}), ...(k.musicId ? { musicId: k.musicId } : {}), ...(k.musicTitle ? { musicTitle: k.musicTitle } : {}), ...(k.region ? { region: k.region } : {}) });
+      out.push({
+        videoId,
+        publishedAt: k.publishedAt,
+        ...(k.hook ? { hook: k.hook } : {}),
+        ...(k.musicId ? { musicId: k.musicId } : {}),
+        ...(k.musicTitle ? { musicTitle: k.musicTitle } : {}),
+        ...(k.region ? { region: k.region } : {}),
+      });
     }
   }
   return out;
@@ -165,10 +191,42 @@ export const freeKnown = internalQuery({
   handler: (ctx, { accountId, videoIds }): Promise<KnownVideo[]> => freeKnownCore(ctx, accountId, videoIds),
 });
 
+/**
+ * La vidéo TikTok la plus récente qu'on a de ce compte, pour contrôler que la liste de son profil va jusqu'à elle
+ * (radarFreeMath.listGap). `null` quand on n'en a aucune, ou quand c'est celle qu'un relevé payant n'a déjà pas
+ * retrouvée (supprimée : `gapChecked`) — sinon chaque relevé du compte repartirait en payant.
+ */
+async function freeNewestCore(ctx: QueryCtx, accountId: Id<"radarTracked">): Promise<NewestKnown | null> {
+  const acc = await ctx.db.get(accountId);
+  const rows = await ctx.db
+    .query("radarTrackedVideos")
+    .withIndex("by_account_published", (q) => q.eq("accountId", accountId))
+    .order("desc")
+    .take(6);
+  const top = rows.find((r) => !r.platform);
+  if (!top || top.videoId === acc?.gapChecked) return null;
+  return { videoId: top.videoId, publishedAt: top.publishedAt };
+}
+
+export const freeNewest = internalQuery({
+  args: { accountId: v.id("radarTracked") },
+  handler: (ctx, { accountId }): Promise<NewestKnown | null> => freeNewestCore(ctx, accountId),
+});
+
+/** Le relevé payant d'un trou n'a pas retrouvé cette vidéo (supprimée, rendue privée) : elle ne déclenche plus de trou. */
+export const markGapChecked = internalMutation({
+  args: { accountId: v.id("radarTracked"), videoId: v.string() },
+  handler: async (ctx, { accountId, videoId }) => {
+    await ctx.db.patch(accountId, { gapChecked: videoId });
+    return null;
+  },
+});
+
 /** Ce qu'un passage a relevé gratuitement, et ce qu'il a dû relever en payant. */
 export const noteFreeRun = internalMutation({
-  args: { ok: v.number(), fallback: v.number(), stopped: v.union(v.string(), v.null()), now: v.number() },
-  handler: async (ctx, { ok, fallback, stopped, now }) => {
+  // waiting : les comptes que la voie n'a pas eu le temps de prendre et qui attendent le passage suivant.
+  args: { ok: v.number(), fallback: v.number(), stopped: v.union(v.string(), v.null()), waiting: v.optional(v.number()), now: v.number() },
+  handler: async (ctx, { ok, fallback, stopped, waiting, now }) => {
     const s = await ensureSettings(ctx);
     await ctx.db.patch(s._id, {
       freeReads: (s.freeReads ?? 0) + ok,
@@ -177,6 +235,7 @@ export const noteFreeRun = internalMutation({
       lastFreeOk: ok,
       lastFreeFallback: fallback,
       lastFreeStop: stopped ?? undefined,
+      lastFreeWaiting: waiting ?? 0,
     });
     return null;
   },
@@ -205,9 +264,28 @@ export const dueAccounts = internalQuery({
       due: rows
         .filter((r) => active.has(r.appId))
         .slice(0, limit)
-        .map((r) => ({ id: r._id, handle: r.handle, located: r.country !== undefined, first: r.readAt === undefined })),
+        .map((r) => ({
+          id: r._id,
+          handle: r.handle,
+          located: r.country !== undefined,
+          first: r.readAt === undefined,
+          dueAt: r.nextReadAt,
+          ...(r.lastPostAt !== undefined ? { lastPostAt: r.lastPostAt } : {}),
+        })),
       parked: rows.filter((r) => !active.has(r.appId)).map((r) => r._id),
     };
+  },
+});
+
+/** Au palier « survie », le premier relevé d'un nouveau compte attend une heure, puis est revu. */
+const FIRST_READ_WAIT_MS = 60 * 60_000;
+
+/** Repousse le relevé de ces comptes jusqu'à `until` (premiers relevés au palier « survie »). */
+export const deferAccounts = internalMutation({
+  args: { ids: v.array(v.id("radarTracked")), until: v.number() },
+  handler: async (ctx, { ids, until }) => {
+    for (const id of ids) await ctx.db.patch(id, { nextReadAt: until });
+    return null;
   },
 });
 
@@ -224,7 +302,7 @@ export const probeAccount = internalQuery({
   args: {},
   handler: async (ctx): Promise<DueAccount | null> => {
     const r = await ctx.db.query("radarTracked").withIndex("by_due", (q) => q.eq("status", "active")).first();
-    return r ? { id: r._id, handle: r.handle, located: r.country !== undefined, first: r.readAt === undefined } : null;
+    return r ? { id: r._id, handle: r.handle, located: r.country !== undefined, first: r.readAt === undefined, dueAt: r.nextReadAt } : null;
   },
 });
 
@@ -952,8 +1030,8 @@ export const markReadError = internalMutation({
  * et son issue (radarApps.networkSearch) : l'écran les affiche.
  */
 export const runNetworkSearch = internalAction({
-  args: { appId: v.optional(v.id("radarApps")) },
-  handler: async (ctx, { appId }): Promise<RunResult> => {
+  args: { appId: v.optional(v.id("radarApps")), auto: v.optional(v.boolean()) },
+  handler: async (ctx, { appId, auto }): Promise<RunResult> => {
     const now = Date.now();
     if (!scKeyPresent()) {
       if (appId) await ctx.runMutation(internal.radarNetworks.finishNetworkSearch, { appId, now, outcome: "no-key", searched: false });
@@ -972,6 +1050,14 @@ export const runNetworkSearch = internalAction({
     } else {
       // Budget du passage déjà à zéro : aucune app touchée (sa dernière issue reste affichée).
       due = left0 > 0 ? await ctx.runQuery(internal.radarNetworks.dueApps, { now }) : [];
+    }
+    // Palier du solde (radarSignalsMath.creditTier) : les recherches complètes, puis la routine, des apps non
+    // concurrentes attendent qu'un pack soit acheté (elles restent dues). Jamais une recherche demandée à l'écran.
+    const defers = tierDefers(b.tier);
+    const deferred = !appId || auto ? due.filter((a) => !a.rival && (defers.routine || (defers.deep && a.deep))) : [];
+    if (deferred.length) {
+      due = due.filter((a) => !deferred.includes(a));
+      if (appId) await ctx.runMutation(internal.radarNetworks.finishNetworkSearch, { appId, now, outcome: "budget", searched: false });
     }
     // La dépense est écrite après chaque app (cf usageWriter) : un passage qui tombe en route ne la fait plus disparaître.
     const usage = usageWriter(ctx, "network", now);
@@ -1111,26 +1197,37 @@ export const runAccountReads = internalAction({
 function usageWriter(ctx: ActionCtx, poste: string, now: number) {
   const spent = { credits: 0, calls: 0, errors: 0 };
   const written = { credits: 0, calls: 0, errors: 0 };
+  /** Les crédits par motif (relevés de comptes, cf radarFreeMath.PaidReason), écrits avec le reste. */
+  const reasons: Record<string, number> = {};
+  const reasonsWritten: Record<string, number> = {};
   let balance: { remaining: number; at: number } | undefined;
   let chain: Promise<void> = Promise.resolve();
   const write = async (error?: string) => {
     const d = { credits: spent.credits - written.credits, calls: spent.calls - written.calls, errors: spent.errors - written.errors };
+    const r: Record<string, number> = {};
+    for (const [k, c] of Object.entries(reasons)) if (c - (reasonsWritten[k] ?? 0) > 0) r[k] = c - (reasonsWritten[k] ?? 0);
     if (d.credits <= 0 && d.calls <= 0 && d.errors <= 0 && !error && !balance) return;
     const b = balance;
     await ctx.runMutation(internal.radarSignals.recordRun, {
       poste,
       ...d,
       now,
+      ...(Object.keys(r).length ? { reasons: r } : {}),
       ...(b ? { creditsRemaining: b.remaining, creditsSeenAt: b.at } : {}),
       ...(error ? { lastError: error } : {}),
     });
     written.credits += d.credits;
     written.calls += d.calls;
     written.errors += d.errors;
+    for (const [k, c] of Object.entries(r)) reasonsWritten[k] = (reasonsWritten[k] ?? 0) + c;
     if (balance === b) balance = undefined;
   };
   return {
     spent,
+    /** Des crédits dépensés pour ce motif (en plus de `spent.credits`, qui les compte déjà). */
+    because: (reason: string, credits: number) => {
+      if (credits > 0) reasons[reason] = (reasons[reason] ?? 0) + credits;
+    },
     /** Le solde que l'API vient de donner (plus récent que les précédents). */
     seen: (remaining: number | undefined) => {
       if (remaining !== undefined) balance = { remaining, at: Date.now() };
@@ -1179,23 +1276,51 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
     ),
     () => sleep(FREE_RETRY_MS),
   );
-  /** Un relevé payant : `limit` borne les appels du passage (compté AVANT l'appel : 8 relevés partent de front). */
-  const readPaid = async (acc: DueAccount, limit: number): Promise<"stop" | void> => {
+  /**
+   * Un relevé payant : `limit` borne les appels du passage (compté AVANT l'appel : 8 relevés partent de front).
+   * `gap` : la liste du profil n'allait pas jusqu'à cette vidéo — on lit page après page (GAP_PAGES au plus) jusqu'à
+   * la retrouver, ou dépasser sa date sans la voir (elle n'est plus en ligne : `markGapChecked`).
+   */
+  const readPaid = async (acc: DueAccount, limit: number, reason: PaidReason, gap?: NewestKnown): Promise<"stop" | void> => {
     if (paidCalls >= limit) return;
-    paidCalls++;
-    const r = await scProfileVideos(acc.handle);
-    usage.spent.credits += r.credits;
-    usage.spent.calls++;
-    usage.seen(r.creditsRemaining);
+    const seen = new Set<string>();
+    const all: SignalInput[] = [];
+    let cursor: string | undefined;
+    let reached: { done: boolean; found: boolean } = { done: false, found: false };
     try {
-      if (!r.ok) {
-        usage.spent.errors++;
-        lastError = r.error;
-        if (r.noCredits) return "stop";
-        await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
-        return;
+      for (let page = 0; page < (gap ? GAP_PAGES : 1); page++) {
+        if (page > 0 && paidCalls >= limit) break;
+        paidCalls++;
+        const r = await scProfileVideosPage(acc.handle, cursor);
+        usage.spent.credits += r.credits;
+        usage.spent.calls++;
+        usage.because(reason, r.credits);
+        usage.seen(r.creditsRemaining);
+        if (!r.ok) {
+          usage.spent.errors++;
+          lastError = r.error;
+          if (r.noCredits) return "stop";
+          // Une page suivante qui échoue : ce qui est déjà lu est rangé ; la première : erreur de relevé, comme avant.
+          if (page === 0) await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
+          break;
+        }
+        for (const v of r.value.videos) {
+          if (seen.has(v.videoId)) continue;
+          seen.add(v.videoId);
+          all.push(v);
+        }
+        if (!gap) break;
+        reached = gapReached(all, gap);
+        if (reached.done || !r.value.next) break;
+        cursor = r.value.next;
       }
-      await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: r.value, now });
+      // Rien de lu (erreur à la première page, déjà notée) : rien à ranger.
+      if (all.length) await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: all, now });
+      // Un premier relevé sur 4 est aussi relevé gratuitement à côté, pour mesurer (convex/radarFirstReadTrial).
+      if (reason === "premier" && all.length && trialPick(acc.handle)) {
+        await ctx.runMutation(internal.radarFirstReadTrial.noteFirstReadTrial, { accountId: acc.id, handle: acc.handle, videos: all.map(asTrialVideo), now });
+      }
+      if (gap && reached.done && !reached.found) await ctx.runMutation(internal.radarNetworks.markGapChecked, { accountId: acc.id, videoId: gap.videoId });
     } catch (e) {
       // Un compte dont l'écriture échoue ne fait plus tomber le passage (ni disparaître sa dépense).
       failed(e);
@@ -1204,20 +1329,30 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
       if (usage.pending() >= USAGE_FLUSH_CREDITS) await usage.flush().catch(failed);
     }
   };
-  // Le PREMIER relevé d'un compte est payant : une demande rend tout son historique, là où il faudrait lire une
-  // douzaine de pages. Les suivants passent par la voie gratuite.
-  const firsts = due.filter((a) => a.first);
-  const paid = (list: readonly DueAccount[]): Promise<number> =>
-    pooled(list, ACCOUNT_READ_POOL, (acc) => readPaid(acc, n), () => Date.now() - now < ACCOUNT_READ_MAX_MS);
+  // Le PREMIER relevé d'un compte est payant : une demande rend ses 9 dernières vidéos avec tout leur détail, là où
+  // il faudrait lire une page par vidéo. Les suivants passent par la voie gratuite. Au palier « survie », les nouveaux
+  // comptes attendent (une heure à la fois, pour ne pas boucher la file des comptes suivis) que le solde remonte.
+  const waitFirst = tierDefers(b.tier).firstReads;
+  const firsts = waitFirst ? [] : due.filter((a) => a.first);
+  if (waitFirst && due.some((a) => a.first)) {
+    await ctx.runMutation(internal.radarNetworks.deferAccounts, { ids: due.filter((a) => a.first).map((a) => a.id), until: now + FIRST_READ_WAIT_MS });
+  }
+  const paid = (list: readonly DueAccount[], reason: PaidReason): Promise<number> =>
+    pooled(list, ACCOUNT_READ_POOL, (acc) => readPaid(acc, n, reason), () => Date.now() - now < ACCOUNT_READ_MAX_MS);
   try {
-    // Les deux voies avancent en même temps ; ce que la voie gratuite n'a pas relevé part ensuite en payant.
+    // Les deux voies avancent en même temps. La voie gratuite prend d'abord les comptes qui ont publié ces dernières
+    // 24 heures (leur second regard), puis les plus en retard.
     const [lane] = await Promise.all([
       runFreeLane(
-        due.filter((a) => !a.first),
+        laneOrder(
+          due.filter((a) => !a.first),
+          now,
+        ),
         async (acc) => {
           try {
             const known = (videoIds: string[]): Promise<KnownVideo[]> => ctx.runQuery(internal.radarNetworks.freeKnown, { accountId: acc.id, videoIds });
-            const f = await freeRead(acc.handle, { page: freePage, known }, now, undefined, !acc.located);
+            const newest = (): Promise<NewestKnown | null> => ctx.runQuery(internal.radarNetworks.freeNewest, { accountId: acc.id });
+            const f = await freeRead(acc.handle, { page: freePage, known, newest }, now, undefined, !acc.located);
             if (!f.ok) return f;
             await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: f.videos, light: f.light, profile: f.profile, now });
           } catch (e) {
@@ -1229,17 +1364,32 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
         },
         () => Date.now() - now < FREE_LANE_MAX_MS,
       ),
-      paid(firsts),
+      paid(firsts, "premier"),
     ]);
     const free = lane.state;
-    await paid(lane.toPay);
+    // Ce que le gratuit n'a pas relevé : en payant (une liste trouée, page après page jusqu'à sa dernière vidéo connue).
+    await pooled(
+      lane.failed,
+      ACCOUNT_READ_POOL,
+      (m) => readPaid(m.account, n, m.why === "gap" ? "trou" : "repli", m.why === "gap" ? m.newest : undefined),
+      () => Date.now() - now < ACCOUNT_READ_MAX_MS,
+    );
+    // Ce qu'il n'a pas eu le temps de prendre attend le passage suivant (10 minutes), sauf retard ou voie fermée.
+    const over = overflowToPay(lane.notReached, free.on, Date.now());
+    await paid(over.pay, over.reason);
     // Sous la réserve, le solde n'est plus relu par rien d'autre : un appel d'un crédit le relit (un pack acheté
     // relance le Radar), même si aucun relevé payant n'était dû ou que le poste est coupé.
     if (needsBalanceProbe(b) && paidCalls === 0) {
       const probe: DueAccount | null = due[0] ?? (await ctx.runQuery(internal.radarNetworks.probeAccount, {}));
-      if (probe) await readPaid(probe, 1);
+      if (probe) await readPaid(probe, 1, "sonde");
     }
-    await ctx.runMutation(internal.radarNetworks.noteFreeRun, { ok: free.ok, fallback: free.fallback, stopped: free.stopped, now: Date.now() });
+    await ctx.runMutation(internal.radarNetworks.noteFreeRun, {
+      ok: free.ok,
+      fallback: free.fallback,
+      stopped: free.stopped,
+      waiting: lane.notReached.length - over.pay.length,
+      now: Date.now(),
+    });
     usage.spent.calls += free.ok;
     await usage.flush(lastError);
     const calls = free.ok + paidCalls;
@@ -1456,13 +1606,14 @@ export const listCandidates = permissionQuery("radar.use")({
  * l'écran la montre « en cours » dès cet instant, la tâche y note sa progression
  * puis son issue.
  */
-async function requestNetworkSearch(ctx: MutationCtx, appId: Id<"radarApps">, steps: number, now: number): Promise<void> {
+async function requestNetworkSearch(ctx: MutationCtx, appId: Id<"radarApps">, steps: number, now: number, auto = false): Promise<void> {
   await ctx.db.patch(appId, { networkSearch: { requestedAt: now, step: 0, steps, attached: 0, signals: 0 } });
-  await ctx.scheduler.runAfter(0, internal.radarNetworks.runNetworkSearch, { appId });
+  // `auto` : le suivi d'office (convex/radarAuto) — un palier du solde peut la reporter ; une demande à l'écran, jamais.
+  await ctx.scheduler.runAfter(0, internal.radarNetworks.runNetworkSearch, { appId, ...(auto ? { auto: true } : {}) });
 }
 
 /** Crée une app suivie : ses motifs (cités dans une légende) font aussi ses recherches. */
-async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[]): Promise<Doc<"radarApps">> {
+async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[], auto = false): Promise<Doc<"radarApps">> {
   const clean = cleanText(name.trim(), 60);
   const strong = Array.from(new Set(patterns.map((p) => normalize(p.replace(/^[#@]/, "")).compact).filter((p) => p.length >= 3)));
   if (!clean || strong.length === 0) throw err(ERR.RADAR_APP_INVALID, "Un nom et au moins un motif de 3 caractères.");
@@ -1492,7 +1643,7 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
     source: "manual",
     createdAt: now,
   });
-  await requestNetworkSearch(ctx, id, searches.length, now);
+  await requestNetworkSearch(ctx, id, searches.length, now, auto);
   return (await ctx.db.get(id))!;
 }
 
@@ -1525,8 +1676,10 @@ export async function followCandidateCore(
   rivalOf: string[],
   patterns: string[],
   now: number,
+  // Le suivi d'office (convex/radarAuto), pas le bouton « Suivre » : sa recherche peut attendre un palier du solde.
+  auto = false,
 ): Promise<{ appId: Id<"radarApps">; attached: number }> {
-  const app = await createApp(ctx, name, rivalOf, patterns);
+  const app = await createApp(ctx, name, rivalOf, patterns, auto);
   const counter: TrackedCounter = {};
   let attached = 0;
   // Les comptes d'une app des classements sont déjà prouvés par son contrôle (pseudo, bio, moitié des vidéos) ;

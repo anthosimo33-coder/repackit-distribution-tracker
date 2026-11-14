@@ -92,7 +92,7 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
       continue;
     }
     try {
-      const r = await followCandidateCore(ctx, c, c.label, [], plan.patterns, now);
+      const r = await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true);
       await ctx.db.patch(c._id, { autoAt: now, autoNote: "suivie d'office" });
       followed++;
       attached += r.attached;
