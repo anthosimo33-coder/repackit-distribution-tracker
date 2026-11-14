@@ -4292,6 +4292,9 @@ export default defineSchema({
     accountsRerun: v.optional(v.boolean()), // un passage a été demandé pendant qu'un autre tournait : relancé à sa fin
     rejudgeCursor: v.optional(v.string()), // où reprend le rejugement des comptes en pause (convex/radarNetworks)
     judgeCursor: v.optional(v.string()), // où reprend le jugement IA des comptes à preuve faible (convex/radarJudge)
+    // La reprise des marques à slogan dans la file des contrôles (radarStore.requeueRetagged) : où elle en est, et sa fin.
+    storeRetagCursor: v.optional(v.string()),
+    storeRetagDoneAt: v.optional(v.number()),
     lastDiscoveryAt: v.optional(v.number()),
     lastCurveAt: v.optional(v.number()),
     lastAccountsAt: v.optional(v.number()),
@@ -4357,6 +4360,8 @@ export default defineSchema({
       }),
     ),
     natureAt: v.optional(v.number()),
+    // Dernière fois que ses apps sœurs (les autres apps de son éditeur) ont été demandées à l'App Store (radarStore).
+    siblingsAt: v.optional(v.number()),
     // Sa fiche App Store, quand elle vient des classements.
     store: v.optional(v.object({ storeId: v.string(), artist: v.string(), genre: v.string(), released: v.string() })),
     // Ce qu'elle paie aux créateurs, quand elle vient d'une place de marché de campagnes.

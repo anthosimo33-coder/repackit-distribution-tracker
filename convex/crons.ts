@@ -111,6 +111,8 @@ crons.interval("radar-visibility", { hours: 2 }, internal.radarAvailability.runC
 // hashtags sur les pages publiques de TikTok (150 pages toutes les 5 minutes, aucun crédit).
 crons.interval("radar-store-charts", { hours: 1 }, internal.radarStore.runStoreCharts, {});
 crons.interval("radar-store-checks", { minutes: 5 }, internal.radarStore.runStoreChecks, {});
+// Les apps sœurs (convex/radarStore) : les autres apps de l'éditeur de chaque app suivie entrent dans la même file.
+crons.interval("radar-store-siblings", { hours: 1 }, internal.radarStore.runStoreSiblings, {});
 // Apps et logiciels qui paient des créateurs (convex/radarMarket) : les campagnes d'une place de marché publique —
 // la liste toutes les 6 heures, 40 pages de campagne toutes les 30 minutes (aucun crédit), puis Claude Haiku dit
 // chaque heure quel produit chaque campagne promeut (poste « Analyse IA »).

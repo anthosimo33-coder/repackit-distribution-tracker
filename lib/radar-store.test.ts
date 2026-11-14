@@ -18,6 +18,15 @@ import {
   cutJson,
   feedsForRun,
   firstCheckAt,
+  genreTier,
+  brandCore,
+  needsRetag,
+  artistIdOf,
+  parseLookup,
+  siblingEntries,
+  siblingsDue,
+  SIBLINGS_REFRESH_MS,
+  storeTagsV1,
   handleCarries,
   isBrandAccount,
   isRecentRelease,
@@ -103,9 +112,30 @@ describe("Radar — classements App Store : du nom au hashtag", () => {
   it("deux hashtags par app : la marque, et la marque suivie de « app »", () => {
     expect(storeTags("Drawly: dessiner sur ipad", "Drawly Ltd")).toEqual(["drawly", "drawlyapp"]);
     expect(storeTags("Alta Daily: Digital AI Closet", "Alta")).toEqual(["altadaily", "altadailyapp"]);
-    expect(storeTags("Créateur Musique IA - Mozart", "NineG")).toEqual(["createurmusiqueia", "createurmusiqueiaapp", "nineg"]);
+    expect(storeTagsV1("Créateur Musique IA - Mozart", "NineG")).toEqual(["createurmusiqueia", "createurmusiqueiaapp", "nineg"]);
+    // Depuis le 14/11 : la marque sans ses mots de slogan, et la même suivie de « app ».
+    expect(storeTags("Créateur Musique IA - Mozart", "NineG")).toEqual(["createurmusiqueia", "createurmusiqueiaapp", "nineg", "createurmusique", "createurmusiqueapp"]);
     // Déjà « app » à la fin : pas de « rizzappapp ».
     expect(storeTags("Rizz App", "x")).toEqual(["rizzapp"]);
+  });
+
+  it("une marque à slogan : son cœur sans « IA », « AI », « Pro », « n°1 », une année — le cas Wilgo (14/11/2026)", () => {
+    expect(brandCore("Wilgo IA n°1 - Quiz Révision")).toBe("wilgo");
+    expect(storeTags("Wilgo IA n°1 - Quiz Révision", "Wilgo SAS")).toEqual(["wilgoian1", "wilgoian1app", "wilgo", "wilgoapp"]);
+    expect(brandCore("Blow Up AI: Deviens Viral")).toBe("blowup");
+    expect(brandCore("Fitness Coach Pro 2026")).toBe("fitnesscoach");
+    // Rien à retirer, « App » (déjà lu avec la marque), une phrase de plus de deux mots, ou un cœur trop court : rien.
+    expect(brandCore("Drawly: dessiner sur ipad")).toBeNull();
+    expect(brandCore("Rizz App")).toBeNull();
+    expect(storeTags("Rizz App", "x")).toEqual(["rizzapp"]);
+    expect(brandCore("Hearing Aid Pro 3 for AirPods")).toBeNull();
+    // Trois mots restants, même courts : une phrase, pas un hashtag.
+    expect(brandCore("Go Fit Now AI")).toBeNull();
+    expect(brandCore("Go AI")).toBeNull();
+    // Une app « sans réseau » sous les hashtags d'avant, qui en a un de plus : à relire ; les autres non.
+    expect(needsRetag({ name: "Wilgo IA n°1", artist: "Wilgo", outcome: "none" })).toBe(true);
+    expect(needsRetag({ name: "Wilgo IA n°1", artist: "Wilgo", outcome: "network" })).toBe(false);
+    expect(needsRetag({ name: "Drawly: dessiner", artist: "Drawly", outcome: "none" })).toBe(false);
   });
 
   it("un nom qui est une phrase : on lit le hashtag de l'éditeur, sans sa forme de société", () => {
@@ -444,6 +474,15 @@ describe("Radar — classements App Store : la file", () => {
     expect(isRecentRelease("", NOW)).toBe(false);
     expect(firstCheckAt("2025-08-14", NOW)).toBe(NOW - 365 * DAY);
     expect(firstCheckAt("2019-03-31", NOW)).toBe(NOW);
+    // À date égale, l'éducation un mois devant, les genres à faible rendement un mois derrière (rendement du 14/11/2026).
+    expect(genreTier("Éducation")).toBe("high");
+    expect(genreTier("Educación")).toBe("high");
+    expect(genreTier("Utilitaires")).toBe("low");
+    expect(genreTier("Économie et entreprise")).toBe("low");
+    expect(genreTier("Style de vie")).toBe("mid");
+    expect(firstCheckAt("2025-08-14", NOW, "Education")).toBe(NOW - 395 * DAY);
+    expect(firstCheckAt("2025-08-14", NOW, "Medicina")).toBe(NOW - 335 * DAY);
+    expect(firstCheckAt("2019-03-31", NOW, "Éducation")).toBe(NOW - 30 * DAY);
   });
 
   it("revue dans 60 jours sans réseau, 180 avec, le lendemain quand TikTok ne l'a pas servie", () => {
@@ -453,3 +492,32 @@ describe("Radar — classements App Store : la file", () => {
     expect(nextCheckAfter("unreadable", NOW)).toBe(NOW + DAY);
   });
 });
+
+describe("Radar — les apps sœurs d'une app suivie (14/11/2026)", () => {
+  const lookup = (results: unknown[]) => ({ resultCount: results.length, results });
+
+  it("l'éditeur d'une app, puis ses logiciels dans la forme d'une app des classements", () => {
+    expect(artistIdOf(lookup([{ wrapperType: "software", trackId: 1, artistId: 1_666_000_000 }]))).toBe("1666000000");
+    expect(artistIdOf(lookup([]))).toBeNull();
+    expect(artistIdOf(null)).toBeNull();
+    const r = lookup([
+      { wrapperType: "artist", artistId: 1 },
+      { wrapperType: "software", trackId: 6_741_000_001, trackName: "Velori - Deviens Viral", artistName: "Lumen SAS", primaryGenreName: "Photo et vidéo", releaseDate: "2025-09-30T07:00:00Z" },
+      { wrapperType: "software", trackName: "sans identifiant" },
+    ]);
+    expect(siblingEntries(r)).toEqual([{ storeId: "6741000001", name: "Velori - Deviens Viral", artist: "Lumen SAS", genre: "Photo et vidéo", released: "2025-09-30" }]);
+  });
+
+  it("la réponse de l'App Store avec un caractère de contrôle se lit quand même", () => {
+    expect(parseLookup('{"results":[{"trackName":"A\tB"}]}')).toEqual({ results: [{ trackName: "A B" }] });
+  });
+
+  it("une app suivie regardée une fois tous les 90 jours", () => {
+    const now = Date.UTC(2026, 10, 14);
+    expect(SIBLINGS_REFRESH_MS).toBe(90 * 86_400_000);
+    expect(siblingsDue({}, now)).toBe(true);
+    expect(siblingsDue({ siblingsAt: now - SIBLINGS_REFRESH_MS + 1 }, now)).toBe(false);
+    expect(siblingsDue({ siblingsAt: now - SIBLINGS_REFRESH_MS }, now)).toBe(true);
+  });
+});
+
