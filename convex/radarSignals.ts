@@ -714,6 +714,8 @@ export const recordRun = internalMutation({
     errors: v.number(),
     now: v.number(),
     creditsRemaining: v.optional(v.number()),
+    // Quand ce solde a été lu (la réponse de l'API) ; sinon `now`. Un passage plus ancien n'écrase pas un solde plus frais.
+    creditsSeenAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     cursor: v.optional(v.number()),
     // Dépense en dollars (l'analyse IA), en plus des crédits.
@@ -735,9 +737,11 @@ export const recordRun = internalMutation({
       }
     }
     const field = LAST_RUN_FIELD[a.poste];
+    const seenAt = a.creditsSeenAt ?? a.now;
+    const fresher = a.creditsRemaining !== undefined && seenAt >= (settings.creditsSeenAt ?? 0);
     await ctx.db.patch(settings._id, {
       ...(field ? { [field]: a.now } : {}),
-      ...(a.creditsRemaining !== undefined ? { creditsRemaining: a.creditsRemaining, creditsSeenAt: a.now } : {}),
+      ...(fresher ? { creditsRemaining: a.creditsRemaining, creditsSeenAt: seenAt } : {}),
       ...(a.cursor !== undefined ? { discoveryCursor: a.cursor } : {}),
       // Une erreur du passage s'affiche ; un passage propre l'efface.
       ...(a.lastError !== undefined || a.calls > 0 ? { lastError: a.lastError } : {}),
@@ -818,13 +822,13 @@ export async function maybeAlert(ctx: ActionCtx, now: number): Promise<void> {
   const int = (x: number) => new Intl.NumberFormat("fr-FR").format(Math.round(x));
   const usd = (x: number) => x.toFixed(2).replace(".", ",");
   const lines: string[] = [];
-  const credit = creditAlert(b, st.balance?.remaining ?? null, st.recentUsage, st.day, st.creditAlerted);
+  const credit = creditAlert(b, st.recentUsage, st.day, st.creditAlerted);
   if (credit && (await ctx.runMutation(internal.radarSignals.claimCreditAlert, { kind: credit.kind, day: st.day }))) {
     const left = int(st.balance?.remaining ?? 0);
     lines.push(
       credit.kind === "reserve"
         ? `🛑 Radar : plus que ${left} crédits ScrapeCreators, sous la réserve de ${int(CREDIT_RESERVE)}. Relevés payants, recherches de réseaux et découverte sont à l'arrêt (les relevés gratuits continuent). Ils repartent seuls dans l'heure qui suit l'achat d'un pack.`
-        : `⛽ Radar : plus que ${left} crédits ScrapeCreators, environ ${int(Math.max(0, credit.days ?? 0) * 24)} heures au rythme des derniers jours. Sous ${int(CREDIT_RESERVE)} crédits, le Radar arrête ses relevés payants.`,
+        : `⛽ Radar : plus que ${left} crédits ScrapeCreators. Au rythme des derniers jours, le Radar arrête ses relevés payants dans environ ${int(Math.max(0, credit.days ?? 0) * 24)} heures (sous la réserve de ${int(CREDIT_RESERVE)} crédits).`,
     );
   }
   if (b.over80 && (await ctx.runMutation(internal.radarSignals.claimAlert, { month: st.month }))) {

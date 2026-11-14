@@ -18,7 +18,8 @@ export const scKeyPresent = () => !!process.env.SCRAPECREATORS_API_KEY;
 
 export type ScCall<T> =
   | { ok: true; value: T; credits: number; creditsRemaining?: number }
-  | { ok: false; credits: number; noCredits: boolean; error: string };
+  // Un refus faute de crédits (HTTP 402) dit le solde : 0. Sans ça, l'écran et les alertes garderaient le dernier lu.
+  | { ok: false; credits: number; noCredits: boolean; error: string; creditsRemaining?: number };
 
 async function scGet(path: string, params: Record<string, string>): Promise<ScCall<Record<string, unknown>>> {
   const key = process.env.SCRAPECREATORS_API_KEY;
@@ -36,7 +37,7 @@ async function scGet(path: string, params: Record<string, string>): Promise<ScCa
     const charged = typeof body.credits_charged === "number" ? body.credits_charged : 0;
     if (!res.ok || body.success === false) {
       const msg = typeof body.message === "string" ? body.message : text.slice(0, 200);
-      return { ok: false, credits: charged, noCredits: res.status === 402, error: `HTTP ${res.status} ${path} : ${msg}` };
+      return { ok: false, credits: charged, noCredits: res.status === 402, error: `HTTP ${res.status} ${path} : ${msg}`, ...(res.status === 402 ? { creditsRemaining: 0 } : {}) };
     }
     return {
       ok: true,

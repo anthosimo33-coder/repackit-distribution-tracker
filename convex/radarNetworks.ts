@@ -74,7 +74,7 @@ import { LANG_BY_HAND, OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
 import { screenLang } from "./radarTextLang";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
-import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
+import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot } from "./radarSignalsMath";
 import { FREE_LANE_MAX_MS, FREE_READS_PER_RUN, FREE_RETRY_MS, freeRead, paced, retrying, runFreeLane, type FreePage, type KnownVideo } from "./radarFreeMath";
 import { fetchEmbedPage, storePauseMs, storeUrl } from "./radarStoreMath";
 import { linkCandidate } from "./radarFiche";
@@ -184,21 +184,47 @@ export const noteFreeRun = internalMutation({
 
 /** Comptes dus lus en plus de la part du passage : ceux d'une app en pause sont sautés sans prendre de place. */
 const DUE_SLACK = 200;
+/** Un compte d'une app en pause est revu chaque jour : il repart dans la journée si son app reprend. */
+const PARKED_RECHECK_MS = DAY;
 
+/**
+ * Les comptes dus. Un compte actif sous une app mise en pause n'est plus montré nulle part (Swarm, écrans) : il n'est
+ * pas relevé, et il est rendu à part (`parked`) pour que son prochain relevé soit repoussé — sinon, son `nextReadAt`
+ * ne bougeant plus, il resterait en tête de la file et 800 comptes d'apps en pause bloqueraient tous les relevés.
+ */
 export const dueAccounts = internalQuery({
   args: { now: v.number(), limit: v.number() },
-  handler: async (ctx, { now, limit }): Promise<DueAccount[]> => {
-    if (limit <= 0) return [];
+  handler: async (ctx, { now, limit }): Promise<{ due: DueAccount[]; parked: Id<"radarTracked">[] }> => {
+    if (limit <= 0) return { due: [], parked: [] };
     const rows = await ctx.db
       .query("radarTracked")
       .withIndex("by_due", (q) => q.eq("status", "active").lte("nextReadAt", now))
       .take(limit + DUE_SLACK);
-    // Un compte actif sous une app mise en pause n'est plus montré nulle part (Swarm, écrans) : il n'est plus relevé.
     const active = new Set((await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect()).map((a) => a._id));
-    return rows
-      .filter((r) => active.has(r.appId))
-      .slice(0, limit)
-      .map((r) => ({ id: r._id, handle: r.handle, located: r.country !== undefined, first: r.readAt === undefined }));
+    return {
+      due: rows
+        .filter((r) => active.has(r.appId))
+        .slice(0, limit)
+        .map((r) => ({ id: r._id, handle: r.handle, located: r.country !== undefined, first: r.readAt === undefined })),
+      parked: rows.filter((r) => !active.has(r.appId)).map((r) => r._id),
+    };
+  },
+});
+
+/** Repousse d'un jour le relevé des comptes d'une app en pause (cf `dueAccounts`). */
+export const parkAccounts = internalMutation({
+  args: { ids: v.array(v.id("radarTracked")), now: v.number() },
+  handler: async (ctx, { ids, now }): Promise<void> => {
+    for (const id of ids) await ctx.db.patch(id, { nextReadAt: now + PARKED_RECHECK_MS });
+  },
+});
+
+/** Le compte actif relevé il y a le plus longtemps : la sonde du solde quand aucun compte n'est dû. */
+export const probeAccount = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<DueAccount | null> => {
+    const r = await ctx.db.query("radarTracked").withIndex("by_due", (q) => q.eq("status", "active")).first();
+    return r ? { id: r._id, handle: r.handle, located: r.country !== undefined, first: r.readAt === undefined } : null;
   },
 });
 
@@ -717,8 +743,7 @@ async function rejudgeAccounts(ctx: MutationCtx, paused: readonly Doc<"radarTrac
   const touched = new Set<Id<"radarApps">>();
   for (const t of paused) {
     const own = byId.get(t.appId);
-    // Une app en pause (ou fondue dans une autre) ne reprend aucun compte.
-    if (!canRejudge(t, OFF_TOPIC_BY_HAND) || !own || own.status !== "active") continue;
+    if (!canRejudge(t, OFF_TOPIC_BY_HAND) || !own) continue;
     const recent = await ctx.db
       .query("radarTrackedVideos")
       .withIndex("by_account_published", (q) => q.eq("accountId", t._id))
@@ -729,7 +754,9 @@ async function rejudgeAccounts(ctx: MutationCtx, paused: readonly Doc<"radarTrac
     if (verdict.kind === "move") {
       await moveAccount(ctx, t, own, verdict.to, recent);
       moved++;
-    } else if (accountProof(t.handle, t.bio, texts, own) !== null) {
+    } else if (own.status === "active" && accountProof(t.handle, t.bio, texts, own) !== null) {
+      // Une app en pause (ou fondue dans une autre) ne reprend aucun compte ; ils peuvent seulement aller vers une
+      // app suivie qu'ils citent nettement (ci-dessus).
       // Sa bio nomme son app, ou ses vidéos la citent maintenant (ses motifs ont changé). Des vidéos purgées ne
       // suffisent pas à le relancer : il faut la preuve.
       resumed++;
@@ -936,7 +963,7 @@ export const runNetworkSearch = internalAction({
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const b = budgetState(st.budget, st.usage, st.balance);
     // Demandée à la main : tout ce qui reste du jour, pas la part d'un passage.
-    const left = allowance(st.budget, b, "network", todayCredits(st, "network"), appId ? 1 : NETWORK_RUNS_PER_DAY);
+    const left0 = allowance(st.budget, b, "network", todayCredits(st, "network"), appId ? 1 : NETWORK_RUNS_PER_DAY);
     let due: DueApp[];
     if (appId) {
       const one = await ctx.runQuery(internal.radarNetworks.appToSearch, { appId });
@@ -944,106 +971,105 @@ export const runNetworkSearch = internalAction({
       due = one && one !== "paused" ? [one] : [];
     } else {
       // Budget du passage déjà à zéro : aucune app touchée (sa dernière issue reste affichée).
-      due = left > 0 ? await ctx.runQuery(internal.radarNetworks.dueApps, { now }) : [];
+      due = left0 > 0 ? await ctx.runQuery(internal.radarNetworks.dueApps, { now }) : [];
     }
-    let credits = 0;
-    let calls = 0;
-    let errors = 0;
-    let creditsRemaining: number | undefined;
+    // La dépense est écrite après chaque app (cf usageWriter) : un passage qui tombe en route ne la fait plus disparaître.
+    const usage = usageWriter(ctx, "network", now);
     let lastError: string | undefined;
     let stop = false;
     let attached = 0;
-    // La dépense est écrite après chaque app : un passage qui tombe en route ne la fait plus disparaître.
-    let written = { credits: 0, calls: 0, errors: 0 };
-    const flush = async (error?: string) => {
-      const d = { credits: credits - written.credits, calls: calls - written.calls, errors: errors - written.errors };
-      written = { credits, calls, errors };
-      if (d.credits <= 0 && d.calls <= 0 && d.errors <= 0 && !error) return;
-      await ctx.runMutation(internal.radarSignals.recordRun, {
-        poste: "network",
-        ...d,
-        now,
-        ...(creditsRemaining !== undefined ? { creditsRemaining } : {}),
-        ...(error ? { lastError: error } : {}),
-      });
-    };
-    for (const app of due) {
-      // Chaque recherche de l'app passe deux fois : sans région, puis par la France (radarNetworkMath.NETWORK_REGIONS).
-      const passes = networkPasses(app.searches, app.deep);
-      await ctx.runMutation(internal.radarNetworks.startNetworkSearch, { appId: app.id, now: Date.now(), steps: passes.length });
-      let complete = true;
-      let noCredits = false;
-      let appCalls = 0;
-      let appFailures = 0;
-      let appError: string | undefined;
-      let crashed = false;
-      let appAttached = 0;
-      try {
-        for (const [i, { kind, value, region, sort }] of passes.entries()) {
-          let cursor: number | undefined;
-          // Recherche complète : tant que les pages ramènent de nouveaux comptes ; de routine : 2 ou 3 pages.
-          const read = { page: 0, dry: 0 };
-          while (nextSearchPage(read, app.deep, app.rival)) {
-            if (credits >= left || Date.now() - now > NETWORK_MAX_MS) {
-              stop = true;
-              complete = false;
-              break;
-            }
-            const r = await scNetworkPage(kind, value, cursor, region ?? undefined, sort);
-            calls++;
-            appCalls++;
-            credits += r.credits;
-            if (!r.ok) {
-              errors++;
-              appFailures++;
-              lastError = r.error;
-              appError = r.error;
-              if (r.noCredits) {
+    // La part du passage est recalculée avant chaque app, sur la dépense écrite et le solde relu : plusieurs recherches
+    // peuvent tourner en même temps (la tâche de l'heure, celles des apps suivies d'office ou demandées à l'écran), et
+    // chacune ne voyait que la part calculée à son départ.
+    let left = left0;
+    let spentAtLeft = 0;
+    try {
+      for (const [k, app] of due.entries()) {
+        if (k > 0) {
+          const fresh: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now: Date.now() });
+          left = allowance(fresh.budget, budgetState(fresh.budget, fresh.usage, fresh.balance), "network", todayCredits(fresh, "network"), appId ? 1 : NETWORK_RUNS_PER_DAY);
+          spentAtLeft = usage.spent.credits;
+        }
+        // Chaque recherche de l'app passe deux fois : sans région, puis par la France (radarNetworkMath.NETWORK_REGIONS).
+        const passes = networkPasses(app.searches, app.deep);
+        await ctx.runMutation(internal.radarNetworks.startNetworkSearch, { appId: app.id, now: Date.now(), steps: passes.length });
+        let complete = true;
+        let noCredits = false;
+        let appCalls = 0;
+        let appFailures = 0;
+        let appError: string | undefined;
+        let crashed = false;
+        let appAttached = 0;
+        try {
+          for (const [i, { kind, value, region, sort }] of passes.entries()) {
+            let cursor: number | undefined;
+            // Recherche complète : tant que les pages ramènent de nouveaux comptes ; de routine : 2 ou 3 pages.
+            const read = { page: 0, dry: 0 };
+            while (nextSearchPage(read, app.deep, app.rival)) {
+              if (usage.spent.credits - spentAtLeft >= left || Date.now() - now > NETWORK_MAX_MS) {
                 stop = true;
                 complete = false;
-                noCredits = true;
+                break;
               }
-              break;
+              const r = await scNetworkPage(kind, value, cursor, region ?? undefined, sort);
+              usage.spent.calls++;
+              appCalls++;
+              usage.spent.credits += r.credits;
+              usage.seen(r.creditsRemaining);
+              if (!r.ok) {
+                usage.spent.errors++;
+                appFailures++;
+                lastError = r.error;
+                appError = r.error;
+                if (r.noCredits) {
+                  stop = true;
+                  complete = false;
+                  noCredits = true;
+                }
+                break;
+              }
+              const found: { attached: number } = await ctx.runMutation(internal.radarNetworks.attachFromSearch, {
+                appId: app.id,
+                videos: r.value.videos,
+                foundBy: networkFoundBy(app.name, region),
+                now,
+                step: i + 1,
+              });
+              appAttached += found.attached;
+              read.page++;
+              read.dry = found.attached > 0 ? 0 : read.dry + 1;
+              cursor = r.value.cursor;
+              if (cursor === undefined || r.value.videos.length === 0) break;
             }
-            if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
-            const found: { attached: number } = await ctx.runMutation(internal.radarNetworks.attachFromSearch, {
-              appId: app.id,
-              videos: r.value.videos,
-              foundBy: networkFoundBy(app.name, region),
-              now,
-              step: i + 1,
-            });
-            appAttached += found.attached;
-            read.page++;
-            read.dry = found.attached > 0 ? 0 : read.dry + 1;
-            cursor = r.value.cursor;
-            if (cursor === undefined || r.value.videos.length === 0) break;
+            if (stop) break;
           }
-          if (stop) break;
+        } catch (e) {
+          // Une page illisible ne laisse pas l'app « en cours » pour toujours : son issue est notée, la tâche continue.
+          crashed = true;
+          complete = false;
+          usage.spent.errors++;
+          appError = e instanceof Error ? e.message : String(e);
+          lastError = appError;
         }
-      } catch (e) {
-        // Une page illisible ne laisse pas l'app « en cours » pour toujours : son issue est notée, la tâche continue.
-        crashed = true;
-        complete = false;
-        errors++;
-        appError = e instanceof Error ? e.message : String(e);
-        lastError = appError;
+        // Une app à moitié cherchée (budget du passage épuisé) reprend au suivant.
+        const outcome = crashed ? "error" : networkSearchOutcome({ complete, noCredits, calls: appCalls, failures: appFailures });
+        await ctx.runMutation(internal.radarNetworks.finishNetworkSearch, {
+          appId: app.id,
+          now: Date.now(),
+          outcome,
+          searched: complete,
+          deep: app.deep,
+          ...(outcome !== "done" && outcome !== "budget" && appError ? { error: appError } : {}),
+        });
+        attached += appAttached;
+        await usage.flush();
+        if (stop) break;
       }
-      // Une app à moitié cherchée (budget du passage épuisé) reprend au suivant.
-      const outcome = crashed ? "error" : networkSearchOutcome({ complete, noCredits, calls: appCalls, failures: appFailures });
-      await ctx.runMutation(internal.radarNetworks.finishNetworkSearch, {
-        appId: app.id,
-        now: Date.now(),
-        outcome,
-        searched: complete,
-        deep: app.deep,
-        ...(outcome !== "done" && outcome !== "budget" && appError ? { error: appError } : {}),
-      });
-      attached += appAttached;
-      await flush();
-      if (stop) break;
+    } finally {
+      // Même si le passage tombe (une écriture refusée), ce qu'il a payé est compté.
+      await usage.flush(lastError);
     }
-    await flush(lastError);
+    const { calls, credits, errors } = usage.spent;
     if (calls) await maybeAlert(ctx, now);
     // Les comptes trouvés à la demande sont relevés tout de suite, pas à l'heure suivante.
     if (appId && attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
@@ -1076,6 +1102,50 @@ export const runAccountReads = internalAction({
   },
 });
 
+/**
+ * La dépense d'un passage, écrite au fil de l'eau dans radarUsage (et le solde lu avec elle). Une tranche n'est
+ * comptée écrite qu'une fois l'écriture faite : une écriture refusée repart avec la suivante. Les écritures se suivent
+ * (jamais deux en même temps). Le 13/11/2026, des passages qui ont levé en route ont fait disparaître ~2 100 à 2 900
+ * crédits de radarUsage : le solde baissait, les comptes ne le voyaient pas.
+ */
+function usageWriter(ctx: ActionCtx, poste: string, now: number) {
+  const spent = { credits: 0, calls: 0, errors: 0 };
+  const written = { credits: 0, calls: 0, errors: 0 };
+  let balance: { remaining: number; at: number } | undefined;
+  let chain: Promise<void> = Promise.resolve();
+  const write = async (error?: string) => {
+    const d = { credits: spent.credits - written.credits, calls: spent.calls - written.calls, errors: spent.errors - written.errors };
+    if (d.credits <= 0 && d.calls <= 0 && d.errors <= 0 && !error && !balance) return;
+    const b = balance;
+    await ctx.runMutation(internal.radarSignals.recordRun, {
+      poste,
+      ...d,
+      now,
+      ...(b ? { creditsRemaining: b.remaining, creditsSeenAt: b.at } : {}),
+      ...(error ? { lastError: error } : {}),
+    });
+    written.credits += d.credits;
+    written.calls += d.calls;
+    written.errors += d.errors;
+    if (balance === b) balance = undefined;
+  };
+  return {
+    spent,
+    /** Le solde que l'API vient de donner (plus récent que les précédents). */
+    seen: (remaining: number | undefined) => {
+      if (remaining !== undefined) balance = { remaining, at: Date.now() };
+    },
+    /** Écrit ce qui ne l'est pas encore (à la suite des écritures en cours). */
+    flush: (error?: string): Promise<void> => {
+      const next = chain.then(() => write(error));
+      // Une écriture refusée ne bloque pas les suivantes : elles la reprennent (rien n'est compté écrit).
+      chain = next.catch(() => undefined);
+      return next;
+    },
+    pending: () => spent.credits - written.credits,
+  };
+}
+
 /** Un passage de relevé de comptes (sous le verrou de `runAccountReads`). */
 async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: number; credits: number; errors: number }> {
   await ctx.runMutation(internal.radarNetworks.seedApps, {});
@@ -1083,32 +1153,16 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
   const b = budgetState(st.budget, st.usage, st.balance);
   const n = allowance(st.budget, b, "tiktok", todayCredits(st, "tiktok"), ACCOUNT_RUNS_PER_DAY);
   // Le relevé gratuit d'abord (pages publiques de TikTok) : il ne dépend pas du budget, seul le repli payant y puise.
-  const due: DueAccount[] = await ctx.runQuery(internal.radarNetworks.dueAccounts, { now, limit: Math.max(n, FREE_READS_PER_RUN) });
-  let credits = 0;
+  const { due, parked }: { due: DueAccount[]; parked: Id<"radarTracked">[] } = await ctx.runQuery(internal.radarNetworks.dueAccounts, {
+    now,
+    limit: Math.max(n, FREE_READS_PER_RUN),
+  });
+  if (parked.length) await ctx.runMutation(internal.radarNetworks.parkAccounts, { ids: parked, now });
+  const usage = usageWriter(ctx, "tiktok", now);
   let paidCalls = 0;
-  let errors = 0;
-  let creditsRemaining: number | undefined;
   let lastError: string | undefined;
-  // La dépense est écrite par tranches, pas seulement à la fin : le 13/11/2026, des passages qui ont levé en route
-  // ont fait disparaître ~2 100 à 2 900 crédits de radarUsage (le solde baissait, les comptes ne le voyaient pas).
-  // Les relevés gratuits comptent comme appels (pas comme crédits), écrits avec la dernière tranche.
-  let freeCalls = 0;
-  let written = { credits: 0, calls: 0, errors: 0 };
-  const flush = async (error?: string) => {
-    const calls = paidCalls + freeCalls;
-    const d = { credits: credits - written.credits, calls: calls - written.calls, errors: errors - written.errors };
-    written = { credits, calls, errors };
-    if (d.credits <= 0 && d.calls <= 0 && d.errors <= 0 && !error) return;
-    await ctx.runMutation(internal.radarSignals.recordRun, {
-      poste: "tiktok",
-      ...d,
-      now,
-      ...(creditsRemaining !== undefined ? { creditsRemaining } : {}),
-      ...(error ? { lastError: error } : {}),
-    });
-  };
   const failed = (e: unknown) => {
-    errors++;
+    usage.spent.errors++;
     lastError = e instanceof Error ? e.message : String(e);
     console.error(`[radar] relevé d'un compte : ${lastError}`);
   };
@@ -1125,39 +1179,36 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
     ),
     () => sleep(FREE_RETRY_MS),
   );
+  /** Un relevé payant : `limit` borne les appels du passage (compté AVANT l'appel : 8 relevés partent de front). */
+  const readPaid = async (acc: DueAccount, limit: number): Promise<"stop" | void> => {
+    if (paidCalls >= limit) return;
+    paidCalls++;
+    const r = await scProfileVideos(acc.handle);
+    usage.spent.credits += r.credits;
+    usage.spent.calls++;
+    usage.seen(r.creditsRemaining);
+    try {
+      if (!r.ok) {
+        usage.spent.errors++;
+        lastError = r.error;
+        if (r.noCredits) return "stop";
+        await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
+        return;
+      }
+      await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: r.value, now });
+    } catch (e) {
+      // Un compte dont l'écriture échoue ne fait plus tomber le passage (ni disparaître sa dépense).
+      failed(e);
+      await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now }).catch(failed);
+    } finally {
+      if (usage.pending() >= USAGE_FLUSH_CREDITS) await usage.flush().catch(failed);
+    }
+  };
   // Le PREMIER relevé d'un compte est payant : une demande rend tout son historique, là où il faudrait lire une
   // douzaine de pages. Les suivants passent par la voie gratuite.
   const firsts = due.filter((a) => a.first);
   const paid = (list: readonly DueAccount[]): Promise<number> =>
-    pooled(
-      list,
-      ACCOUNT_READ_POOL,
-      async (acc) => {
-        // Le relevé payant, dans la limite du budget du passage (sinon le compte reste dû).
-        if (credits >= n) return;
-        paidCalls++;
-        const r = await scProfileVideos(acc.handle);
-        credits += r.credits;
-        try {
-          if (!r.ok) {
-            errors++;
-            lastError = r.error;
-            if (r.noCredits) return "stop";
-            await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
-            return;
-          }
-          if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
-          await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: r.value, now });
-        } catch (e) {
-          // Un compte dont l'écriture échoue ne fait plus tomber le passage (ni disparaître sa dépense).
-          failed(e);
-          await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now }).catch(failed);
-        } finally {
-          if (credits - written.credits >= USAGE_FLUSH_CREDITS) await flush().catch(failed);
-        }
-      },
-      () => Date.now() - now < ACCOUNT_READ_MAX_MS,
-    );
+    pooled(list, ACCOUNT_READ_POOL, (acc) => readPaid(acc, n), () => Date.now() - now < ACCOUNT_READ_MAX_MS);
   try {
     // Les deux voies avancent en même temps ; ce que la voie gratuite n'a pas relevé part ensuite en payant.
     const [lane] = await Promise.all([
@@ -1170,9 +1221,9 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
             if (!f.ok) return f;
             await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: f.videos, light: f.light, profile: f.profile, now });
           } catch (e) {
-            // Lu gratuitement mais pas rangé : il reste dû, sans repli payant (l'écriture échouerait de même).
+            // Lu gratuitement mais pas rangé : il reste dû, relu gratuitement au passage suivant (pas de repli payant :
+            // l'écriture échouerait de même).
             failed(e);
-            await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now }).catch(failed);
           }
           return { ok: true as const };
         },
@@ -1182,15 +1233,21 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
     ]);
     const free = lane.state;
     await paid(lane.toPay);
+    // Sous la réserve, le solde n'est plus relu par rien d'autre : un appel d'un crédit le relit (un pack acheté
+    // relance le Radar), même si aucun relevé payant n'était dû ou que le poste est coupé.
+    if (needsBalanceProbe(b) && paidCalls === 0) {
+      const probe: DueAccount | null = due[0] ?? (await ctx.runQuery(internal.radarNetworks.probeAccount, {}));
+      if (probe) await readPaid(probe, 1);
+    }
     await ctx.runMutation(internal.radarNetworks.noteFreeRun, { ok: free.ok, fallback: free.fallback, stopped: free.stopped, now: Date.now() });
-    freeCalls = free.ok;
-    await flush(lastError);
+    usage.spent.calls += free.ok;
+    await usage.flush(lastError);
     const calls = free.ok + paidCalls;
     if (calls) await maybeAlert(ctx, now);
-    return { calls, credits, errors };
+    return { calls, credits: usage.spent.credits, errors: usage.spent.errors };
   } finally {
     // Même si le passage tombe, ce qu'il a payé est compté.
-    await flush().catch(failed);
+    await usage.flush().catch(failed);
   }
 }
 

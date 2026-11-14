@@ -15,11 +15,10 @@ export type ExportTable = (typeof TABLES)[number];
 
 /**
  * Taille d'une page : assez petite pour rester loin des limites d'une requête (transcriptions des signaux). Pour
- * `tracked` et `trackedVideos`, ce sont des COMPTES : chacun fait lire ses vidéos (sa preuve, ses vidéos à exporter).
+ * `tracked`, ce sont des comptes dont chacun fait lire ses 30 dernières vidéos (sa preuve). Swarm lit au plus 500
+ * pages par table : 1 000 vidéos par page tiennent 500 000 vidéos.
  */
-const PAGE: Record<ExportTable, number> = { apps: 200, tracked: 200, trackedVideos: 40, formats: 200, signals: 200 };
-/** Vidéos d'un compte exportées au plus (les plus récentes) : Swarm montre 30 à 42 jours. */
-const VIDEOS_PER_ACCOUNT = 200;
+const PAGE: Record<ExportTable, number> = { apps: 200, tracked: 200, trackedVideos: 1000, formats: 200, signals: 200 };
 /** Les derniers relevés de vues d'une vidéo suffisent à Swarm (courbe et accélération). */
 const SNAPSHOTS = 12;
 
@@ -103,8 +102,10 @@ function projectFormat(f: Doc<"radarFormats">, members: Doc<"radarFormats">["mem
     key: f.key,
     label: f.label,
     members,
+    // Recalculés sur les reprises des comptes suivis : un format ne se montre plus sous une app dont il n'a plus
+    // aucune reprise (Swarm range les formats d'une fiche d'app par ces apps).
     accountCount: new Set(members.map((m) => m.accountId)).size,
-    appIds: f.appIds,
+    appIds: [...new Set(members.map((m) => m.appId))],
     maxViews: members.length ? Math.max(...members.map((m) => m.views)) : 0,
     lastPostAt: members.length ? Math.max(...members.map((m) => m.publishedAt)) : f.lastPostAt,
     firstSeenAt: f.firstSeenAt,
@@ -152,16 +153,17 @@ function projectSignal(s: Doc<"radarSignals">, app: Doc<"radarApps"> | null) {
 const videosOf = (ctx: QueryCtx, accountId: Id<"radarTracked">, n: number) =>
   ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", accountId)).order("desc").take(n);
 
-/** Les comptes encore suivis, relus au plus une fois par page. */
+/** Le compte d'une ligne s'il est encore suivi (sinon `null`), relu au plus une fois par page. */
 function activeAccounts(ctx: QueryCtx) {
-  const seen = new Map<Id<"radarTracked">, boolean>();
-  return async (id: Id<"radarTracked">): Promise<boolean> => {
-    let ok = seen.get(id);
-    if (ok === undefined) {
-      ok = (await ctx.db.get(id))?.status === "active";
-      seen.set(id, ok);
+  const seen = new Map<Id<"radarTracked">, Doc<"radarTracked"> | null>();
+  return async (id: Id<"radarTracked">): Promise<Doc<"radarTracked"> | null> => {
+    let acc = seen.get(id);
+    if (acc === undefined) {
+      const got = await ctx.db.get(id);
+      acc = got?.status === "active" ? got : null;
+      seen.set(id, acc);
     }
-    return ok;
+    return acc;
   };
 }
 
@@ -187,16 +189,15 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       return { rows, cursor: r.continueCursor, done: r.isDone };
     }
     case "trackedVideos": {
-      // Page de COMPTES (le curseur est celui de radarTracked) : les vidéos des comptes actifs, et si chacune cite
-      // l'app sous laquelle elle est rangée.
-      const r = await ctx.db.query("radarTracked").paginate(opts);
+      // Les vidéos des comptes actifs, et si chacune cite l'app sous laquelle elle est rangée.
+      const r = await ctx.db.query("radarTrackedVideos").paginate(opts);
+      const accountOf = activeAccounts(ctx);
       const rows = [];
-      for (const t of r.page) {
-        if (t.status !== "active") continue;
-        for (const x of await videosOf(ctx, t._id, VIDEOS_PER_ACCOUNT)) {
-          const app = apps.get(x.appId);
-          rows.push(projectTrackedVideo(x, app ? videoCitesApp({ caption: x.caption ?? "", hook: x.hook, handle: t.handle }, app) : null));
-        }
+      for (const x of r.page) {
+        const t = await accountOf(x.accountId);
+        if (!t) continue;
+        const app = apps.get(x.appId);
+        rows.push(projectTrackedVideo(x, app ? videoCitesApp({ caption: x.caption ?? "", hook: x.hook, handle: t.handle }, app) : null));
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };
     }

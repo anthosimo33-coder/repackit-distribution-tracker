@@ -438,9 +438,9 @@ export type BudgetState = {
    * 650 $ (≈ 345 000 crédits) pour 7 784 crédits en compte, et seul le refus de l'API (HTTP 402) arrêtait tout.
    */
   balanceLeft: number | null;
-  /** Le solde est passé sous la réserve : les postes payants s'arrêtent (sauf une sonde par heure, cf `allowance`). */
+  /** Le solde est passé sous la réserve : les postes payants s'arrêtent (une sonde le relit, cf `needsBalanceProbe`). */
   reserveReached: boolean;
-  /** Le dernier solde lu date de plus d'une heure : une sonde peut le relire (cf `allowance`). */
+  /** Le dernier solde lu date de plus de `BALANCE_PROBE_MS` : une sonde peut le relire. */
   balanceStale: boolean;
 };
 
@@ -452,11 +452,15 @@ export type BudgetState = {
 export const CREDIT_RESERVE = 1_500;
 /**
  * Sous la réserve, aucun appel payant ne part, donc le solde n'est plus relu (il n'arrive qu'avec les réponses de
- * l'API) : sans sonde, un pack acheté ne relancerait jamais le Radar. Le poste des relevés de comptes a donc droit à
- * UN crédit quand le dernier solde lu a plus d'une heure.
+ * l'API) : sans sonde, un pack acheté ne relancerait jamais le Radar. La tâche des relevés (chaque heure) fait donc UN
+ * appel d'un crédit quand le dernier solde lu a plus de 50 minutes — quels que soient les réglages des postes, et même
+ * sans compte à relever en payant. 50 et pas 60 : la tâche passe toutes les heures, une sonde à « une heure pile »
+ * en sauterait une sur deux.
  */
-export const BALANCE_PROBE_POSTE: PosteKey = "tiktok";
-export const BALANCE_PROBE_MS = HOUR;
+export const BALANCE_PROBE_MS = 50 * 60_000;
+
+/** Faut-il relire le solde par un appel d'un crédit (solde sous la réserve, lu il y a plus de 50 minutes) ? */
+export const needsBalanceProbe = (state: Pick<BudgetState, "reserveReached" | "balanceStale">): boolean => state.reserveReached && state.balanceStale;
 
 /** Le solde lu (radarSettings) : `remaining` crédits à la date `seenAt`, relu par la tâche à `now`. */
 export type Balance = { remaining: number; seenAt: number; now: number };
@@ -515,8 +519,8 @@ export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[], 
 }
 
 /**
- * Jours de crédits qu'il reste au rythme des derniers jours : `remaining` (solde lu) ÷ la dépense moyenne des jours
- * COMPLETS les plus récents (3 au plus, aujourd'hui exclu : il n'est pas fini). `null` sans aucun jour complet.
+ * Jours de crédits qu'il reste au rythme des derniers jours : `remaining` ÷ la dépense moyenne des jours COMPLETS les
+ * plus récents (3 au plus, aujourd'hui exclu : il n'est pas fini). `null` sans aucun jour complet.
  */
 export function daysOfCredits(remaining: number, usage: readonly UsageRow[], today: string, days = 3): number | null {
   const byDay = new Map<string, number>();
@@ -532,19 +536,18 @@ export const LOW_CREDIT_DAYS = 3;
 
 /**
  * Quelle alerte de solde envoyer maintenant, au plus une par jour et par genre : « reserve » quand le Radar a
- * arrêté ses postes payants, « low » quand il reste moins de 3 jours de crédits. `alerted` : les jours (Paris) où
- * chaque genre est déjà parti.
+ * arrêté ses postes payants, « low » quand il reste moins de 3 jours AVANT cet arrêt (le solde au-dessus de la
+ * réserve, au rythme des derniers jours). `alerted` : les jours (Paris) où chaque genre est déjà parti.
  */
 export function creditAlert(
   state: Pick<BudgetState, "balanceLeft" | "reserveReached">,
-  remaining: number | null,
   usage: readonly UsageRow[],
   today: string,
   alerted: { low?: string; reserve?: string },
 ): { kind: "reserve" | "low"; days: number | null } | null {
-  if (remaining === null || state.balanceLeft === null) return null;
+  if (state.balanceLeft === null) return null;
   if (state.reserveReached) return alerted.reserve === today ? null : { kind: "reserve", days: null };
-  const days = daysOfCredits(remaining, usage, today);
+  const days = daysOfCredits(state.balanceLeft, usage, today);
   if (days !== null && days < LOW_CREDIT_DAYS && alerted.low !== today) return { kind: "low", days };
   return null;
 }
@@ -553,9 +556,8 @@ export function creditAlert(
  * Crédits qu'un poste a le droit de dépenser MAINTENANT : la part d'un passage
  * (jour ÷ passages), bornée par le reste du jour, le reste de l'enveloppe du
  * mois, le plafond et le SOLDE réel moins la réserve ; 0 si le poste est éteint,
- * non branché, coupé, ou le plafond atteint. Sous la réserve, le poste des relevés
- * a droit à une sonde d'un crédit par heure : c'est elle qui voit qu'un pack a été
- * acheté (le solde n'arrive qu'avec les réponses de l'API).
+ * non branché, coupé, ou le plafond atteint (sous la réserve, seule la sonde de
+ * la tâche des relevés part, cf `needsBalanceProbe`).
  */
 export function allowance(
   s: BudgetSettings,
@@ -571,8 +573,7 @@ export function allowance(
   const leftToday = Math.max(0, Math.floor(perDay - todayCredits));
   const leftMonth = Math.max(0, Math.floor(def.monthlyCredits(p.qty) - state.byPoste[k].credits));
   const leftCap = Math.max(0, Math.floor((s.capUsd - state.spentUsd) / SC_PRICE_PER_CREDIT));
-  const probe = state.reserveReached && state.balanceStale && k === BALANCE_PROBE_POSTE ? 1 : 0;
-  const leftBalance = state.balanceLeft === null ? Infinity : Math.max(state.balanceLeft, probe);
+  const leftBalance = state.balanceLeft ?? Infinity;
   return Math.min(Math.ceil(perDay / Math.max(1, runsPerDay)), leftToday, leftMonth, leftCap, leftBalance);
 }
 

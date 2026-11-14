@@ -18,6 +18,7 @@ import {
   CREDIT_RESERVE,
   creditAlert,
   daysOfCredits,
+  needsBalanceProbe,
 } from "../convex/radarSignalsMath";
 import {
   DISCOVERY_QUERIES,
@@ -349,7 +350,7 @@ describe("budget", () => {
     expect(allowanceUsd(serre, st, "ai")).toBe(0);
   });
 
-  it("le solde réel borne chaque poste : sous la réserve, plus rien ne part, sauf une sonde par heure (14/11/2026)", () => {
+  it("le solde réel borne chaque poste : sous la réserve, plus rien ne part, et une sonde relit le solde (14/11/2026)", () => {
     const now = 1_794_000_000_000;
     const lu = (remaining: number, age = 0) => ({ remaining, seenAt: now - age, now });
     // Jamais lu : seul le budget compte (dev, e2e, premier passage).
@@ -366,35 +367,41 @@ describe("budget", () => {
     const bas = budgetState(d, [], lu(CREDIT_RESERVE - 1));
     expect([bas.balanceLeft, bas.reserveReached, bas.balanceStale]).toEqual([0, true, false]);
     for (const k of ["search", "curve", "tiktok", "network", "insta", "transcript", "ads"] as const) expect(allowance(d, bas, k, 0, 1)).toBe(0);
-    // Le solde lu a plus d'une heure : UNE sonde, pour les relevés seulement (c'est elle qui voit un pack acheté).
+    // La sonde (un appel d'un crédit de la tâche des relevés, hors postes) : sous la réserve, solde lu il y a 50 min
+    // ou plus — moins que la période de la tâche (1 h), sinon elle en sauterait une sur deux.
+    expect(BALANCE_PROBE_MS).toBeLessThan(60 * 60_000);
     const vieux = budgetState(d, [], lu(CREDIT_RESERVE - 1, BALANCE_PROBE_MS));
-    expect(vieux.balanceStale).toBe(true);
-    expect(allowance(d, vieux, "tiktok", 0, 24)).toBe(1);
-    expect(allowance(d, vieux, "network", 0, 1)).toBe(0);
-    expect(allowance(d, budgetState(d, [], lu(CREDIT_RESERVE - 1, BALANCE_PROBE_MS - 1)), "tiktok", 0, 24)).toBe(0);
-    // Un poste coupé ou éteint le reste, solde ou pas.
+    expect([vieux.balanceStale, needsBalanceProbe(vieux)]).toEqual([true, true]);
+    expect(allowance(d, vieux, "tiktok", 0, 24)).toBe(0);
+    expect(needsBalanceProbe(budgetState(d, [], lu(CREDIT_RESERVE - 1, BALANCE_PROBE_MS - 1)))).toBe(false);
+    // Au-dessus de la réserve, ou solde jamais lu : pas de sonde.
+    expect(needsBalanceProbe(budgetState(d, [], lu(CREDIT_RESERVE + 1, 10 * BALANCE_PROBE_MS)))).toBe(false);
+    expect(needsBalanceProbe(libre)).toBe(false);
+    // Le poste des relevés éteint ne bloque pas la sonde : elle ne passe pas par ses réglages.
     const off = { ...d, postes: d.postes.map((p) => (p.key === "tiktok" ? { ...p, on: false } : p)) };
-    expect(allowance(off, budgetState(off, [], lu(CREDIT_RESERVE - 1, BALANCE_PROBE_MS)), "tiktok", 0, 24)).toBe(0);
+    expect(needsBalanceProbe(budgetState(off, [], lu(CREDIT_RESERVE - 1, BALANCE_PROBE_MS)))).toBe(true);
   });
 
-  it("combien de jours le solde tient, et quelle alerte envoyer (une par jour et par genre)", () => {
+  it("combien de jours avant l'arrêt à la réserve, et quelle alerte envoyer (une par jour et par genre)", () => {
     const jour = (day: string, credits: number) => ({ poste: "tiktok", credits, day });
     const usage = [jour("2026-11-11", 1_500), jour("2026-11-12", 1_400), jour("2026-11-13", 5_500), { poste: "network", credits: 100, day: "2026-11-13" }, jour("2026-11-14", 900)];
-    // Les 3 derniers jours COMPLETS (aujourd'hui exclu) : (1 500 + 1 400 + 5 600) / 3.
-    expect(daysOfCredits(8_500, usage, "2026-11-14")).toBeCloseTo(8_500 / ((1_500 + 1_400 + 5_600) / 3), 6);
+    const parJour = (1_500 + 1_400 + 5_600) / 3;
+    // Les 3 derniers jours COMPLETS (aujourd'hui exclu).
+    expect(daysOfCredits(8_500, usage, "2026-11-14")).toBeCloseTo(8_500 / parJour, 6);
     expect(daysOfCredits(8_500, [jour("2026-11-14", 900)], "2026-11-14")).toBeNull();
     expect(daysOfCredits(8_500, [jour("2026-11-13", 0)], "2026-11-14")).toBeNull();
     const etat = (remaining: number | null) => budgetState(d, [], remaining === null ? null : { remaining, seenAt: 0, now: 0 });
-    // Plus de 3 jours : rien. Moins de 3 jours : « low », une fois par jour.
-    expect(creditAlert(etat(20_000), 20_000, usage, "2026-11-14", {})).toBeNull();
-    expect(creditAlert(etat(7_000), 7_000, usage, "2026-11-14", {})).toEqual({ kind: "low", days: 7_000 / ((1_500 + 1_400 + 5_600) / 3) });
-    expect(creditAlert(etat(7_000), 7_000, usage, "2026-11-14", { low: "2026-11-14" })).toBeNull();
-    expect(creditAlert(etat(7_000), 7_000, usage, "2026-11-15", { low: "2026-11-14" })?.kind).toBe("low");
+    // Le temps compté est celui AVANT L'ARRÊT : le solde au-dessus de la réserve. 9 000 en compte = 7 500 utilisables,
+    // 2,6 jours au rythme de 2 833/jour : « low », même si le solde brut tiendrait 3,2 jours.
+    expect(creditAlert(etat(20_000), usage, "2026-11-14", {})).toBeNull();
+    expect(creditAlert(etat(9_000), usage, "2026-11-14", {})).toEqual({ kind: "low", days: (9_000 - CREDIT_RESERVE) / parJour });
+    expect(creditAlert(etat(9_000), usage, "2026-11-14", { low: "2026-11-14" })).toBeNull();
+    expect(creditAlert(etat(9_000), usage, "2026-11-15", { low: "2026-11-14" })?.kind).toBe("low");
     // Réserve atteinte : « reserve » (même quand « low » est déjà parti), une fois par jour.
-    expect(creditAlert(etat(CREDIT_RESERVE), CREDIT_RESERVE, usage, "2026-11-14", { low: "2026-11-14" })).toEqual({ kind: "reserve", days: null });
-    expect(creditAlert(etat(CREDIT_RESERVE), CREDIT_RESERVE, usage, "2026-11-14", { reserve: "2026-11-14" })).toBeNull();
+    expect(creditAlert(etat(CREDIT_RESERVE), usage, "2026-11-14", { low: "2026-11-14" })).toEqual({ kind: "reserve", days: null });
+    expect(creditAlert(etat(CREDIT_RESERVE), usage, "2026-11-14", { reserve: "2026-11-14" })).toBeNull();
     // Solde jamais lu : aucune alerte (absent n'est pas nul).
-    expect(creditAlert(etat(null), null, usage, "2026-11-14", {})).toBeNull();
+    expect(creditAlert(etat(null), usage, "2026-11-14", {})).toBeNull();
   });
 
   it("donne à un passage sa part du jour, bornée par ce qui reste aujourd'hui", () => {
