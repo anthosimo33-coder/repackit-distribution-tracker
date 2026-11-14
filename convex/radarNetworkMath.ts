@@ -821,12 +821,26 @@ export function igHandleFromBio(bio: string | undefined): string | null {
 const NOT_APP_DOMAINS = new Set([
   "beacons.ai", "snipfeed.co", "carrd.co", "komi.io", "linkin.bio", "hoo.be", "bento.me", "msha.ke", "lnk.bio", "solo.to", "fanfix.io", "throne.me",
   "onelink.me", "discord.gg", "gofund.me", "paypal.me", "cash.app", "linktr.ee", "stan.store", "whop.com", "t.co", "amzn.to", "youtu.be", "itch.io",
+  // Les extensions de tous les jours (14/11/2026) : réseaux, messageries, boutiques, liens raccourcis, outils de montage, État.
+  "tiktok.com", "instagram.com", "youtube.com", "facebook.com", "twitter.com", "x.com", "snapchat.com", "pinterest.com", "threads.net", "whatsapp.com",
+  "google.com", "gmail.com", "hotmail.com", "hotmail.fr", "outlook.com", "outlook.fr", "yahoo.com", "yahoo.fr", "icloud.com", "apple.com", "orange.fr",
+  "amazon.com", "amazon.fr", "amazon.de", "amazon.es", "amazon.it", "amazon.nl", "amazon.pl", "amzn.eu", "ebay.com", "ebay.fr", "ebay.de", "etsy.com",
+  "shein.com", "temu.com", "aliexpress.com", "vinted.fr", "vinted.com", "leboncoin.fr", "zalando.fr", "zalando.de", "spotify.com", "netflix.com",
+  "paypal.com", "gofundme.com", "patreon.com", "onlyfans.com", "change.org", "wikipedia.org", "tinyurl.com", "adjust.com", "capcut.com", "canva.com",
+  "gouv.fr", "service-public.fr", "example.com",
 ]);
 
-/** Les domaines d'app cités (« followspy.ai », « creators.stalkie.io » → « stalkie.io »). */
+/**
+ * Les domaines d'app cités (« followspy.ai », « creators.stalkie.io » → « stalkie.io »). Depuis le 14/11/2026, toutes
+ * les extensions courantes, pas seulement celles des start-up (.io, .ai, .app…) : sur l'export de la prod, 29 domaines
+ * en .com, .de, .fr… cités par au moins 2 comptes suivis, dont 12 vrais produits que le Radar ne suivait pas
+ * (reading.com, hallow.com, journiapp.com, moboreels.com, carvertical.com, mokascore.com…) et 6 qu'il suivait.
+ */
 export function domainsIn(text: string): string[] {
   const out = new Set<string>();
-  for (const m of text.toLowerCase().matchAll(/(?:^|[^a-z0-9.@-])(?:[a-z0-9-]+\.)*([a-z0-9][a-z0-9-]{2,30}\.(?:io|ai|app|co|me|so|gg))(?![a-z0-9])/g)) {
+  for (const m of text
+    .toLowerCase()
+    .matchAll(/(?:^|[^a-z0-9.@-])(?:[a-z0-9-]+\.)*([a-z0-9][a-z0-9-]{2,30}\.(?:io|ai|app|co|me|so|gg|com|net|org|eu|fr|de|es|it|nl|pl|be|ch|pt|br|mx))(?![a-z0-9])/g)) {
     if (!NOT_APP_DOMAINS.has(m[1])) out.add(m[1]);
   }
   return [...out];

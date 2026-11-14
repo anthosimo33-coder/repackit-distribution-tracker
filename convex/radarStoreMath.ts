@@ -112,6 +112,17 @@ const COMPANY = /\b(llc|inc|ltd|limited|gmbh|sas|sarl|s\.?a\.?|corp|corporation|
  * 2026 Ornikar » → « ornikar »).
  */
 export function storeTags(name: string, artist: string): string[] {
+  const out = storeTagsV1(name, artist);
+  // Le nom sans ses mots de slogan (« Wilgo IA n°1 » → « wilgo », « Blow Up AI » → « blowup ») : #wilgo comptait
+  // 1 106 vidéos quand #wilgoian1 n'existait pas (dig du 13/11). Rejoué le 14/11 sur 30 apps « sans réseau » à mot de
+  // slogan, avec les vraies règles : 1 réseau trouvé (Blow Up AI, 4 créateurs, sous #blowupapp), sur 475 concernées.
+  const core = brandCore(name);
+  if (core) for (const t of [core, `${core}app`]) if (!out.includes(t)) out.push(t);
+  return out;
+}
+
+/** Les hashtags lus jusqu'au 14/11/2026 (sans le cœur de la marque) : ce qui distingue une app à relire (cf `needsRetag`). */
+export function storeTagsV1(name: string, artist: string): string[] {
   const slug = compactName(storeBrand(name));
   const out: string[] = [];
   if (slug.length >= 3 && slug.length <= 22) {
@@ -122,6 +133,31 @@ export function storeTags(name: string, artist: string): string[] {
   if ((slug.length >= 16 || slug.length < 3) && art.length >= 3 && art.length <= 18 && art !== slug) out.push(art);
   return out;
 }
+
+/**
+ * Les mots de slogan qui suivent une marque : « IA », « AI », « Pro », « n°1 », une année. Pas « App » : la marque
+ * suivie de « app » est déjà lue (« Rizz App » → #rizzapp), et sans lui il ne reste qu'un mot de tous les jours (#rizz).
+ */
+const SLOGAN_WORDS = new Set(["ia", "ai", "pro", "plus", "premium", "lite", "free", "gratuit", "gratis", "hd", "official", "oficial", "officiel", "n1", "no1"]);
+
+/**
+ * La marque sans ses mots de slogan, quand il en restait et qu'il reste UN ou DEUX mots (une phrase longue ne fait pas
+ * un hashtag) ; `null` sinon, ou si rien ne change.
+ */
+export function brandCore(name: string): string | null {
+  const words = storeBrand(name).split(/\s+/).filter(Boolean);
+  const kept = words.filter((w) => {
+    const c = compactName(w);
+    return c !== "" && !SLOGAN_WORDS.has(c) && !/^(19|20)\d\d$/.test(c) && !/^n°?\d+$/i.test(w);
+  });
+  if (kept.length === words.length || kept.length === 0 || kept.length > 2) return null;
+  const core = kept.map(compactName).join("");
+  return core.length >= 4 && core.length <= 16 ? core : null;
+}
+
+/** Une app jugée « sans réseau » sous les seuls hashtags d'avant, qui en a désormais un de plus à lire : à relire tout de suite. */
+export const needsRetag = (r: { name: string; artist: string; outcome?: string }): boolean =>
+  r.outcome === "none" && storeTags(r.name, r.artist).length > storeTagsV1(r.name, r.artist).length;
 
 /** Le nom de l'app dans un hashtag : « livenapp » → « liven ». */
 export const tagCore = (tag: string): string => (tag.endsWith("app") && tag.length > 6 ? tag.slice(0, -3) : tag);
@@ -350,9 +386,29 @@ export function isRecentRelease(released: string, now: number): boolean {
   return Number.isFinite(year) && year > 0 && year >= new Date(now).getUTCFullYear() - (STORE_RECENT_YEARS - 1);
 }
 
-/** Le rang d'une app jamais contrôlée dans la file (`nextCheckAt`) : les récentes un an devant les autres. */
-export function firstCheckAt(released: string, now: number): number {
-  return isRecentRelease(released, now) ? now - 365 * DAY : now;
+/**
+ * Le rendement d'un genre de l'App Store, lu sur les 8 218 apps contrôlées au 14/11/2026 (6,6 % ont un réseau en
+ * moyenne) : l'éducation 13 à 20 % selon le pays ; les utilitaires, la médecine, la navigation, la finance, les
+ * affaires et l'actualité 1 à 6 %. Le genre arrive dans la langue du classement (« Éducation », « Educación »…).
+ */
+const HIGH_YIELD_GENRES = new Set(["education", "educacion", "educacao"]);
+const LOW_YIELD_GENRES = new Set([
+  "utilities", "utilitaires", "utilidades", "medical", "medecine", "medicina", "navigation", "navegacion", "navegacao",
+  "finance", "finances", "finanzas", "financas", "business", "economie et entreprise", "negocios", "news", "actualites", "noticias",
+]);
+export function genreTier(genre: string): "high" | "low" | "mid" {
+  const g = fold(genre).trim();
+  return HIGH_YIELD_GENRES.has(g) ? "high" : LOW_YIELD_GENRES.has(g) ? "low" : "mid";
+}
+
+/**
+ * Le rang d'une app jamais contrôlée dans la file (`nextCheckAt`) : les récentes un an devant les autres ; à date égale,
+ * l'éducation un mois devant et les genres à faible rendement un mois derrière (le stock passe dans le même ordre de
+ * grandeur, les réseaux y sont trouvés plus tôt).
+ */
+export function firstCheckAt(released: string, now: number, genre = ""): number {
+  const tier = genreTier(genre);
+  return (isRecentRelease(released, now) ? now - 365 * DAY : now) + (tier === "high" ? -30 * DAY : tier === "low" ? 30 * DAY : 0);
 }
 
 export function nextCheckAfter(outcome: StoreOutcome | "known" | "unreadable", now: number): number {
@@ -562,3 +618,42 @@ export async function runStoreQueue<A extends { name: string; artist: string }>(
   return { checked, pages, stopped };
 }
 
+// ─── Les apps sœurs (lot 5 du dig, 14/11/2026) ───────────────────────────────
+
+/**
+ * Les autres apps du développeur d'une app suivie, lues par l'API publique de l'App Store (« lookup » de l'éditeur) :
+ * elles entrent dans la file des contrôles comme une app des classements. Un éditeur qui a une app à réseau en fait
+ * souvent une autre de la même veine (le dig du 13/11 : Velori, WonUp, Shepherd). Rejoué le 14/11 avec les vraies
+ * règles sur 22 apps sœurs de 25 apps suivies : 1 réseau (Velori, 2 créateurs). 0 crédit.
+ */
+export const SIBLINGS_REFRESH_MS = 90 * DAY;
+export const siblingsDue = (app: { siblingsAt?: number }, now: number): boolean => app.siblingsAt === undefined || now - app.siblingsAt >= SIBLINGS_REFRESH_MS;
+
+/** L'identifiant de l'éditeur dans la réponse « lookup » d'une app. */
+export function artistIdOf(raw: unknown): string | null {
+  const r = obj(raw);
+  const first = Array.isArray(r?.results) ? obj(r!.results[0]) : null;
+  const id = first?.artistId;
+  return typeof id === "number" || typeof id === "string" ? String(id) : null;
+}
+
+/** Les apps d'un éditeur dans la réponse « lookup » de ses logiciels, dans la forme d'une app des classements. */
+export function siblingEntries(raw: unknown): StoreEntry[] {
+  const r = obj(raw);
+  const out: StoreEntry[] = [];
+  for (const x of Array.isArray(r?.results) ? r!.results : []) {
+    const o = obj(x);
+    if (!o || o.wrapperType !== "software" || (typeof o.trackId !== "number" && typeof o.trackId !== "string")) continue;
+    out.push({
+      storeId: String(o.trackId),
+      name: str(o.trackName).slice(0, 120),
+      artist: str(o.artistName).slice(0, 80),
+      genre: str(o.primaryGenreName).slice(0, 40),
+      released: str(o.releaseDate).slice(0, 10),
+    });
+  }
+  return out;
+}
+
+/** L'API de l'App Store glisse parfois des caractères de contrôle dans ses textes : le JSON strict les refuse. */
+export const parseLookup = (text: string): unknown => JSON.parse(text.replace(/[\u0000-\u001f]/g, " "));

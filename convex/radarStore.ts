@@ -26,13 +26,18 @@ import { ensureSettings, readSettings } from "./radarSignals";
 import { cleanText } from "./radarSignalsMath";
 import {
   alreadyFollowed,
+  artistIdOf,
   checkStoreApp,
   feedsForRun,
   fetchEmbedPage,
   firstCheckAt,
+  needsRetag,
   nextCheckAfter,
+  parseLookup,
   parseStoreFeed,
   runStoreQueue,
+  siblingEntries,
+  siblingsDue,
   storeBrand,
   storeCandidateKey,
   storeFeedUrl,
@@ -56,7 +61,7 @@ export async function upsertStoreAppsCore(ctx: MutationCtx, country: string, ent
   for (const e of entries) {
     const got = await ctx.db.query("radarStoreApps").withIndex("by_store", (q) => q.eq("storeId", e.storeId)).first();
     if (!got) {
-      await ctx.db.insert("radarStoreApps", { ...e, countries: [country], firstSeenAt: now, lastSeenAt: now, nextCheckAt: firstCheckAt(e.released, now) });
+      await ctx.db.insert("radarStoreApps", { ...e, countries: [country], firstSeenAt: now, lastSeenAt: now, nextCheckAt: firstCheckAt(e.released, now, e.genre) });
       created++;
     } else if (!got.countries.includes(country) || now - got.lastSeenAt > DAY) {
       // Une écriture par jour au plus pour une app déjà là : les listes sont relues plusieurs fois par jour.
@@ -201,10 +206,36 @@ export const noteChecksRun = internalMutation({
 type ChecksRun = { skipped: "no-key" } | { checked: number; found: number; pages: number; stopped: string | null };
 
 /** Le passage du contrôle : la file, une page à la fois avec la pause du relevé de vues (radarStoreMath.runStoreQueue). */
+/** Apps des classements regardées par passage pour la reprise des marques à slogan (une fois, ~30 passages). */
+const RETAG_SCAN = 500;
+
+/**
+ * La reprise des marques à slogan (14/11/2026) : les apps jugées « sans réseau » sous les seuls hashtags d'avant, qui
+ * en ont désormais un de plus (radarStoreMath.needsRetag : « Wilgo IA n°1 » → #wilgo), repassent en tête de file au
+ * lieu d'attendre leurs 60 jours. Un parcours, une fois ; puis plus rien.
+ */
+export const requeueRetagged = internalMutation({
+  args: { now: v.number() },
+  handler: async (ctx, { now }): Promise<number> => {
+    const s = await ensureSettings(ctx);
+    if (s.storeRetagDoneAt !== undefined) return 0;
+    const r = await ctx.db.query("radarStoreApps").paginate({ cursor: s.storeRetagCursor ?? null, numItems: RETAG_SCAN });
+    let requeued = 0;
+    for (const a of r.page) {
+      if (!needsRetag(a)) continue;
+      await ctx.db.patch(a._id, { nextCheckAt: now });
+      requeued++;
+    }
+    await ctx.db.patch(s._id, r.isDone ? { storeRetagCursor: undefined, storeRetagDoneAt: now } : { storeRetagCursor: r.continueCursor });
+    return requeued;
+  },
+});
+
 export const runStoreChecks = internalAction({
   args: {},
   handler: async (ctx): Promise<ChecksRun> => {
     if (!scKeyPresent()) return { skipped: "no-key" };
+    await ctx.runMutation(internal.radarStore.requeueRetagged, { now: Date.now() });
     const { due, followed }: DueStore = await ctx.runQuery(internal.radarStore.dueStoreApps, { now: Date.now(), limit: APPS_PER_RUN });
     let found = 0;
     const run = await runStoreQueue(due, followed, {
@@ -217,6 +248,85 @@ export const runStoreChecks = internalAction({
     });
     await ctx.runMutation(internal.radarStore.noteChecksRun, { checked: run.checked, stopped: run.stopped, now: Date.now() });
     return { ...run, found };
+  },
+});
+
+// ─── Les apps sœurs ──────────────────────────────────────────────────────────
+
+/** Apps suivies dont on demande les apps sœurs par passage (deux appels à l'App Store chacune, ~20 par minute au plus). */
+const SIBLINGS_PER_RUN = 6;
+/** La pause entre deux appels à l'App Store (sa limite : ~20 par minute). */
+const LOOKUP_PAUSE_MS = 3_200;
+
+type SiblingsWork = { id: Id<"radarApps">; storeId: string }[];
+
+export const siblingsWork = internalQuery({
+  args: { now: v.number() },
+  handler: async (ctx, { now }): Promise<SiblingsWork> =>
+    (await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect())
+      .filter((a) => a.mergedInto === undefined && !!a.store?.storeId && siblingsDue(a, now))
+      .sort((a, b) => (a.siblingsAt ?? 0) - (b.siblingsAt ?? 0))
+      .slice(0, SIBLINGS_PER_RUN)
+      .map((a) => ({ id: a._id, storeId: a.store!.storeId })),
+});
+
+/** Range les apps sœurs neuves dans la file des contrôles (comme une app des classements), et note l'app regardée. */
+export async function addSiblingsCore(ctx: MutationCtx, appId: Id<"radarApps">, entries: readonly StoreEntry[], now: number): Promise<number> {
+  let added = 0;
+  const own = (await ctx.db.get(appId))?.store?.storeId;
+  for (const e of entries) {
+    if (e.storeId === own || (await ctx.db.query("radarStoreApps").withIndex("by_store", (q) => q.eq("storeId", e.storeId)).first())) continue;
+    await ctx.db.insert("radarStoreApps", { ...e, countries: ["sibling"], firstSeenAt: now, lastSeenAt: now, nextCheckAt: firstCheckAt(e.released, now, e.genre) });
+    added++;
+  }
+  await ctx.db.patch(appId, { siblingsAt: now });
+  return added;
+}
+
+export const addSiblings = internalMutation({
+  args: { appId: v.id("radarApps"), entries: v.array(entryValidator), now: v.number() },
+  handler: (ctx, { appId, entries, now }): Promise<number> => addSiblingsCore(ctx, appId, entries, now),
+});
+
+/** Le passage des apps sœurs (toutes les heures) : l'éditeur de chaque app suivie, puis ses autres apps. 0 crédit. */
+export const runStoreSiblings = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ skipped: "no-key" } | { looked: number; added: number; errors: number }> => {
+    if (!scKeyPresent()) return { skipped: "no-key" };
+    const work: SiblingsWork = await ctx.runQuery(internal.radarStore.siblingsWork, { now: Date.now() });
+    let added = 0;
+    let errors = 0;
+    for (const [i, w] of work.entries()) {
+      try {
+        if (i > 0) await sleep(LOOKUP_PAUSE_MS);
+        const app = await fetch(`https://itunes.apple.com/lookup?id=${encodeURIComponent(w.storeId)}&country=fr`, { signal: AbortSignal.timeout(15_000) });
+        const artistId = app.ok ? artistIdOf(parseLookup(await app.text())) : null;
+        let entries: StoreEntry[] = [];
+        if (artistId) {
+          await sleep(LOOKUP_PAUSE_MS);
+          const res = await fetch(`https://itunes.apple.com/lookup?id=${encodeURIComponent(artistId)}&entity=software&country=fr&limit=50`, { signal: AbortSignal.timeout(15_000) });
+          if (res.ok) entries = siblingEntries(parseLookup(await res.text()));
+        }
+        // Sans éditeur lisible, l'app est notée regardée quand même : elle repassera dans 90 jours.
+        added += await ctx.runMutation(internal.radarStore.addSiblings, { appId: w.id, entries, now: Date.now() });
+      } catch {
+        errors++;
+      }
+    }
+    return { looked: work.length, added, errors };
+  },
+});
+
+/** e2e : range ces apps sœurs pour l'app donnée (l'appel à l'App Store n'est pas joué). */
+export const e2eAddSiblings = e2eMutation({
+  args: { slug: v.string(), entries: v.array(entryValidator) },
+  handler: async (ctx, { slug, entries }) => {
+    const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!app) return null;
+    const added = await addSiblingsCore(ctx, app._id, entries, Date.now());
+    const rows = [];
+    for (const e of entries) rows.push(await ctx.db.query("radarStoreApps").withIndex("by_store", (q) => q.eq("storeId", e.storeId)).first());
+    return { added, siblingsAt: (await ctx.db.get(app._id))?.siblingsAt ?? null, queued: rows.filter(Boolean).map((r) => ({ storeId: r!.storeId, countries: r!.countries })) };
   },
 });
 
