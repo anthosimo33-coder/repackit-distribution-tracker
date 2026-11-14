@@ -47,7 +47,7 @@ function projectApp(a: Doc<"radarApps">) {
 /**
  * Un compte suivi, tel que Swarm le reçoit. La JUSTIFICATION d'un compte (comment il est entré, ce qui le relie à son
  * app : `matchedBy`, `proofAt`, preuve par pseudo, bio ou vidéos) reste interne au Radar — décision du 14/11/2026 :
- * elle ne part plus. Un compte que plus rien ne relie à son app ne part pas du tout (cf `exportPage`).
+ * elle ne part plus. Un compte que plus rien ne relie à son app part « en pause » (cf `exportPage`).
  */
 function projectTracked(t: Doc<"radarTracked">) {
   return {
@@ -177,16 +177,20 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       return { rows: r.page.map(projectApp), cursor: r.continueCursor, done: r.isDone };
     }
     case "tracked": {
-      // Les comptes actifs que quelque chose relie encore à leur app (pseudo, bio, vidéos, liste de départ, ajout à la
-      // main, sur ses 30 dernières vidéos rangées) ; la preuve elle-même ne part pas.
+      // Les comptes actifs, la preuve elle-même jamais (pseudo, bio, vidéos, liste de départ, ajout à la main, sur ses
+      // 30 dernières vidéos rangées).
       const r = await ctx.db.query("radarTracked").paginate(opts);
       const rows = [];
       for (const t of r.page) {
         if (t.status !== "active") continue;
         const app = apps.get(t.appId);
         const texts = (await videosOf(ctx, t._id, MEDIAN_WINDOW)).filter((x) => !x.platform).map((x) => `${x.caption ?? ""} ${x.hook ?? ""}`);
-        if (app && proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by === null) continue;
-        rows.push(projectTracked(t));
+        // Plus rien ne le relie à son app : pas un créateur pour Swarm, qui ne liste que les comptes actifs — il part
+        // « en pause », sans aucune justification. Il part quand même : ses vidéos qui citent l'app (une seule, d'ordinaire)
+        // gardent ainsi leur pseudo et leur lien dans Swarm (14/11/2026 : sans lui, 51 vidéos des 30 derniers jours,
+        // 1,17 M de vues, s'affichaient sans pseudo ni lien).
+        const linked = !app || proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
+        rows.push(linked ? projectTracked(t) : { ...projectTracked(t), status: "paused" as const });
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };
     }
