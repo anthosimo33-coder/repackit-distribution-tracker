@@ -413,12 +413,12 @@ export const e2eJudgeNatures = e2eMutation({
 
 /** e2e : un jugement d'avant les définitions v2 (sans version), pour ce compte et/ou cette app. */
 export const e2eLegacyJudgment = e2eMutation({
-  args: { handle: v.optional(v.string()), slug: v.optional(v.string()) },
-  handler: async (ctx, { handle, slug }) => {
+  args: { handle: v.optional(v.string()), slug: v.optional(v.string()), verdict: v.optional(v.union(...ACCOUNT_VERDICTS.map((k) => v.literal(k)))) },
+  handler: async (ctx, { handle, slug, verdict }) => {
     const now = Date.now();
     if (handle) {
       const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
-      if (t) await ctx.db.insert("radarAccountJudgments", { accountId: t._id, appId: t.appId, handle, weak: "aucune", proof: { by: null, cites: 0, of: 0 }, verdict: "sans_rapport", why: "v1", at: now });
+      if (t) await ctx.db.insert("radarAccountJudgments", { accountId: t._id, appId: t.appId, handle, weak: "aucune", proof: { by: null, cites: 0, of: 0 }, verdict: verdict ?? "sans_rapport", why: "v1", at: now });
     }
     if (slug) {
       const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
@@ -526,14 +526,26 @@ async function applyVerdictsCore(ctx: MutationCtx, now: number, only?: (handle: 
   for (const j of rows) {
     if (only && !only(j.handle)) continue;
     if (n++ >= APPLY_BATCH) break;
+    // Un jugement d'une version d'avant n'agit jamais (v1 : 3 verdicts sur 10 faux) : écarté, le compte sera rejugé.
+    if ((j.v ?? 1) < JUDGE_VERSION) {
+      await ctx.db.patch(j._id, { appliedAt: now, applied: "obsolete" });
+      done.obsolete = (done.obsolete ?? 0) + 1;
+      continue;
+    }
     const acc = await ctx.db.get(j.accountId);
     let action: VerdictAction = { kind: "none" };
     // Jugé sous une autre app que la sienne aujourd'hui (déplacé depuis) : le jugement ne vaut plus.
     if (acc && acc.appId === j.appId) {
-      action = verdictAction(j, acc, (name) => {
-        const a = followedByName(name, apps);
-        return a ? { id: a._id, active: a.status === "active" } : null;
-      });
+      const own = apps.find((a) => a._id === acc.appId);
+      action = verdictAction(
+        j,
+        acc,
+        (name) => {
+          const a = followedByName(name, apps);
+          return a ? { id: a._id, active: a.status === "active" } : null;
+        },
+        { cites: j.proof.cites, bioNames: !!own && bioNamesApp(acc.bio, own) },
+      );
     }
     if (acc && action.kind === "pause") {
       await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });

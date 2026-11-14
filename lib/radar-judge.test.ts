@@ -30,6 +30,7 @@ import {
   settledVerdict,
   shownInSwarm,
   verdictAction,
+  PLACEMENT_MAX_VIDEOS,
   weakProof,
 } from "../convex/radarJudgeMath";
 
@@ -293,27 +294,40 @@ describe("Radar — jugement, phase B : ce que fait chaque verdict (définition 
   const actif = { status: "active" as const, matchedBy: "caption" as const };
   const suivies: Record<string, { id: string; active: boolean }> = { "the cringe": { id: "cringe", active: true }, arkose: { id: "arkose", active: false } };
   const followed = (name: string) => suivies[name.toLowerCase()] ?? null;
+  const ev = { cites: 1, bioNames: false };
 
   it("rien à voir : en pause ; placement : marqué, gardé ; pousse et incertain : rien", () => {
-    expect(verdictAction({ verdict: "sans_rapport" }, actif, followed)).toEqual({ kind: "pause" });
-    expect(verdictAction({ verdict: "placement" }, actif, followed)).toEqual({ kind: "placement" });
-    expect(verdictAction({ verdict: "pousse" }, actif, followed)).toEqual({ kind: "none" });
-    expect(verdictAction({ verdict: "incertain" }, actif, followed)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "sans_rapport" }, actif, followed, ev)).toEqual({ kind: "pause" });
+    expect(verdictAction({ verdict: "placement" }, actif, followed, ev)).toEqual({ kind: "placement" });
+    expect(verdictAction({ verdict: "pousse" }, actif, followed, ev)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "incertain" }, actif, followed, ev)).toEqual({ kind: "none" });
   });
 
   it("une autre app : déplacé si on la suit ; en pause si elle est en pause ; sinon une piste, suivie dès 2 comptes", () => {
-    expect(verdictAction({ verdict: "autre_app", other: "The Cringe" }, actif, followed)).toEqual({ kind: "move", to: "cringe" });
-    expect(verdictAction({ verdict: "autre_app", other: "Arkose" }, actif, followed)).toEqual({ kind: "pause" });
-    expect(verdictAction({ verdict: "autre_app", other: "Mokascore" }, actif, followed)).toEqual({ kind: "lead", product: "Mokascore" });
+    expect(verdictAction({ verdict: "autre_app", other: "The Cringe" }, actif, followed, ev)).toEqual({ kind: "move", to: "cringe" });
+    expect(verdictAction({ verdict: "autre_app", other: "Arkose" }, actif, followed, ev)).toEqual({ kind: "pause" });
+    expect(verdictAction({ verdict: "autre_app", other: "Mokascore" }, actif, followed, ev)).toEqual({ kind: "lead", product: "Mokascore" });
     // Sans nom, on ne peut rien en faire.
-    expect(verdictAction({ verdict: "autre_app", other: "  " }, actif, followed)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "autre_app", other: "  " }, actif, followed, ev)).toEqual({ kind: "none" });
     expect(LEAD_MIN_ACCOUNTS).toBe(2);
   });
 
+  it("gardes v2 : une bio qui nomme l'app protège ; un placement, c'est une ou deux vidéos", () => {
+    const bio = { cites: 0, bioNames: true };
+    // « Official Fluencify ambassador » dans la bio : ni pause, ni départ.
+    expect(verdictAction({ verdict: "sans_rapport" }, actif, followed, bio)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "autre_app", other: "The Cringe" }, actif, followed, bio)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "autre_app", other: "Mokascore" }, actif, followed, bio)).toEqual({ kind: "none" });
+    expect(PLACEMENT_MAX_VIDEOS).toBe(2);
+    expect(verdictAction({ verdict: "placement" }, actif, followed, { cites: 2, bioNames: false })).toEqual({ kind: "placement" });
+    // #finchpartner sur 3 vidéos : un partenaire récurrent, pas un placement.
+    expect(verdictAction({ verdict: "placement" }, actif, followed, { cites: 3, bioNames: false })).toEqual({ kind: "none" });
+  });
+
   it("jamais un compte déjà en pause, gardé à la main ou ajouté à la main", () => {
-    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, status: "paused" }, followed)).toEqual({ kind: "none" });
-    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, keptByHand: true }, followed)).toEqual({ kind: "none" });
-    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, matchedBy: "manual" }, followed)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, status: "paused" }, followed, ev)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, keptByHand: true }, followed, ev)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "sans_rapport" }, { ...actif, matchedBy: "manual" }, followed, ev)).toEqual({ kind: "none" });
   });
 });
 

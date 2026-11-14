@@ -375,20 +375,31 @@ export function accountAnswer(raw: unknown, batch: readonly { id: string }[]): A
  */
 export type VerdictAction = { kind: "none" } | { kind: "pause" } | { kind: "placement" } | { kind: "move"; to: string } | { kind: "lead"; product: string };
 
+/** Définition du fondateur (14/11/2026) : un placement, c'est un créateur généraliste payé « une ou deux fois ». */
+export const PLACEMENT_MAX_VIDEOS = 2;
+
+/**
+ * Ce que fait un verdict. Deux gardes, tirées de la relecture à la main des verdicts v1 (14/11/2026) et des règles du
+ * fondateur, que l'IA ne peut pas lever :
+ *  - une bio qui nomme l'app prouve le compte (règle du 13/11 : pseudo, bio ou 2 vidéos) : ni pause, ni départ vers
+ *    une autre app (« Official Fluencify ambassador », « The Ick me mantiene al día ») ;
+ *  - un placement, c'est une ou deux vidéos : à 3 ou plus, c'est un partenaire récurrent, pas un placement.
+ */
 export function verdictAction(
   j: { verdict: AccountVerdict; other?: string },
   acc: { status: "active" | "paused"; keptByHand?: boolean; matchedBy: "caption" | "manual" | "seed" },
   followed: (name: string) => { id: string; active: boolean } | null,
+  ev: { cites: number; bioNames: boolean },
 ): VerdictAction {
   if (acc.status !== "active" || acc.keptByHand || acc.matchedBy === "manual") return { kind: "none" };
   switch (j.verdict) {
     case "sans_rapport":
-      return { kind: "pause" };
+      return ev.bioNames ? { kind: "none" } : { kind: "pause" };
     case "placement":
-      return { kind: "placement" };
+      return ev.cites <= PLACEMENT_MAX_VIDEOS ? { kind: "placement" } : { kind: "none" };
     case "autre_app": {
       const name = (j.other ?? "").trim();
-      if (!name) return { kind: "none" };
+      if (!name || ev.bioNames) return { kind: "none" };
       const app = followed(name);
       if (app?.active) return { kind: "move", to: app.id };
       // Suivie mais en pause (hors périmètre, à la main) : le compte ne pousse pas l'app où il est rangé.
