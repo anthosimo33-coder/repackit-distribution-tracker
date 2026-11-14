@@ -92,6 +92,13 @@ describe("Radar — suivi d'office : ce qu'on fait d'une app repérée", () => {
     expect(autoPlan({ kind: "market", label: "Elb", market: { handle: "" } })).toEqual({ skip: "nom trop court" });
   });
 
+  it("une app que des comptes suivis poussent à la place de la leur (jugement de l'IA) : suivie dès 2 comptes (14/11)", () => {
+    expect(autoPlan({ kind: "ia", label: "Mokascore", authorCount: 2 })).toEqual({ patterns: ["mokascore"] });
+    expect(autoPlan({ kind: "ia", label: "Mokascore", authorCount: 1 })).toEqual({ skip: "un seul compte la désigne" });
+    expect(autoPlan({ kind: "ia", label: "Moka", authorCount: 1 })).toEqual({ skip: "un seul compte la désigne" });
+    expect(autoPlan({ kind: "ia", label: "Elb", authorCount: 3 })).toEqual({ skip: "nom trop court" });
+  });
+
   it("un compte mentionné ou un site cité ne sont jamais suivis d'office", () => {
     expect(autoPlan({ kind: "mention", label: "@SHEIN" })).toEqual({ skip: "pas une source suivie d'office" });
     expect(autoPlan({ kind: "domain", label: "opsion.app" })).toEqual({ skip: "pas une source suivie d'office" });

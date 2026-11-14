@@ -1,6 +1,7 @@
 /**
  * RADAR — SUIVI D'OFFICE : ce qu'on fait d'une app repérée. Règle pure (les écritures : convex/radarAuto).
  */
+import { LEAD_MIN_ACCOUNTS } from "./radarJudgeMath";
 import { marketPatterns } from "./radarMarketMath";
 import { storeAutoFollow, tagCore, type CreatorWhy } from "./radarStoreMath";
 
@@ -10,8 +11,9 @@ export const shortenedPattern = (tag: string): string | null => (tagCore(tag) !=
 export type AutoPlan = { patterns: string[] } | { skip: string };
 
 type Candidate = {
-  kind: "mention" | "domain" | "store" | "market";
+  kind: "mention" | "domain" | "store" | "market" | "ia";
   label: string;
+  authorCount?: number;
   store?: { tag: string; creators: readonly { handle: string; why: CreatorWhy }[] };
   market?: { handle: string };
 };
@@ -31,6 +33,13 @@ export function autoPlan(c: Candidate): AutoPlan {
   }
   if (c.kind === "market" && c.market) {
     const patterns = marketPatterns(c.label, c.market.handle);
+    return patterns.length ? { patterns } : { skip: "nom trop court" };
+  }
+  // Une app que des comptes suivis poussent à la place de la leur (jugement de l'IA, convex/radarJudge) : suivie dès
+  // que 2 comptes la désignent (définition du fondateur, 14/11/2026), sous son nom collé.
+  if (c.kind === "ia") {
+    if ((c.authorCount ?? 0) < LEAD_MIN_ACCOUNTS) return { skip: "un seul compte la désigne" };
+    const patterns = marketPatterns(c.label, "");
     return patterns.length ? { patterns } : { skip: "nom trop court" };
   }
   return { skip: "pas une source suivie d'office" };

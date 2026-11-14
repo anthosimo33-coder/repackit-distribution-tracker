@@ -1231,3 +1231,17 @@ describe("le pays d'un compte et d'un réseau (13/11/2026)", () => {
     expect(sameAppNet(appNet([{ handle: "a", status: "active" }]), fr)).toBe(false);
   });
 });
+
+describe("Radar — un compte vide (lot 4 du dig, A6, 14/11/2026)", () => {
+  it("relevé sans aucune vidéo depuis son entrée, plus de 3 jours après : en pause ; avant, ou dès une vidéo, non", async () => {
+    const { EMPTY_ACCOUNT_MS, isEmptyAccount } = await import("../convex/radarNetworkMath");
+    const now = Date.UTC(2026, 10, 14, 18, 0);
+    expect(EMPTY_ACCOUNT_MS).toBe(3 * 86_400_000);
+    const vieux = { videosSeen: 0, addedAt: now - EMPTY_ACCOUNT_MS - 1 };
+    expect(isEmptyAccount(vieux, 0, 0, now)).toBe(true);
+    expect(isEmptyAccount({ ...vieux, addedAt: now - EMPTY_ACCOUNT_MS }, 0, 0, now)).toBe(false);
+    expect(isEmptyAccount({ ...vieux, videosSeen: 1 }, 0, 0, now)).toBe(false);
+    expect(isEmptyAccount(vieux, 1, 0, now)).toBe(false);
+    expect(isEmptyAccount(vieux, 0, 1, now)).toBe(false);
+  });
+});

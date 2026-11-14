@@ -126,10 +126,13 @@ crons.interval("radar-market-judge", { hours: 1 }, internal.radarMarket.runMarke
 // La fiche de chaque app suivie : sa fiche App Store ou sa campagne recopiée de l'app repérée, sa niche et ce
 // qu'elle fait en une phrase dits par l'IA (convex/radarFiche).
 crons.interval("radar-fiches", { minutes: 30 }, internal.radarFiche.runFiches, {});
-// Le jugement sémantique, phase A (convex/radarJudge) : l'IA dit ce qu'est chaque app et si chaque compte à preuve
-// faible pousse bien son produit ; rangé à part, rien n'agit. Poste « Analyse IA ».
+// Le jugement sémantique (convex/radarJudge) : l'IA dit ce qu'est chaque app et si chaque compte à preuve faible
+// pousse bien son produit. Poste « Analyse IA ».
 crons.interval("radar-judge-apps", { minutes: 30 }, internal.radarJudge.runAppNatures, {});
 crons.interval("radar-judge-accounts", { minutes: 30 }, internal.radarJudge.runAccountJudgments, {});
+// Phase B : les jugements agissent (définitions du fondateur du 14/11/2026) — apps hors périmètre en pause, comptes
+// sans rapport en pause, déplacés vers l'app qu'ils poussent, ou marqués « placement payé ».
+crons.interval("radar-judge-apply", { minutes: 30 }, internal.radarJudge.applyJudgmentsNow, {});
 // Le filtre d'entrée : un compte trouvé par une recherche est vérifié sur sa page publique (gratuit) avant d'être
 // relevé et montré (convex/radarVet).
 crons.interval("radar-vetting", { minutes: 5 }, internal.radarVet.runVetting, {});

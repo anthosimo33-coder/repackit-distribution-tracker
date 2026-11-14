@@ -564,7 +564,8 @@
     "fichePays": "Its accounts post from: {liste}",
     "pasSuivieDOffice": "Not followed automatically: {raison}",
     "enVerification": "awaiting verification",
-    "enVerificationAide": "Found by a search: its public page is read before any paid read. It enters if its handle, bio or at least two of its latest videos mention {app}."
+    "enVerificationAide": "Found by a search: its public page is read before any paid read. It enters if its handle, bio or at least two of its latest videos mention {app}.",
+    "horsPerimetre": "paused: not an app, a SaaS or a mobile game"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} followers",

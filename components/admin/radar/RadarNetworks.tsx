@@ -279,7 +279,7 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
               <span className="block truncate font-semibold">{app.name}</span>
               <span className="block text-xs text-slate-500">
                 {tr("resumeApp", { comptes: app.accounts, actifs: app.activeAccounts, posts: app.posts7d })}
-                {paused && ` · ${tr("enPause")}`}
+                {paused && ` · ${tr(app.outOfScope ? "horsPerimetre" : "enPause")}`}
               </span>
             </span>
           </button>

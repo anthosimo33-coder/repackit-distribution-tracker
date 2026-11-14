@@ -564,7 +564,8 @@
     "fichePays": "Ses comptes publient depuis : {liste}",
     "pasSuivieDOffice": "Pas suivie d'office : {raison}",
     "enVerification": "en attente de vérification",
-    "enVerificationAide": "Trouvé par une recherche : sa page publique est lue avant qu'il soit relevé. Il entre si son pseudo, sa bio ou au moins deux de ses dernières vidéos citent {app}."
+    "enVerificationAide": "Trouvé par une recherche : sa page publique est lue avant qu'il soit relevé. Il entre si son pseudo, sa bio ou au moins deux de ses dernières vidéos citent {app}.",
+    "horsPerimetre": "en pause : ni une app, ni un SaaS, ni un jeu mobile"
   },
   "RecurringAccountCard": {
     "abonnes": "{count} abonnés",

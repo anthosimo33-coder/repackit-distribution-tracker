@@ -4319,6 +4319,10 @@ export default defineSchema({
     not: v.optional(v.array(v.string())),
     searches: v.array(v.string()), // mots-clés, « #hashtag »
     status: v.union(v.literal("active"), v.literal("paused")),
+    // Mise en pause d'office parce qu'elle n'est ni une app, ni un SaaS, ni un jeu mobile (radarJudgeMath.outOfScope,
+    // définition du 14/11/2026). Remise en route à la main : `scopeByHand`, plus jamais remise en pause pour ce motif.
+    pausedReason: v.optional(v.literal("perimetre")),
+    scopeByHand: v.optional(v.boolean()),
     source: v.union(v.literal("seed"), v.literal("manual")),
     networkSearchedAt: v.optional(v.number()),
     // Sa recherche COMPLÈTE est faite (radarNetworkMath.needsDeepSearch) : les suivantes sont courtes.
@@ -4429,6 +4433,9 @@ export default defineSchema({
     // La vidéo la plus récente qu'on avait de lui, qu'un relevé payant « trou » n'a pas retrouvée (supprimée) : elle
     // ne déclenche plus de relevé payant (radarFreeMath.listGap).
     gapChecked: v.optional(v.string()),
+    // Créateur généraliste payé une ou deux fois pour l'app (jugement de l'IA, radarJudgeMath.verdictAction) : pas un
+    // créateur de l'app, mais sa vidéo compte dans ses vues, étiquetée « placement payé ». Il reste relevé.
+    placement: v.optional(v.boolean()),
     // Agrégats tenus à chaque relevé : l'écran lit les comptes, jamais leurs vidéos.
     posts7d: v.optional(v.number()),
     best7d: v.optional(
@@ -4468,7 +4475,12 @@ export default defineSchema({
     other: v.optional(v.string()), // l'autre produit qu'il pousse (« autre_app »)
     why: v.string(),
     at: v.number(),
-  }).index("by_account", ["accountId"]),
+    // Appliqué (phase B) : ce qui a été fait (radarJudgeMath.VerdictAction.kind) et quand.
+    appliedAt: v.optional(v.number()),
+    applied: v.optional(v.string()),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_applied", ["appliedAt"]),
 
   // La mesure du premier relevé GRATUIT (radarFreeMath, « LA MESURE DU PREMIER RELEVÉ GRATUIT ») : le premier relevé
   // payant d'un compte sur 4, et à côté le même compte relevé gratuitement. Rien n'en sert : on compare, puis on
@@ -4615,7 +4627,8 @@ export default defineSchema({
     key: v.string(), // « @<id TikTok> », le domaine, « store:<id App Store> » ou « market:<produit> »
     // « store » : une app des classements App Store dont le hashtag porte des comptes créateurs (convex/radarStore).
     // « market » : une app ou un logiciel qui paie des créateurs sur une place de marché de campagnes (convex/radarMarket).
-    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store"), v.literal("market")),
+    // « ia » : une app que des comptes suivis poussent à la place de la leur, d'après le jugement de l'IA (radarJudge).
+    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store"), v.literal("market"), v.literal("ia")),
     label: v.string(),
     authors: v.array(v.string()), // pseudos qui la citent (50 au plus)
     authorCount: v.number(),

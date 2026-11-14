@@ -52,6 +52,7 @@ import {
   canRejudge,
   formatSuccess,
   nextReadAtFor,
+  isEmptyAccount,
   videoApp,
   videoCitesApp,
   medianViews,
@@ -676,7 +677,11 @@ export const applyAccountRead = internalMutation({
       acc.matchedBy === "caption" &&
       verdict.kind === "keep" &&
       accountProof(acc.handle, bio ?? acc.bio, videos.map((s) => `${s.caption} ${s.hook ?? ""}`), own) === null;
-    const offTopic = (verdict.kind === "offTopic" || unproven) && !acc.keptByHand;
+    // Un compte en placement payé (jugement de l'IA) cite peu l'app par nature : il reste relevé, sa vidéo pour
+    // l'app compte dans ses vues (définition du fondateur, 14/11/2026). Un compte jamais vu publier, relevé depuis
+    // plus de 3 jours, n'a rien à montrer : en pause (lot 4 du dig, A6).
+    const empty = isEmptyAccount(acc, recent.length, fresh.length, now);
+    const offTopic = (((verdict.kind === "offTopic" || unproven) && !acc.placement) || empty) && !acc.keptByHand;
     const fans = videos[0]?.authorFans ?? profile?.fans ?? acc.fans;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
     const ig = acc.igHandle ? null : igHandleFromBio(bio);
@@ -1424,6 +1429,8 @@ export async function listNetworksCore(ctx: ProjectQueryCtx) {
       rivalOf: a.rivalOf,
       group,
       status: a.status,
+      // En pause d'office : ni une app, ni un SaaS, ni un jeu mobile (radarJudge). La remettre en route le garde.
+      outOfScope: a.status === "paused" && a.pausedReason === "perimetre",
       source: a.source,
       searches: a.searches,
       accounts: net.accounts,
@@ -1685,6 +1692,20 @@ export async function followCandidateCore(
   // Les comptes d'une app des classements sont déjà prouvés par son contrôle (pseudo, bio, moitié des vidéos) ;
   // ceux des autres sources (meilleurs clips d'une campagne, comptes qui citent) passent par le filtre d'entrée.
   for (const handle of c.authors) {
+    if (c.kind === "ia") {
+      // Ses comptes sont déjà suivis, en pause sous l'app où ils étaient rangés (jugement de l'IA, radarJudge) : ils
+      // la rejoignent et sont relevés tout de suite, donc jugés sur ses motifs (sans vidéo qui la cite : en pause).
+      const acc = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+      const from = acc ? await ctx.db.get(acc.appId) : null;
+      if (acc && from && acc.appId !== app._id) {
+        const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc._id)).order("desc").take(100);
+        await moveAccount(ctx, acc, from, app, recent);
+        await ctx.db.patch(acc._id, { status: "active", pausedReason: undefined, nextReadAt: now });
+        await refreshAppNet(ctx, from._id, now);
+        attached++;
+      }
+      continue;
+    }
     if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter, undefined, c.kind !== "store")) === "added") attached++;
   }
   await ctx.db.patch(c._id, { status: "followed" });
@@ -1705,9 +1726,12 @@ export const ignoreCandidate = permissionMutation("radar.use")({
 export const setAppStatus = permissionMutation("radar.use")({
   args: { appId: v.id("radarApps"), status: v.union(v.literal("active"), v.literal("paused")) },
   handler: async (ctx, { appId, status }) => {
+    const app = await ctx.db.get(appId);
     // Un doublon fondu reste en pause : il n'existe plus que comme renvoi.
-    if ((await ctx.db.get(appId))?.mergedInto !== undefined) return "paused" as const;
-    await ctx.db.patch(appId, { status });
+    if (app?.mergedInto !== undefined) return "paused" as const;
+    // Remise en route à la main après une pause « hors périmètre » : ce choix tient, le jugement ne la remet plus en pause.
+    const byHand = status === "active" && app?.pausedReason === "perimetre" ? { scopeByHand: true } : {};
+    await ctx.db.patch(appId, { status, pausedReason: undefined, ...byHand });
     return status;
   },
 });
