@@ -15,9 +15,10 @@ import { TABLES, exportPage, type ExportTable } from "./swarmExportPage";
  * Seul ce que le Radar suit ENCORE part (14/11/2026) : les comptes actifs et leurs vidéos, les signaux qui ne
  * viennent pas d'un compte en pause, les membres actifs des formats. Jusque-là tout partait, et Swarm comptait sous
  * une app les vidéos de ses comptes mis en pause « hors sujet » : 55 % des vues affichées le 13/11, l'accueil tenu
- * par Hush (117,9 M de vues, dont 278 de comptes actifs), une recette italienne en tête de Piatto. Chaque compte
- * part avec sa preuve (`proof` : pseudo, bio, vidéos qui citent l'app), chaque vidéo et chaque signal disent s'ils
- * citent leur app (`cites`, la règle du Radar : légende, texte à l'écran, transcription, pseudo).
+ * par Hush (117,9 M de vues, dont 278 de comptes actifs), une recette italienne en tête de Piatto. Un compte que
+ * plus rien ne relie à son app ne part pas ; la justification des autres (pseudo, bio, vidéos) reste interne au
+ * Radar (14/11/2026). Chaque vidéo et chaque signal disent s'ils citent leur app (`cites`, la règle du Radar :
+ * légende, texte à l'écran, transcription, pseudo), pour que Swarm ne compte que celles-là.
  */
 
 const pageArgs = { table: v.union(...TABLES.map((t) => v.literal(t))), cursor: v.union(v.string(), v.null()) };
