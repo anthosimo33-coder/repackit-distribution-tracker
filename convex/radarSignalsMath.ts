@@ -637,6 +637,20 @@ export function allowance(
 }
 
 /**
+ * La part d'un RATTRAPAGE (15/11/2026) : une app jamais cherchée puise dans ce qui reste du mois, pas dans la part du
+ * jour — 171 apps attendaient (~25 crédits l'app), 3 à 4 jours au rythme du jour. L'enveloppe du mois, le plafond et le
+ * solde bornent toujours : la dépense totale ne change pas, elle est avancée.
+ */
+export function catchUpAllowance(s: BudgetSettings, state: BudgetState, k: PosteKey): number {
+  const def = posteDef(k);
+  const p = posteOf(s, k);
+  if (!def.live || !p.on || state.capReached || state.cut.includes(k)) return 0;
+  const leftMonth = Math.max(0, Math.floor(def.monthlyCredits(p.qty) - state.byPoste[k].credits));
+  const leftCap = Math.max(0, Math.floor((s.capUsd - state.spentUsd) / SC_PRICE_PER_CREDIT));
+  return Math.min(leftMonth, leftCap, state.balanceLeft ?? Infinity);
+}
+
+/**
  * Dollars qu'un poste payé en dollars (l'analyse IA) peut encore dépenser ce
  * mois : le reste de son enveloppe, borné par le reste du plafond ; 0 s'il est
  * éteint, coupé, ou le plafond atteint.

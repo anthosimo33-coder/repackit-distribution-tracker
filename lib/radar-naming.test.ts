@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isSmallAccount, mergeKnown, NAMING_PER_RUN, NAMING_QUERIES, namingText, SMALL_MAX_FANS } from "../convex/radarNamingMath";
-import { candidatesOf, domainsIn, findApp, SEED_APPS } from "../convex/radarNetworkMath";
+import { candidatesOf, domainsIn, findApp, networkChainNext, networkQueueOrder, NETWORK_CHAIN_MS, SEED_APPS } from "../convex/radarNetworkMath";
 
 /**
  * Radar — les petits réseaux (13/11/2026) : les tournures qui nomment un produit, cherchées dans tout TikTok sans
@@ -82,6 +82,32 @@ describe("Radar — JobStep et Pimzi dans la liste de départ (14/11/2026)", () 
     expect(of("my next job step is to quit")).toBeUndefined();
     expect(of("Job Steps for beginners #career")).toBeUndefined();
     expect(of("jobsteps.com")).toBeUndefined();
+  });
+});
+
+describe("Radar — la file des recherches de réseau (15/11/2026)", () => {
+  it("les concurrentes, puis les apps demandées jamais cherchées, puis la plus anciennement cherchée", () => {
+    const apps = [
+      { n: "adoptée jamais cherchée", rival: false, source: "manual" },
+      { n: "cherchée il y a 9 jours", rival: false, source: "manual", networkSearchedAt: 1_000 },
+      { n: "JobStep", rival: false, source: "seed" },
+      { n: "concurrente", rival: true, source: "seed", networkSearchedAt: 5_000 },
+      { n: "de départ déjà cherchée", rival: false, source: "seed", networkSearchedAt: 2_000 },
+    ];
+    expect([...apps].sort(networkQueueOrder).map((a) => a.n)).toEqual([
+      "concurrente",
+      "JobStep",
+      "adoptée jamais cherchée",
+      "cherchée il y a 9 jours",
+      "de départ déjà cherchée",
+    ]);
+  });
+
+  it("rattrapage : un passage coupé par le temps enchaîne le suivant tant qu'il reste des apps jamais cherchées", () => {
+    expect(NETWORK_CHAIN_MS).toBe(60_000);
+    expect(networkChainNext({ timedOut: true, neverLeft: true })).toBe(true);
+    expect(networkChainNext({ timedOut: false, neverLeft: true })).toBe(false);
+    expect(networkChainNext({ timedOut: true, neverLeft: false })).toBe(false);
   });
 });
 

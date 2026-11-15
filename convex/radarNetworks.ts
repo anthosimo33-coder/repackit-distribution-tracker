@@ -59,6 +59,9 @@ import {
   multiplierOf,
   needsDeepSearch,
   nextSearchPage,
+  NETWORK_CHAIN_MS,
+  networkChainNext,
+  networkQueueOrder,
   networkRefreshMs,
   nextReadAt,
   normalize,
@@ -75,7 +78,7 @@ import { LANG_BY_HAND, OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
 import { screenLang } from "./radarTextLang";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
-import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot, tierDefers, type SignalInput } from "./radarSignalsMath";
+import { RETENTION_DAYS, allowance, budgetState, catchUpAllowance, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot, tierDefers, type SignalInput } from "./radarSignalsMath";
 import {
   FREE_LANE_MAX_MS,
   FREE_READS_PER_RUN,
@@ -138,7 +141,8 @@ const videoUrl = (handle: string, videoId: string) => `https://www.tiktok.com/@$
 
 // ─── Lectures des tâches (types de retour DÉCLARÉS, cf radarSignals) ─────────
 
-type DueApp = { id: Id<"radarApps">; name: string; searches: string[]; rival: boolean; deep: boolean };
+/** `never` : jamais cherchée — elle passe par le rattrapage (radarSignalsMath.catchUpAllowance). */
+type DueApp = { id: Id<"radarApps">; name: string; searches: string[]; rival: boolean; deep: boolean; never: boolean };
 /** `located` : on connaît déjà le pays d'où le compte publie. `first` : il n'a encore jamais été relevé. */
 /** Un compte dû : `dueAt` (son `nextReadAt`) et `lastPostAt` disent à la voie gratuite s'il peut attendre (radarFreeMath.overflowToPay). */
 type DueAccount = { id: Id<"radarTracked">; handle: string; located: boolean; first: boolean; dueAt: number; lastPostAt?: number };
@@ -151,8 +155,8 @@ export const dueApps = internalQuery({
       .filter((a) => a.networkSearchedAt === undefined || now - a.networkSearchedAt >= networkRefreshMs(a.rivalOf.length > 0))
       // Une recherche demandée à l'écran tourne déjà : la tâche ne la double pas.
       .filter((a) => networkSearchPhase(a.networkSearch, now) !== "running")
-      .sort((x, y) => Number(y.rivalOf.length > 0) - Number(x.rivalOf.length > 0) || (x.networkSearchedAt ?? 0) - (y.networkSearchedAt ?? 0))
-      .map((a) => ({ id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0, deep: needsDeepSearch(a) }));
+      .sort((x, y) => networkQueueOrder({ ...x, rival: x.rivalOf.length > 0 }, { ...y, rival: y.rivalOf.length > 0 }))
+      .map((a) => ({ id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0, deep: needsDeepSearch(a), never: a.networkSearchedAt === undefined }));
   },
 });
 
@@ -163,7 +167,7 @@ export const appToSearch = internalQuery({
     const a = await ctx.db.get(appId);
     if (!a) return null;
     if (a.status !== "active") return "paused";
-    return { id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0, deep: needsDeepSearch(a) };
+    return { id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0, deep: needsDeepSearch(a), never: a.networkSearchedAt === undefined };
   },
 });
 
@@ -1047,6 +1051,8 @@ export const runNetworkSearch = internalAction({
     const b = budgetState(st.budget, st.usage, st.balance);
     // Demandée à la main : tout ce qui reste du jour, pas la part d'un passage.
     const left0 = allowance(st.budget, b, "network", todayCredits(st, "network"), appId ? 1 : NETWORK_RUNS_PER_DAY);
+    // Le rattrapage des apps jamais cherchées puise dans le reste du mois (radarSignalsMath.catchUpAllowance).
+    const catchUp0 = catchUpAllowance(st.budget, b, "network");
     let due: DueApp[];
     if (appId) {
       const one = await ctx.runQuery(internal.radarNetworks.appToSearch, { appId });
@@ -1054,7 +1060,9 @@ export const runNetworkSearch = internalAction({
       due = one && one !== "paused" ? [one] : [];
     } else {
       // Budget du passage déjà à zéro : aucune app touchée (sa dernière issue reste affichée).
-      due = left0 > 0 ? await ctx.runQuery(internal.radarNetworks.dueApps, { now }) : [];
+      due = left0 > 0 || catchUp0 > 0 ? await ctx.runQuery(internal.radarNetworks.dueApps, { now }) : [];
+      // Sans part du jour, seules les apps jamais cherchées passent (rattrapage).
+      if (left0 <= 0) due = due.filter((a) => a.never);
     }
     // Palier du solde (radarSignalsMath.creditTier) : les recherches complètes, puis la routine, des apps non
     // concurrentes attendent qu'un pack soit acheté (elles restent dues). Jamais une recherche demandée à l'écran.
@@ -1072,13 +1080,16 @@ export const runNetworkSearch = internalAction({
     // La part du passage est recalculée avant chaque app, sur la dépense écrite et le solde relu : plusieurs recherches
     // peuvent tourner en même temps (la tâche de l'heure, celles des apps suivies d'office ou demandées à l'écran), et
     // chacune ne voyait que la part calculée à son départ.
-    let left = left0;
+    let left = due[0]?.never ? Math.max(left0, catchUp0) : left0;
     let spentAtLeft = 0;
+    let timedOut = false;
     try {
       for (const [k, app] of due.entries()) {
         if (k > 0) {
           const fresh: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now: Date.now() });
-          left = allowance(fresh.budget, budgetState(fresh.budget, fresh.usage, fresh.balance), "network", todayCredits(fresh, "network"), appId ? 1 : NETWORK_RUNS_PER_DAY);
+          const fb = budgetState(fresh.budget, fresh.usage, fresh.balance);
+          const daily = allowance(fresh.budget, fb, "network", todayCredits(fresh, "network"), appId ? 1 : NETWORK_RUNS_PER_DAY);
+          left = app.never ? Math.max(daily, catchUpAllowance(fresh.budget, fb, "network")) : daily;
           spentAtLeft = usage.spent.credits;
         }
         // Chaque recherche de l'app passe deux fois : sans région, puis par la France (radarNetworkMath.NETWORK_REGIONS).
@@ -1098,6 +1109,7 @@ export const runNetworkSearch = internalAction({
             const read = { page: 0, dry: 0 };
             while (nextSearchPage(read, app.deep, app.rival)) {
               if (usage.spent.credits - spentAtLeft >= left || Date.now() - now > NETWORK_MAX_MS) {
+                timedOut = Date.now() - now > NETWORK_MAX_MS;
                 stop = true;
                 complete = false;
                 break;
@@ -1164,6 +1176,9 @@ export const runNetworkSearch = internalAction({
     if (calls) await maybeAlert(ctx, now);
     // Les comptes trouvés à la demande sont relevés tout de suite, pas à l'heure suivante.
     if (appId && attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
+    // Rattrapage : coupé par le temps avec des apps jamais cherchées encore dues, le passage suivant part une minute après
+    // (la tâche de l'heure en ferait ~8 par heure ; 171 attendaient).
+    if (!appId && networkChainNext({ timedOut, neverLeft: due.some((a) => a.never) })) await ctx.scheduler.runAfter(NETWORK_CHAIN_MS, internal.radarNetworks.runNetworkSearch, {});
     return { calls, credits, errors };
   },
 });
