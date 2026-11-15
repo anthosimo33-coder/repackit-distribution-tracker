@@ -1,9 +1,9 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { MARKET_CURRENCY } from "./radarMarketMath";
-import { MEDIAN_WINDOW, videoCitesApp } from "./radarNetworkMath";
+import { citesNormalized, MEDIAN_WINDOW, normalize, videoCitesApp } from "./radarNetworkMath";
 import { storeUrl } from "./radarStoreMath";
-import { proofDetail } from "./radarVetMath";
+import { proofDetail, VET_MIN_VIDEOS } from "./radarVetMath";
 
 /**
  * Les pages de l'export vers Swarm (convex/swarmExport) : ce qui part de chaque table, réduit et filtré. À part des
@@ -81,9 +81,13 @@ function projectTracked(t: Doc<"radarTracked">) {
   };
 }
 
+/**
+ * Une vidéo d'un compte suivi, telle que Swarm la reçoit. Sans `id`, `hookKey`, `coverUrl` ni `lastSeenAt` depuis le
+ * 15/11/2026 (demande de Swarm) : il ne s'en sert pas, et ils faisaient 38 % du JSON (29 Mo sur 76, dont 24 pour les
+ * miniatures, que Swarm recopie depuis la page publique de la vidéo).
+ */
 function projectTrackedVideo(x: Doc<"radarTrackedVideos">, cites: boolean | null) {
   return {
-    id: x._id,
     cites,
     accountId: x.accountId,
     appId: x.appId,
@@ -94,11 +98,8 @@ function projectTrackedVideo(x: Doc<"radarTrackedVideos">, cites: boolean | null
     snapshots: lastSnapshots(x.snapshots),
     caption: x.caption ?? null,
     hook: x.hook ?? null,
-    hookKey: x.hookKey ?? null,
     musicTitle: x.musicTitle ?? null,
-    coverUrl: x.coverUrl ?? null,
     region: x.region ?? null,
-    lastSeenAt: x.lastSeenAt,
   };
 }
 
@@ -156,9 +157,6 @@ function projectSignal(s: Doc<"radarSignals">, app: Doc<"radarApps"> | null) {
   };
 }
 
-/** Les vidéos rangées d'un compte, les plus récentes d'abord. */
-const videosOf = (ctx: QueryCtx, accountId: Id<"radarTracked">, n: number) =>
-  ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", accountId)).order("desc").take(n);
 
 /** Le compte d'une ligne s'il est encore suivi (sinon `null`), relu au plus une fois par page. */
 function activeAccounts(ctx: QueryCtx) {
@@ -174,9 +172,58 @@ function activeAccounts(ctx: QueryCtx) {
   };
 }
 
-/** La page `cursor` (null = la première) d'une table de l'export, réduite à ce que Swarm affiche. */
-export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: string | null) {
-  const opts = { cursor, numItems: PAGE[table] };
+/**
+ * Le compte est-il relié à son app par sa preuve ? Le même verdict que `proofDetail` sur ses 30 dernières vidéos, lu
+ * au plus court (15/11/2026 : les 88 pages de `tracked` prenaient 69 s en prod) : pseudo, bio, ajout à la main ou liste
+ * de départ, sans lire une vidéo ; sinon ses vidéos, des plus récentes aux plus anciennes, jusqu'à la deuxième qui
+ * cite l'app (`VET_MIN_VIDEOS` : prouvé quelle que soit la suite) ; le reste, comme avant, sur les 30.
+ */
+async function provenForExport(ctx: QueryCtx, t: Doc<"radarTracked">, app: Doc<"radarApps">): Promise<boolean> {
+  if (proofDetail(t.handle, t.bio, [], app, t.matchedBy).by !== null) return true;
+  const texts: string[] = [];
+  let read = 0;
+  let cites = 0;
+  for await (const x of ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", t._id)).order("desc")) {
+    if (read++ >= MEDIAN_WINDOW) break;
+    if (x.platform) continue;
+    const text = `${x.caption ?? ""} ${x.hook ?? ""}`;
+    texts.push(text);
+    if (citesNormalized(normalize(text), app) && ++cites >= VET_MIN_VIDEOS) return true;
+  }
+  return proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
+}
+
+/** Apps par appel de l'export filtré (`apps`). */
+export const EXPORT_MAX_APPS = 500;
+
+/**
+ * Le curseur de l'export filtré par apps : l'app où il en est (`i`, dans la liste reçue) et le curseur DANS cette app
+ * (`c`). Une page ne lit qu'une app ; la suivante reprend où elle s'est arrêtée, puis passe à l'app d'après.
+ */
+type AppsCursor = { i: number; c: string | null };
+const readAppsCursor = (cursor: string | null): AppsCursor => {
+  if (!cursor) return { i: 0, c: null };
+  const x = JSON.parse(cursor) as Partial<AppsCursor>;
+  return { i: typeof x.i === "number" && x.i >= 0 ? Math.floor(x.i) : 0, c: typeof x.c === "string" ? x.c : null };
+};
+
+/**
+ * La page `cursor` (null = la première) d'une table de l'export, réduite à ce que Swarm affiche. `appIds` (tables
+ * `tracked` et `trackedVideos` seulement) : les lignes rangées sous ces apps, et elles seules — une app fondue
+ * (`mergedInto`) n'est pas remplacée par la vraie : Swarm passe lui-même les ids fondus avec la vraie.
+ */
+export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: string | null, appIds?: readonly Id<"radarApps">[]) {
+  if (appIds && table !== "tracked" && table !== "trackedVideos") throw new Error(`le filtre par apps ne vaut que pour tracked et trackedVideos, pas ${table}`);
+  if (appIds && appIds.length > EXPORT_MAX_APPS) throw new Error(`${EXPORT_MAX_APPS} apps au plus par appel`);
+  const at = appIds ? readAppsCursor(cursor) : null;
+  if (appIds && at && at.i >= appIds.length) return { rows: [], cursor: JSON.stringify(at), done: true };
+  const opts = { cursor: at ? at.c : cursor, numItems: PAGE[table] };
+  // Ce qu'on rend d'une page lue : son curseur, simple ou par apps.
+  const after = (r: { continueCursor: string; isDone: boolean }) => {
+    if (!appIds || !at) return { cursor: r.continueCursor, done: r.isDone };
+    const next: AppsCursor = r.isDone ? { i: at.i + 1, c: null } : { i: at.i, c: r.continueCursor };
+    return { cursor: JSON.stringify(next), done: r.isDone && at.i + 1 >= appIds.length };
+  };
   const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id, a]));
   switch (table) {
     case "apps": {
@@ -186,26 +233,31 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
     case "tracked": {
       // Les comptes actifs, la preuve elle-même jamais (pseudo, bio, vidéos, liste de départ, ajout à la main, sur ses
       // 30 dernières vidéos rangées).
-      const r = await ctx.db.query("radarTracked").paginate(opts);
+      const r = at
+        ? await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", appIds![at.i])).paginate(opts)
+        : await ctx.db.query("radarTracked").paginate(opts);
       const rows = [];
       for (const t of r.page) {
         if (t.status !== "active") continue;
         const app = apps.get(t.appId);
-        const texts = (await videosOf(ctx, t._id, MEDIAN_WINDOW)).filter((x) => !x.platform).map((x) => `${x.caption ?? ""} ${x.hook ?? ""}`);
         // Relié à son app : par sa preuve, par un placement payé (il cite peu son app par nature, mais sa vidéo compte et
         // s'étiquette), ou parce que l'IA (v2, JUDGE_VERSION) dit qu'il la pousse. Sinon il part « en pause » : pas un
         // créateur pour Swarm, qui ne liste que les comptes actifs, mais ses vidéos gardent leur pseudo et leur lien
         // (#513). Aucune justification ne part.
         // Le « pousse » RELU et appliqué seulement (radarJudgeReview) : celui de l'IA seule ne relie plus rien (15/11/2026).
-        const reviewed = app ? (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect()).some((j) => j.appId === app._id && j.reviewed === "pousse") : false;
-        const linked = !app || t.placement === true || reviewed || proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
+        // Du moins cher au plus cher : rien à lire, puis ses jugements, puis ses vidéos.
+        const reviewed = async (a: Doc<"radarApps">) =>
+          (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect()).some((j) => j.appId === a._id && j.reviewed === "pousse");
+        const linked = !app || t.placement === true || (await reviewed(app)) || (await provenForExport(ctx, t, app));
         rows.push(linked ? projectTracked(t) : { ...projectTracked(t), status: "paused" as const });
       }
-      return { rows, cursor: r.continueCursor, done: r.isDone };
+      return { rows, ...after(r) };
     }
     case "trackedVideos": {
       // Les vidéos des comptes actifs, et si chacune cite l'app sous laquelle elle est rangée.
-      const r = await ctx.db.query("radarTrackedVideos").paginate(opts);
+      const r = at
+        ? await ctx.db.query("radarTrackedVideos").withIndex("by_app", (q) => q.eq("appId", appIds![at.i])).paginate(opts)
+        : await ctx.db.query("radarTrackedVideos").paginate(opts);
       const accountOf = activeAccounts(ctx);
       const rows = [];
       for (const x of r.page) {
@@ -214,7 +266,7 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
         const app = apps.get(x.appId);
         rows.push(projectTrackedVideo(x, app ? videoCitesApp({ caption: x.caption ?? "", hook: x.hook, handle: t.handle }, app) : null));
       }
-      return { rows, cursor: r.continueCursor, done: r.isDone };
+      return { rows, ...after(r) };
     }
     case "formats": {
       // Les reprises des comptes encore suivis seulement.

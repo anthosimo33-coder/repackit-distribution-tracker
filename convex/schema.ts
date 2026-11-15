@@ -4551,6 +4551,8 @@ export default defineSchema({
     coverUrl: v.optional(v.string()),
   })
     .index("by_account_published", ["accountId", "publishedAt"])
+    // L'export vers Swarm par groupes d'apps (`/swarm/export?…&apps=…`, 15/11/2026).
+    .index("by_app", ["appId"])
     .index("by_video", ["videoId"])
     .index("by_hook", ["hookKey"])
     .index("by_music", ["musicId"]),

@@ -23,11 +23,11 @@ const admin = createE2eClient(convexUrl);
 type Row = Record<string, unknown>;
 type Table = "apps" | "tracked" | "trackedVideos" | "formats" | "signals";
 
-async function exportAll(table: Table): Promise<Row[]> {
+async function exportAll(table: Table, apps?: string[]): Promise<Row[]> {
   const rows: Row[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < 500; i++) {
-    const r = (await admin.mutation(api.swarmExport.e2eSwarmExport, { secret: E2E_SECRET, table, cursor })) as { rows: Row[]; cursor: string; done: boolean };
+    const r = (await admin.mutation(api.swarmExport.e2eSwarmExport, { secret: E2E_SECRET, table, cursor, ...(apps ? { apps } : {}) })) as { rows: Row[]; cursor: string; done: boolean };
     rows.push(...r.rows);
     if (r.done) return rows;
     cursor = r.cursor;
@@ -138,6 +138,44 @@ test.describe("Radar → Swarm — l'export", () => {
       expect(signals.map((s) => [s.videoId, s.appName, s.cites])).toEqual([[`${m}s1`, appName, true]]);
     } finally {
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
+
+  test("par groupes d'apps : `apps` ne rend que les comptes et vidéos rangés sous ces apps ; les vidéos partent allégées (15/11/2026)", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const p = `e2eswg${ts}`;
+    const h = (n: number) => `rswg${n}_${ts}`;
+    const vids = (n: number, k: number) => Array.from({ length: k }, (_, i) => ({ videoId: `${p}v${n}${i}`, ageH: 5 + i, views: 1_000 + i, caption: `Avec ${p}${n === 3 ? "b" : "a"} encore` }));
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [
+        { slug: `${p}a`, name: `E2E Groupe A ${ts}`, rivalOf: [], strong: [`${p}a`] },
+        { slug: `${p}b`, name: `E2E Groupe B ${ts}`, rivalOf: [], strong: [`${p}b`] },
+      ],
+      accounts: [
+        { handle: h(1), appSlug: `${p}a`, fans: 100, posts7d: 2, videos: vids(1, 3) },
+        { handle: h(2), appSlug: `${p}a`, fans: 100, posts7d: 2, videos: vids(2, 2) },
+        { handle: h(3), appSlug: `${p}b`, fans: 100, posts7d: 2, videos: vids(3, 2) },
+      ],
+    });
+    try {
+      const ids = new Map((await exportAll("apps")).filter((a) => (a.slug as string).startsWith(p)).map((a) => [a.slug as string, a.id as string]));
+      const [a, b] = [ids.get(`${p}a`)!, ids.get(`${p}b`)!];
+      const handles = async (apps: string[]) => (await exportAll("tracked", apps)).map((t) => t.handle as string).sort();
+      expect(await handles([a])).toEqual([h(1), h(2)]);
+      expect(await handles([b])).toEqual([h(3)]);
+      expect(await handles([a, b])).toEqual([h(1), h(2), h(3)]);
+      const videos = await exportAll("trackedVideos", [b, a]);
+      expect(videos.map((x) => x.videoId as string).sort()).toEqual([...vids(1, 3), ...vids(2, 2), ...vids(3, 2)].map((x) => x.videoId).sort());
+      // Ce que Swarm ne lit pas ne part plus.
+      for (const x of videos) for (const k of ["id", "hookKey", "coverUrl", "lastSeenAt"]) expect(x).not.toHaveProperty(k);
+      expect(videos[0]).toMatchObject({ cites: true, platform: "tiktok" });
+      // Un id qui n'est pas une app, ou une autre table que tracked et trackedVideos : refusé.
+      await expect(exportAll("tracked", ["pas-un-id"])).rejects.toThrow(/n'est pas l'id d'une app/);
+      await expect(exportAll("signals", [a])).rejects.toThrow(/tracked et trackedVideos/);
+    } finally {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
