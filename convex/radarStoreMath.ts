@@ -35,24 +35,49 @@
 
 /**
  * Pays lus. France et États-Unis : les deux mesurés le 12/11/2026. Depuis le 13/11/2026 (il faut beaucoup plus
- * d'apps), les marchés que Swarm montre en plus : Royaume-Uni, Espagne, Mexique, Brésil — leur rendement n'est
- * pas mesuré. Les nouveaux pays sont EN FIN de liste : le curseur des listes déjà lues garde son sens.
+ * d'apps), les marchés que Swarm montre en plus : Royaume-Uni, Espagne, Mexique, Brésil. Mesuré le 15/11/2026 sur
+ * ces six : chaque pays montre 1 500 à 1 900 apps qu'aucun autre ne montre, dont ~7 % ont un réseau de créateurs.
+ * Depuis le 15/11/2026 (« autant d'apps que FarmSpot », fondateur), 20 pays de plus : anglophones (Canada,
+ * Australie, Irlande, Nouvelle-Zélande), Europe (Allemagne, Autriche, Suisse, Italie, Pays-Bas, Belgique, Pologne,
+ * Portugal, Suède), Amérique latine (Argentine, Colombie, Chili) et gros marchés de TikTok (Philippines,
+ * Indonésie, Turquie, Arabie saoudite) ; pas l'Inde, où TikTok est interdit. Les nouveaux pays sont EN FIN de
+ * liste : le curseur des listes déjà lues garde son sens.
  */
-export const STORE_COUNTRIES = ["fr", "us", "gb", "es", "mx", "br"] as const;
+export const STORE_COUNTRIES = [
+  "fr", "us", "gb", "es", "mx", "br",
+  "ca", "au", "ie", "nz", "de", "at", "ch", "it", "nl", "be", "pl", "pt", "se", "ar", "co", "cl", "ph", "id", "tr", "sa",
+] as const;
 export const STORE_LISTS = ["topfreeapplications", "topgrossingapplications"] as const;
-/** « » = tous genres ; puis les genres de l'App Store hors jeux (éducation, style de vie, réseaux sociaux, santé…). */
+/** « » = tous genres ; puis les genres de l'App Store hors jeux (éducation, style de vie, réseaux sociaux, santé…). Les jeux : cf `GAME_FEEDS`. */
 export const STORE_GENRES = ["", "6017", "6012", "6005", "6013", "6007", "6008", "6006", "6002", "6016", "6015", "6023", "6011", "6024", "6003", "6018", "6020", "6000", "6010", "6009", "6004", "6027"] as const;
 
 export type StoreFeed = { country: string; list: string; genre: string };
 
-export const STORE_FEEDS: readonly StoreFeed[] = STORE_COUNTRIES.flatMap((country) => STORE_LISTS.flatMap((list) => STORE_GENRES.map((genre) => ({ country, list, genre }))));
+/** Le genre « Jeux » de l'App Store. */
+export const GAMES_GENRE = "6014";
+/**
+ * Les JEUX MOBILES (15/11/2026, « Oui, ajoute-les », fondateur : le périmètre est « apps, SaaS, jeux mobiles ») : le
+ * classement des jeux GRATUITS de chaque pays, pas celui des plus rentables, tenu par de grosses franchises (Candy
+ * Crush, Royal Match) dont les comptes sont des joueurs, pas des réseaux. Leurs hashtags passent le même contrôle :
+ * au-delà de `STORE_MAX_TAG_VIDEOS` vidéos, écartés. En fin de liste : le curseur de la prod garde son sens.
+ */
+export const GAME_FEEDS: readonly StoreFeed[] = STORE_COUNTRIES.map((country) => ({ country, list: "topfreeapplications", genre: GAMES_GENRE }));
+
+export const STORE_FEEDS: readonly StoreFeed[] = [
+  ...STORE_COUNTRIES.flatMap((country) => STORE_LISTS.flatMap((list) => STORE_GENRES.map((genre) => ({ country, list, genre })))),
+  ...GAME_FEEDS,
+];
 
 export function storeFeedUrl(f: StoreFeed): string {
   return `https://itunes.apple.com/${f.country}/rss/${f.list}/limit=200/${f.genre ? `genre=${f.genre}/` : ""}json`;
 }
 
-/** Listes lues par passage : les 264 listes sont relues en neuf heures (un passage par heure ; 12 toutes les 3 heures jusqu'au 13/11/2026). */
-export const STORE_FEEDS_PER_RUN = 30;
+/**
+ * Listes lues par passage : les 1 170 listes (26 pays × 2 × 22 genres, et les jeux gratuits de chaque pays) sont
+ * relues en 20 heures, un passage par heure (30 par passage sur 264 listes jusqu'au 15/11/2026 ; 12 toutes les
+ * 3 heures jusqu'au 13/11/2026).
+ */
+export const STORE_FEEDS_PER_RUN = 60;
 
 /** Les listes d'un passage, à partir du curseur, en boucle. */
 export function feedsForRun(cursor: number, perRun: number = STORE_FEEDS_PER_RUN, feeds: readonly StoreFeed[] = STORE_FEEDS): { feeds: StoreFeed[]; next: number } {
@@ -301,6 +326,17 @@ export function storeAutoFollow(tag: string, creators: readonly { handle: string
 }
 
 /**
+ * Les genres de l'App Store qui sont des BOUTIQUES (Hipobuy, The Bradery, Superdrug : hors périmètre le 15/11/2026),
+ * dans la langue de chaque classement — « Achats » en France, « Magasinage » au Canada francophone, « Zakupy » en
+ * Pologne, « Alışveriş » en Turquie, « Belanja » en Indonésie. Comparés sans casse ni accents.
+ */
+const SHOP_GENRE_NAMES = ["shopping", "achats", "magasinage", "compras", "einkaufen", "acquisti", "winkelen", "zakupy", "belanja", "alisveris", "التسوق"];
+export function isShopGenre(genre: string): boolean {
+  const g = fold(genre).replace(/ı/g, "i").trim();
+  return SHOP_GENRE_NAMES.includes(g);
+}
+
+/**
  * Une app des classements à l'ESSAI (15/11/2026, « autant d'apps que FarmSpot ») : deux comptes créateurs hors
  * famille de la marque, pas assez pour la suivre d'office. Sa recherche de réseau (payée) décide : gardée avec
  * `AUTO_MIN_CREATORS` comptes actifs, en pause sinon (radarAutoMath.trialDecision). Le seuil pour compter ne bouge pas.
@@ -401,10 +437,16 @@ export function isRecentRelease(released: string, now: number): boolean {
  * moyenne) : l'éducation 13 à 20 % selon le pays ; les utilitaires, la médecine, la navigation, la finance, les
  * affaires et l'actualité 1 à 6 %. Le genre arrive dans la langue du classement (« Éducation », « Educación »…).
  */
-const HIGH_YIELD_GENRES = new Set(["education", "educacion", "educacao"]);
+// Les 20 pays du 15/11/2026 ajoutent l'allemand, l'italien, le néerlandais, le polonais, le suédois, l'indonésien
+// et le turc.
+const HIGH_YIELD_GENRES = new Set(["education", "educacion", "educacao", "bildung", "istruzione", "onderwijs", "edukacja", "utbildning", "pendidikan", "egitim"]);
 const LOW_YIELD_GENRES = new Set([
   "utilities", "utilitaires", "utilidades", "medical", "medecine", "medicina", "navigation", "navegacion", "navegacao",
   "finance", "finances", "finanzas", "financas", "business", "economie et entreprise", "negocios", "news", "actualites", "noticias",
+  "dienstprogramme", "medizin", "finanzen", "wirtschaft", "nachrichten", "utility", "navigazione", "finanza", "economia", "notizie",
+  "hulpprogramma's", "geneeskunde", "navigatie", "financien", "zakelijk", "nieuws", "narzedzia", "medycyna", "nawigacja", "finanse",
+  "biznes", "wiadomosci", "verktyg", "medicin", "navigering", "ekonomi", "nyheter", "utilitas", "medis", "navigasi", "keuangan",
+  "bisnis", "berita", "araclar", "navigasyon", "finans", "is", "haberler",
 ]);
 export function genreTier(genre: string): "high" | "low" | "mid" {
   const g = fold(genre).trim();

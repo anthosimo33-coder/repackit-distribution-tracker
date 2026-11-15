@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   STORE_COUNTRIES,
   STORE_FEEDS,
+  GAME_FEEDS,
+  GAMES_GENRE,
   STORE_MAX_TAG_VIDEOS,
   STORE_MIN_CREATORS,
   STORE_PROFILES_PER_TAG,
@@ -56,29 +58,44 @@ const profil = (o: Partial<AuthorProfile> = {}): AuthorProfile => ({ fans: 200, 
 const page = (videos: number, auteurs: string[], views = 1_000_000): TagPage => ({ videos, views, items: auteurs.map((author) => ({ author, desc: "" })) });
 
 describe("Radar — classements App Store : les listes", () => {
-  it("six pays (France et États-Unis en tête, comme avant le 13/11/2026), gratuites et plus rentables, 22 genres : 264 listes", () => {
-    expect(STORE_FEEDS).toHaveLength(264);
-    // Les 88 premières listes n'ont pas bougé : le curseur déjà avancé en prod garde son sens.
-    expect(STORE_COUNTRIES).toEqual(["fr", "us", "gb", "es", "mx", "br"]);
+  it("26 pays (les six d'avant en tête, comme avant le 15/11/2026), gratuites et plus rentables, 22 genres, puis les jeux gratuits : 1 170 listes", () => {
+    expect(STORE_FEEDS).toHaveLength(26 * 2 * 22 + 26);
+    // Les jeux (15/11/2026) : le classement GRATUIT de chaque pays seulement, en fin de liste.
+    expect(GAMES_GENRE).toBe("6014");
+    expect(STORE_FEEDS.slice(-26)).toEqual(GAME_FEEDS);
+    expect(GAME_FEEDS.every((f) => f.list === "topfreeapplications" && f.genre === "6014")).toBe(true);
+    expect(GAME_FEEDS.map((f) => f.country)).toEqual([...STORE_COUNTRIES]);
+    expect(storeFeedUrl(GAME_FEEDS[0])).toBe("https://itunes.apple.com/fr/rss/topfreeapplications/limit=200/genre=6014/json");
+    expect(STORE_FEEDS.filter((f) => f.genre === "6014" && f.list === "topgrossingapplications")).toEqual([]);
+    // Les 88 premières listes n'ont pas bougé, ni les 264 des six premiers pays : le curseur de la prod garde son sens.
+    expect(STORE_COUNTRIES.slice(0, 6)).toEqual(["fr", "us", "gb", "es", "mx", "br"]);
+    expect(STORE_COUNTRIES).toHaveLength(26);
+    expect(new Set(STORE_COUNTRIES).size).toBe(26);
+    // Pas l'Inde : TikTok y est interdit.
+    expect(STORE_COUNTRIES).not.toContain("in");
     expect(new Set(STORE_FEEDS.slice(0, 88).map((f) => f.country))).toEqual(new Set(["fr", "us"]));
+    expect(new Set(STORE_FEEDS.slice(0, 264).map((f) => f.country))).toEqual(new Set(["fr", "us", "gb", "es", "mx", "br"]));
+    expect(storeFeedUrl(STORE_FEEDS[264])).toBe("https://itunes.apple.com/ca/rss/topfreeapplications/limit=200/json");
     expect(storeFeedUrl(STORE_FEEDS[88])).toBe("https://itunes.apple.com/gb/rss/topfreeapplications/limit=200/json");
     expect(storeFeedUrl({ country: "fr", list: "topfreeapplications", genre: "6017" })).toBe("https://itunes.apple.com/fr/rss/topfreeapplications/limit=200/genre=6017/json");
     // Sans genre : le classement général.
     expect(storeFeedUrl({ country: "us", list: "topgrossingapplications", genre: "" })).toBe("https://itunes.apple.com/us/rss/topgrossingapplications/limit=200/json");
   });
 
-  it("un passage lit 30 listes à partir du curseur, et reprend au début après la dernière", () => {
+  it("un passage lit 60 listes à partir du curseur, et reprend au début après la dernière", () => {
     const a = feedsForRun(0);
-    expect(a.feeds).toHaveLength(30);
+    expect(a.feeds).toHaveLength(60);
     expect(a.feeds[0]).toEqual(STORE_FEEDS[0]);
-    expect(a.next).toBe(30);
-    const fin = feedsForRun(260);
-    expect(fin.feeds.map((f) => STORE_FEEDS.indexOf(f)).slice(0, 6)).toEqual([260, 261, 262, 263, 0, 1]);
-    expect(fin.next).toBe(26);
+    expect(a.next).toBe(60);
+    // Le curseur posé à la fin des six premiers pays (264) continue sur les nouveaux.
+    expect(feedsForRun(264).feeds[0].country).toBe("ca");
+    const fin = feedsForRun(1_166);
+    expect(fin.feeds.map((f) => STORE_FEEDS.indexOf(f)).slice(0, 6)).toEqual([1_166, 1_167, 1_168, 1_169, 0, 1]);
+    expect(fin.next).toBe(56);
     // Le curseur de la prod au 13/11/2026 (60, sur 88 listes alors) continue où il en était.
     expect(feedsForRun(60).feeds[0]).toEqual(STORE_FEEDS[60]);
     // Un curseur hors bornes (une liste retirée du code depuis) ne casse rien.
-    expect(feedsForRun(1_000).feeds).toHaveLength(30);
+    expect(feedsForRun(5_000).feeds).toHaveLength(60);
     expect(feedsForRun(3, 2, STORE_FEEDS.slice(0, 4))).toEqual({ feeds: [STORE_FEEDS[3], STORE_FEEDS[0]], next: 1 });
   });
 
@@ -479,6 +496,10 @@ describe("Radar — classements App Store : la file", () => {
     expect(genreTier("Educación")).toBe("high");
     expect(genreTier("Utilitaires")).toBe("low");
     expect(genreTier("Économie et entreprise")).toBe("low");
+    // Les langues des 20 pays du 15/11/2026.
+    for (const g of ["Bildung", "Istruzione", "Onderwijs", "Edukacja", "Utbildning", "Pendidikan", "Eğitim"]) expect(genreTier(g), g).toBe("high");
+    for (const g of ["Dienstprogramme", "Finanzen", "Notizie", "Financiën", "Narzędzia", "Nyheter", "Keuangan", "Araçlar", "İş"]) expect(genreTier(g), g).toBe("low");
+    expect(genreTier("Lifestyle")).toBe("mid");
     expect(genreTier("Style de vie")).toBe("mid");
     expect(firstCheckAt("2025-08-14", NOW, "Education")).toBe(NOW - 395 * DAY);
     expect(firstCheckAt("2025-08-14", NOW, "Medicina")).toBe(NOW - 335 * DAY);
