@@ -48,7 +48,8 @@ import {
   type TriageToJudge,
 } from "./radarAutoMath";
 import { ficheApp } from "./radarFicheMath";
-import { ensureSettings, refreshAppNet, type TrackedCounter } from "./radarSignals";
+import { ensureSettings, refreshAppNet, trackedCounts, type TrackedCounter } from "./radarSignals";
+import { MAX_OTHER_TOTAL, MAX_TRACKED } from "./radarNetworkMath";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { alreadyFollowed } from "./radarStoreMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
@@ -478,8 +479,23 @@ export const requeueTrialCandidates = internalMutation({
 });
 
 /** Juge les apps à l'essai (cf radarAutoMath.trialDecision) : gardées, ou en pause « essai » — leurs comptes ne sont plus relevés. */
-async function settleTrialsCore(ctx: MutationCtx, now: number, only?: (slug: string) => boolean): Promise<{ kept: number; paused: number; waiting: number }> {
-  const out = { kept: 0, paused: 0, waiting: 0 };
+/** Une app à l'essai repart de zéro : sa recherche refaite à fond, en tête de file, et son essai recommencé. */
+async function relaunchTrial(ctx: MutationCtx, a: Doc<"radarApps">, now: number): Promise<void> {
+  // Les refus du plafond appartiennent à la recherche d'avant : la nouvelle part sans eux.
+  const ns = { ...(a.networkSearch ?? { requestedAt: now, step: 0, steps: 0, attached: 0, signals: 0 }) };
+  delete ns.full;
+  await ctx.db.patch(a._id, { networkSearchedAt: undefined, deepSearchedAt: undefined, trialSince: now, networkSearch: ns });
+}
+
+/** Le plafond des comptes suivis laisse-t-il de la place à une app non concurrente ? */
+async function hasRoom(ctx: MutationCtx): Promise<boolean> {
+  const c = await trackedCounts(ctx);
+  return c.total < MAX_TRACKED && c.others < MAX_OTHER_TOTAL;
+}
+
+async function settleTrialsCore(ctx: MutationCtx, now: number, only?: (slug: string) => boolean): Promise<{ kept: number; paused: number; waiting: number; relaunched: number }> {
+  const out = { kept: 0, paused: 0, waiting: 0, relaunched: 0 };
+  let room: boolean | undefined;
   const trials = (await ctx.db.query("radarApps").collect()).filter((a) => a.trialSince !== undefined && a.status === "active" && (!only || only(a.slug)));
   // Pas encore cherchée : elle attend sa recherche, sans relire ses comptes. Les autres, les plus anciennement
   // cherchées d'abord, `TRIAL_SETTLE_BATCH` au plus par passage (chacune relit ses comptes).
@@ -495,6 +511,13 @@ async function settleTrialsCore(ctx: MutationCtx, now: number, only?: (slug: str
     } else if (d === "pause") {
       await ctx.db.patch(a._id, { status: "paused", pausedReason: "essai" });
       out.paused++;
+    } else if (d === "relaunch") {
+      // Relancée seulement s'il y a de la place ; sinon elle attend (jamais mise en pause pour un plafond plein).
+      room ??= await hasRoom(ctx);
+      if (room) {
+        await relaunchTrial(ctx, a, now);
+        out.relaunched++;
+      } else out.waiting++;
     } else out.waiting++;
   }
   return out;
@@ -503,6 +526,45 @@ async function settleTrialsCore(ctx: MutationCtx, now: number, only?: (slug: str
 export const settleTrials = internalMutation({
   args: {},
   handler: (ctx) => settleTrialsCore(ctx, Date.now()),
+});
+
+/**
+ * Une fois (15/11/2026) : les apps à l'essai cherchées depuis `since` sans rien rattacher — le plafond (13 000 comptes
+ * d'apps non concurrentes) était plein depuis 22 h 25, mais ces recherches ne le notaient pas encore (`full`) —
+ * repartent de zéro. `dryRun` : rien n'est écrit, la liste est rendue.
+ */
+async function relaunchBlockedCore(ctx: MutationCtx, since: number, dryRun: boolean, only?: (slug: string) => boolean) {
+  const now = Date.now();
+  const hit = (await ctx.db.query("radarApps").collect()).filter(
+    (a) => a.trialSince !== undefined && a.status === "active" && (a.networkSearchedAt ?? 0) >= since && (a.networkSearch?.attached ?? 0) === 0 && (!only || only(a.slug)),
+  );
+  if (!dryRun) for (const a of hit) await relaunchTrial(ctx, a, now);
+  return { relaunched: dryRun ? 0 : hit.length, names: hit.map((a) => a.name) };
+}
+
+export const relaunchBlockedTrials = internalMutation({
+  args: { since: v.number(), dryRun: v.boolean() },
+  handler: (ctx, { since, dryRun }) => relaunchBlockedCore(ctx, since, dryRun),
+});
+
+export const e2eRelaunchBlockedTrials = e2eMutation({
+  args: { since: v.number(), dryRun: v.boolean(), prefix: v.string() },
+  handler: (ctx, { since, dryRun, prefix }) => relaunchBlockedCore(ctx, since, dryRun, (slug) => slug.startsWith(prefix)),
+});
+
+/** e2e : pose la dernière recherche d'une app (il y a `searchedAgoMs`, `attached` rattachés, `full` refusés par le plafond). */
+export const e2eSetSearchResult = e2eMutation({
+  args: { slug: v.string(), searchedAgoMs: v.number(), attached: v.number(), full: v.number() },
+  handler: async (ctx, { slug, searchedAgoMs, attached, full }) => {
+    const a = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!a) return null;
+    const at = Date.now() - searchedAgoMs;
+    await ctx.db.patch(a._id, {
+      networkSearchedAt: at,
+      networkSearch: { requestedAt: at, startedAt: at, finishedAt: at, step: 1, steps: 1, attached, signals: 0, outcome: "done", ...(full ? { full } : {}) },
+    });
+    return null;
+  },
 });
 
 /** e2e : juge les apps à l'essai dont le slug commence par `prefix`, à l'heure `now` (pour passer les délais). */

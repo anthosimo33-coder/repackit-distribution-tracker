@@ -20,6 +20,7 @@ import {
   TRIAL_KEEP_MIN,
   TRIAL_MAX_WAIT_MS,
   TRIAL_SETTLE_MS,
+  searchBlockedByCap,
   trialDecision,
 } from "../convex/radarAutoMath";
 import { citesApp } from "../convex/radarNetworkMath";
@@ -141,6 +142,14 @@ describe("Radar — suivi d'office : ce qu'on fait d'une app repérée", () => {
     // Des comptes encore en contrôle : on les attend, 7 jours au plus.
     expect(trialDecision(essai(TRIAL_SETTLE_MS), { active: 2, vetting: 5 }, now)).toBe("wait");
     expect(trialDecision(essai(TRIAL_MAX_WAIT_MS), { active: 2, vetting: 5 }, now)).toBe("pause");
+    // Sa recherche n'a rien rattaché parce que le plafond était plein : elle repart, jamais en pause pour ça.
+    const bloquee = { ...essai(TRIAL_MAX_WAIT_MS), networkSearch: { attached: 0, full: 12 } };
+    expect(trialDecision(bloquee, { active: 0, vetting: 0 }, now)).toBe("relaunch");
+    expect(searchBlockedByCap({ attached: 0, full: 12 })).toBe(true);
+    expect(searchBlockedByCap({ attached: 3, full: 12 })).toBe(false);
+    expect(searchBlockedByCap({ attached: 0 })).toBe(false);
+    // Trois comptes actifs malgré tout : gardée.
+    expect(trialDecision(bloquee, { active: 3, vetting: 0 }, now)).toBe("keep");
   });
 
   it("un produit d'une place de marché entre dès qu'on sait le nommer", () => {

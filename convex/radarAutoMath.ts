@@ -230,14 +230,24 @@ export const TRIAL_MAX_WAIT_MS = 7 * DAY_MS;
  * sa recherche ait tourné et que ses nouveaux comptes soient contrôlés (Peach, 15/11 : 17 rattachés, 1 seul gardé à
  * son premier relevé) ; puis la mettre en pause. `null` : elle n'est pas à l'essai.
  */
-export function trialDecision(app: { trialSince?: number; networkSearchedAt?: number }, n: { active: number; vetting: number }, now: number): "keep" | "wait" | "pause" | null {
+export function trialDecision(
+  app: { trialSince?: number; networkSearchedAt?: number; networkSearch?: { attached: number; full?: number } },
+  n: { active: number; vetting: number },
+  now: number,
+): "keep" | "wait" | "pause" | "relaunch" | null {
   if (app.trialSince === undefined) return null;
   if (n.active >= TRIAL_KEEP_MIN) return "keep";
   if (app.networkSearchedAt === undefined) return "wait";
+  // Sa recherche n'a rien rattaché parce que le plafond des comptes suivis était plein : ce n'est pas l'app qui a
+  // échoué. Elle repart (recherche refaite, essai remis à zéro) dès qu'il y a de la place (cf radarAuto.settleTrials).
+  if (searchBlockedByCap(app.networkSearch)) return "relaunch";
   const since = now - app.networkSearchedAt;
   if (since < TRIAL_SETTLE_MS || (n.vetting > 0 && since < TRIAL_MAX_WAIT_MS)) return "wait";
   return "pause";
 }
+
+/** La dernière recherche n'a rien rattaché, et le plafond des comptes suivis en a refusé (15/11/2026, 22 h 27). */
+export const searchBlockedByCap = (ns: { attached: number; full?: number } | undefined): boolean => (ns?.full ?? 0) > 0 && (ns?.attached ?? 0) === 0;
 
 // ─── Le garde « nom courant » ────────────────────────────────────────────────
 

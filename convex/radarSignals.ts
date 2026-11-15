@@ -344,7 +344,7 @@ export type TrackedCounter = { counts?: { total: number; byApp: Map<string, numb
  * `byApp`, `total`, `others` : la place prise (lignes moins comptes en pause « hors sujet »), que le plafond lit ;
  * `rows` : les lignes de chaque app, le compteur `radarApps.trackedCount` tel qu'il est rangé.
  */
-async function trackedCounts(ctx: MutationCtx) {
+export async function trackedCounts(ctx: MutationCtx) {
   const byApp = new Map<string, number>();
   const rowsByApp = new Map<string, number>();
   let total = 0;
