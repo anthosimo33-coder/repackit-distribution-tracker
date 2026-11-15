@@ -367,6 +367,32 @@ export function laneOrder<A extends LaneAccount>(accounts: readonly A[], now: nu
 }
 
 /**
+ * LE PREMIER RELEVÉ PAR LA VOIE GRATUITE (15/11/2026, « Oui, applique-les », fondateur). Jusque-là, le premier relevé
+ * d'un compte était payant : 5 859 crédits le 15/11, le plus gros poste du suivi des apps à l'essai. La mesure C4
+ * (`radarFirstReadTrials`, 100 comptes relevés des deux façons) : 100 relevés gratuits sur 100, 99,8 % des vidéos du
+ * payant retrouvées, vues identiques (1 écart de plus de 10 % sur 930), son, pays et langue identiques ; les légendes
+ * ne diffèrent que par les retours à la ligne, les espaces et la casse — que les motifs ignorent (texte compacté) ;
+ * l'ordre des textes à l'écran change parfois (10 sur 172), comme pour tout relevé gratuit.
+ * La voie prend d'abord les nouveaux comptes (`FIRST_FREE_PER_PASS` au plus : un essai se juge sur eux), puis les
+ * autres dans l'ordre habituel.
+ */
+export const FIRST_FREE_PER_PASS = 300;
+
+export function laneQueue<A extends LaneAccount & { first: boolean }>(due: readonly A[], now: number): A[] {
+  return [...due.filter((a) => a.first).slice(0, FIRST_FREE_PER_PASS), ...laneOrder(due.filter((a) => !a.first), now)];
+}
+
+/**
+ * Le sort d'un PREMIER relevé que la voie gratuite n'a pas fait. Lu sans succès (`failed`) : en payant, comme avant —
+ * sauf au palier « survie » (`waitFirst`), où il attend que le solde remonte. Pas atteint (`notReached`) : il attend
+ * le passage suivant, jamais payé pour un retard ; sauf voie fermée (TikTok ne sert plus les profils), en payant.
+ */
+export function firstReadMisses<A>(failed: readonly A[], notReached: readonly A[], laneOpen: boolean, waitFirst: boolean): { pay: A[]; defer: A[] } {
+  if (waitFirst) return { pay: [], defer: [...failed] };
+  return { pay: [...failed, ...(laneOpen ? [] : notReached)], defer: [] };
+}
+
+/**
  * Parmi les comptes que la voie gratuite n'a pas pris, ceux qu'il faut relever en payant MAINTENANT : tous si la
  * voie s'est fermée (coupe-circuit : TikTok ne sert plus les profils, l'attente ne servirait à rien) ; sinon ceux qui
  * ont trop attendu. Les autres restent dus et passent au gratuit au passage suivant : même donnée (mesuré le 13/11),

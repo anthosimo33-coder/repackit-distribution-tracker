@@ -73,7 +73,9 @@ async function pickCandidates(ctx: QueryCtx, only?: (key: string) => boolean): P
       await ctx.db
         .query("radarAppCandidates")
         .withIndex("by_kind_status_auto", (q) => q.eq("kind", kind).eq("status", "new").eq("autoAt", undefined))
-        .order("desc")
+        // Les plus prouvées d'abord ; une liste importée (toutes à 0 compte), dans SON ordre — celle de FarmSpot va des
+        // plus vues aux moins vues (15/11/2026 : prises à l'envers, sa queue sans vues passait la première).
+        .order(kind === "liste" ? "asc" : "desc")
         .take(only ? 300 : AUTO_BATCH)
     )
       .filter((c) => !only || only(c.key))
@@ -400,6 +402,37 @@ async function importListCore(ctx: MutationCtx, source: string, items: readonly 
   }
   return out;
 }
+
+/**
+ * Écarte des apps d'une liste importée, encore proposées : elles ne seront ni suivies ni cherchées (statut « ignorée »,
+ * avec la raison). 15/11/2026 : les 132 marques de FarmSpot à 0 vue sur 30 jours (aucune ferme active : chercher leur
+ * réseau, c'est payer pour rien). Rend combien ont été écartées, déjà traitées, inconnues.
+ */
+async function ignoreListCore(ctx: MutationCtx, names: readonly string[], note: string, now: number) {
+  if (names.length > LIST_IMPORT_MAX) throw new ConvexError({ code: "LIST_TOO_LONG", message: `${LIST_IMPORT_MAX} apps au plus par appel.` });
+  const out = { ignored: 0, settled: 0, unknown: 0 };
+  for (const name of names) {
+    const key = listKey(name);
+    const c = key ? await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", key)).first() : null;
+    if (!c || c.kind !== "liste") out.unknown++;
+    else if (c.status !== "new") out.settled++;
+    else {
+      await ctx.db.patch(c._id, { status: "ignored", autoAt: now, autoNote: note.slice(0, 120) });
+      out.ignored++;
+    }
+  }
+  return out;
+}
+
+export const ignoreListCandidates = internalMutation({
+  args: { names: v.array(v.string()), note: v.string() },
+  handler: (ctx, { names, note }) => ignoreListCore(ctx, names, note, Date.now()),
+});
+
+export const e2eIgnoreList = e2eMutation({
+  args: { names: v.array(v.string()), note: v.string() },
+  handler: (ctx, { names, note }) => ignoreListCore(ctx, names, note, Date.now()),
+});
 
 /** À lancer sur la prod avec la liste (`convex-prod.sh run radarAuto:importListCandidates '<json>'`), par lots de 400. */
 export const importListCandidates = internalMutation({

@@ -15,7 +15,10 @@ import {
   freeStart,
   freeVideoUrl,
   gapReached,
+  FIRST_FREE_PER_PASS,
+  firstReadMisses,
   laneOrder,
+  laneQueue,
   listGap,
   overflowToPay,
   paced,
@@ -246,6 +249,25 @@ describe("Radar — relevé gratuit : ce qui attend la voie, ce qui part au paya
   it("voie fermée (coupe-circuit) : tout ce qui n'a pas été pris part au payant, comme avant", () => {
     const r = overflowToPay([acc("a", 0, 1), acc("b", 1)], false, NOW);
     expect(r).toEqual({ pay: [acc("a", 0, 1), acc("b", 1)], reason: "coupure" });
+  });
+
+  it("le premier relevé passe aussi par la voie gratuite, les nouveaux comptes d'abord, 300 au plus par passage (15/11/2026)", () => {
+    const neuf = (name: string) => ({ ...acc(name, 1), first: true });
+    const suivi = (name: string, dueMinAgo: number, postHoursAgo?: number) => ({ ...acc(name, dueMinAgo, postHoursAgo), first: false });
+    const q = laneQueue([suivi("calme", 300, 72), neuf("neuf-1"), suivi("frais", 5, 18), neuf("neuf-2")], NOW).map((a) => a.name);
+    expect(q).toEqual(["neuf-1", "neuf-2", "frais", "calme"]);
+    expect(FIRST_FREE_PER_PASS).toBe(300);
+    const beaucoup = Array.from({ length: 350 }, (_, i) => neuf(`n${i}`));
+    const q2 = laneQueue([...beaucoup, suivi("calme", 300, 72)], NOW);
+    expect(q2).toHaveLength(301);
+    expect(q2[300].name).toBe("calme");
+  });
+
+  it("un premier relevé raté : payant, ou il attend au palier survie ; pas atteint : il attend, sauf voie fermée", () => {
+    expect(firstReadMisses(["a"], ["b"], true, false)).toEqual({ pay: ["a"], defer: [] });
+    expect(firstReadMisses(["a"], ["b"], false, false)).toEqual({ pay: ["a", "b"], defer: [] });
+    expect(firstReadMisses(["a"], ["b"], true, true)).toEqual({ pay: [], defer: ["a"] });
+    expect(firstReadMisses(["a"], ["b"], false, true)).toEqual({ pay: [], defer: ["a"] });
   });
 });
 
