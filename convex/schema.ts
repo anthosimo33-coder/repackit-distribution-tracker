@@ -4293,6 +4293,7 @@ export default defineSchema({
     rejudgeCursor: v.optional(v.string()), // où reprend le rejugement des comptes en pause (convex/radarNetworks)
     judgeCursor: v.optional(v.string()), // où reprend le jugement IA des comptes à preuve faible (convex/radarJudge)
     judgeCursorV: v.optional(v.number()), // la version du parcours en cours ; une autre version repart du début
+    judgeApplyOn: v.optional(v.boolean()), // les jugements IA agissent (radarJudge.applyJudgmentsNow) ; absent = coupé
     judgeChainAt: v.optional(v.number()), // dernier passage enchaîné du jugement (radarJudgeMath.chainNext) ; la tâche de 30 min lui cède
     // La reprise des marques à slogan dans la file des contrôles (radarStore.requeueRetagged) : où elle en est, et sa fin.
     storeRetagCursor: v.optional(v.string()),
