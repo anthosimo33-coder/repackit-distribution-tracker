@@ -273,4 +273,19 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
+
+  test("le suivi d'office tient avec des centaines d'apps suivies : il ne relit pas toute la table pour chaque candidate (15/11/2026)", async () => {
+    test.setTimeout(240_000);
+    const ts = Date.now();
+    const p = `e2ebulk${ts}`;
+    try {
+      // 500 apps de 2,5 Ko : relire la table pour chaque candidate dépassait la limite de 16 Mo (prod, 15/11 à 20 h 46).
+      for (let i = 0; i < 5; i++) await admin.mutation(api.radarNetworks.e2eBulkApps, { secret: E2E_SECRET, prefix: `${p}x${i}`, n: 100, padBytes: 2_500 });
+      const items = Array.from({ length: 15 }, (_, i) => ({ name: `E2ebulk${ts}${String.fromCharCode(97 + i)}` }));
+      expect(await admin.mutation(api.radarAuto.e2eImportList, { secret: E2E_SECRET, source: "e2e", items })).toEqual({ added: 15, existing: 0, skipped: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toEqual({ followed: 15, kept: 0, attached: 0 });
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
 });

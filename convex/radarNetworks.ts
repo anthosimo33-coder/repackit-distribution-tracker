@@ -1638,9 +1638,12 @@ async function requestNetworkSearch(ctx: MutationCtx, appId: Id<"radarApps">, st
 /**
  * `marks` : garder l'arobase et le dièse des motifs (« @learna », « #learna » : une mention triée par l'IA, dont le
  * nom compacté seul serait dans « learn a new language ») ; `searches` : les recherches, sinon tirées des motifs ;
- * `not` : les tournures retirées avant de chercher (radarNetworkMath.AppRule.not).
+ * `not` : les tournures retirées avant de chercher (radarNetworkMath.AppRule.not) ; `followed` : les apps suivies,
+ * déjà lues par l'appelant (le suivi d'office les lit UNE fois par passage : relues pour chaque app repérée, elles
+ * dépassaient les 16 Mo de lecture d'une mutation le 15/11/2026, et rien n'entrait plus d'office) ; `counter` : le
+ * compteur des comptes suivis, partagé de même.
  */
-type CreateOpts = { marks?: boolean; searches?: readonly string[]; not?: readonly string[] };
+type CreateOpts = { marks?: boolean; searches?: readonly string[]; not?: readonly string[]; followed?: Doc<"radarApps">[]; counter?: TrackedCounter };
 
 async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[], auto = false, opts: CreateOpts = {}): Promise<Doc<"radarApps">> {
   const clean = cleanText(name.trim(), 60);
@@ -1651,7 +1654,7 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
     throw err(ERR.RADAR_APP_ALREADY_FOLLOWED, `L'app « ${clean} » est déjà suivie.`, { name: clean });
   }
   // Un motif contenu dans celui d'une app suivie en ferait un doublon (« vocaa » dans « vocaai »).
-  const followed = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
+  const followed = opts.followed ?? (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
   for (const p of strong) {
     const taken = shadowingApp(p, followed);
     if (taken) throw err(ERR.RADAR_APP_PATTERN_TAKEN, `Le motif « ${p} » est déjà dans ceux de « ${taken.name} ».`, { pattern: p, name: taken.name });
@@ -1714,7 +1717,7 @@ export async function followCandidateCore(
   opts: CreateOpts = {},
 ): Promise<{ appId: Id<"radarApps">; attached: number }> {
   const app = await createApp(ctx, name, rivalOf, patterns, auto, opts);
-  const counter: TrackedCounter = {};
+  const counter: TrackedCounter = opts.counter ?? {};
   let attached = 0;
   // Les comptes d'une app des classements sont déjà prouvés par son contrôle (pseudo, bio, moitié des vidéos) ;
   // ceux des autres sources (meilleurs clips d'une campagne, comptes qui citent) passent par le filtre d'entrée.
@@ -2038,6 +2041,22 @@ export const e2eSeedNetwork = e2eMutation({
  * E2E — efface les apps dont le slug commence par `prefix`, leurs comptes, leurs
  * vidéos et leurs formats, et les apps repérées dont la clé contient `prefix`.
  */
+/**
+ * e2e : `n` apps en pause, de `padBytes` octets chacune (leur phrase), dont le slug commence par `prefix` — pour voir
+ * qu'un passage tient avec une table d'apps à la taille de la prod (le 15/11/2026 : ~400 apps de 1,4 Ko, ~1 900 à venir).
+ */
+export const e2eBulkApps = e2eMutation({
+  args: { prefix: v.string(), n: v.number(), padBytes: v.number() },
+  handler: async (ctx, { prefix, n, padBytes }) => {
+    const now = Date.now();
+    for (let i = 0; i < Math.min(n, 200); i++) {
+      const slug = `${prefix}${String(i).padStart(3, "0")}`;
+      await ctx.db.insert("radarApps", { slug, name: slug, rivalOf: [], strong: [slug], weak: [], context: [], searches: [], status: "paused", source: "manual", createdAt: now, pitch: "x".repeat(Math.min(padBytes, 8_000)) });
+    }
+    return null;
+  },
+});
+
 export const e2eClearNetwork = e2eMutation({
   args: { prefix: v.string() },
   handler: async (ctx, { prefix }) => {

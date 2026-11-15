@@ -48,13 +48,15 @@ import {
   type TriageToJudge,
 } from "./radarAutoMath";
 import { ficheApp } from "./radarFicheMath";
-import { ensureSettings, refreshAppNet } from "./radarSignals";
+import { ensureSettings, refreshAppNet, type TrackedCounter } from "./radarSignals";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { alreadyFollowed } from "./radarStoreMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
 
 /** Apps regardées par passage et par source. */
 const AUTO_BATCH = 15;
+/** Apps qui entrent au plus par passage (toutes sources) : le reste passe 10 minutes plus tard. */
+const AUTO_MAX_FOLLOWS = 40;
 /** Sous ce reste d'enveloppe, on n'appelle pas l'IA (un appel coûte moins d'un cent) : rien n'entre d'office. */
 const MIN_ALLOWANCE_USD = 0.01;
 
@@ -132,7 +134,12 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
   let followed = 0;
   let kept = 0;
   let attached = 0;
+  // Les apps suivies et le compteur des comptes, lus UNE fois pour tout le passage (cf radarNetworks.CreateOpts).
+  const apps = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
+  const counter: TrackedCounter = {};
+  const shared = { followed: apps, counter };
   for (const c of await pickCandidates(ctx, only)) {
+    if (followed >= AUTO_MAX_FOLLOWS) break;
     const plan = autoPlan(c);
     if ("skip" in plan) {
       await ctx.db.patch(c._id, { autoAt: now, autoNote: plan.skip });
@@ -140,7 +147,6 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
       continue;
     }
     // Déjà suivie sous ce motif (liste de départ, ou suivie à l'écran entre-temps) : plus à proposer.
-    const apps = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
     if (alreadyFollowed(plan.patterns, apps)) {
       await ctx.db.patch(c._id, { status: "followed", autoAt: now, autoNote: "déjà suivie" });
       continue;
@@ -157,12 +163,15 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
     try {
       // Une mention ou un site trié : le nom du produit dit par l'IA, ses motifs marqués (@, #), ses propres recherches.
       const r = c.triage
-        ? await followCandidateCore(ctx, c, c.triage.name, [], plan.patterns, now, true, { marks: true, searches: triageSearches(c, c.triage.name) })
+        ? await followCandidateCore(ctx, c, c.triage.name, [], plan.patterns, now, true, { ...shared, marks: true, searches: triageSearches(c, c.triage.name) })
         : fallback
-          ? await followCandidateCore(ctx, c, c.label, [], fallback.patterns, now, true, { searches: fallback.searches, not: fallback.not })
+          ? await followCandidateCore(ctx, c, c.label, [], fallback.patterns, now, true, { ...shared, searches: fallback.searches, not: fallback.not })
           : c.kind === "liste"
-            ? await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true, { searches: listSearches(c.label) })
-            : await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true);
+            ? await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true, { ...shared, searches: listSearches(c.label) })
+            : await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true, shared);
+      // La nouvelle app compte pour les suivantes du passage (motif déjà pris, déjà suivie).
+      const created = await ctx.db.get(r.appId);
+      if (created) apps.push(created);
       if (plan.trial) await ctx.db.patch(r.appId, { trialSince: now });
       await ctx.db.patch(c._id, { autoAt: now, autoNote: plan.trial ? (fallback ? `${TRIAL_NOTE} (nom courant : sous « ${fallback.patterns[0]} »)` : TRIAL_NOTE) : "suivie d'office" });
       followed++;
