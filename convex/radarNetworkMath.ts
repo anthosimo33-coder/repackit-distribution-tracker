@@ -199,6 +199,26 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "livetraffic", name: "Live Traffic", rivalOf: [], strong: ["livetrafficapp"], searches: ["live traffic app", "#livetrafficapp"] },
   { slug: "dawcade", name: "Dawcade", rivalOf: [], strong: ["dawcade"], searches: ["dawcade", "#dawcade", "dawcade app"] },
   { slug: "holynote", name: "HolyNote", rivalOf: [], strong: ["holynote"], searches: ["holynote", "#holynote", "holynote app"] },
+  // Les apps que les réseaux de Shortical, SlowRead, Vocabulary, SideShift et Bible Chat poussent aussi : les comptes
+  // relus à la main le 15/11/2026 les nomment, et chacune a, dans les légendes déjà relevées, un hashtag de campagne
+  // repris par plusieurs comptes (#mynoiseapp 25 vidéos, #trydealseek 18, #canvasugc 28, #wordy1 19,
+  // #trythecourtsidesportsbookapp 14, #dramabox 17). Noise, Courtside, Margins, Wordy et Heavenly sont des mots
+  // ordinaires : pris seulement sous leur hashtag, ou collés à ce qui ne se dit pas dans une phrase. « white noise app »
+  // contient « noiseapp » mais pas « #noiseapp » ; « the noise apparently » contiendrait « thenoiseapp ». Confide n'y est
+  // pas : aucune légende relevée ne la nomme, et « confide » est dans « confidence ». Temu et SHEIN sont hors périmètre.
+  { slug: "noise", name: "Noise", rivalOf: [], strong: ["mynoiseapp", "#noiseapp", "#getnoise", "noisepremium"], searches: ["#mynoiseapp", "noise app side hustle", "#getnoise"] },
+  { slug: "courtside", name: "Courtside", rivalOf: [], strong: ["courtsidesportsbook", "pickslipscourtside", "#courtsideapp"], searches: ["#trythecourtsidesportsbookapp", "courtside sportsbook app", "#pickslipscourtside"] },
+  { slug: "dealseek", name: "DealSeek", rivalOf: [], strong: ["dealseek"], searches: ["dealseek", "#trydealseek", "dealseek app"] },
+  { slug: "dramabox", name: "DramaBox", rivalOf: [], strong: ["dramabox"], searches: ["dramabox", "#dramabox", "dramabox app"] },
+  { slug: "canvasugc", name: "Canvas UGC", rivalOf: [], strong: ["canvasugc"], searches: ["canvas ugc", "#canvasugc"] },
+  { slug: "wordy", name: "Wordy", rivalOf: [], strong: ["#wordy1", "#wordyapp"], searches: ["#wordy1", "wordy app language learning"] },
+  { slug: "militarybenefits", name: "Military Benefits App", rivalOf: [], strong: ["militarybenefitsapp"], searches: ["#usemilitarybenefitsapp", "military benefits app"] },
+  { slug: "pcospal", name: "PCOS Pal", rivalOf: [], strong: ["pcospal"], searches: ["pcos pal", "#pcospal", "#usepcospal"] },
+  { slug: "famplate", name: "FamPlate", rivalOf: [], strong: ["famplate"], searches: ["famplate", "#famplate", "famplate app"] },
+  { slug: "margins", name: "Margins", rivalOf: [], strong: ["#usemargins", "#marginsapp"], searches: ["#usemargins", "margins app reading tracker"] },
+  { slug: "heavenly", name: "Heavenly", rivalOf: [], strong: ["theheavenlyapp", "heavenlyapp"], not: ["heavenly appe", "heavenly appl", "heavenly appr"], searches: ["#theheavenlyapp", "heavenly app bible verse widget"] },
+  // « bible basher » est aussi une insulte (un prêcheur insistant) : le nom seul n'est pas l'app.
+  { slug: "biblebasher", name: "Bible Basher", rivalOf: [], strong: ["biblebasherapp", "#biblebasher"], searches: ["bible basher app", "#biblebasher"] },
   // Les 5 premières apps trouvées par les classements de l'App Store et confirmées par le fondateur (13/11/2026) :
   // trois apps de révision francophones, une app de langues (66 000 vidéos sous #pingoai), un compteur de
   // calories, une app de rencontre. Aucune n'est concurrente d'un projet. « diane ai » seul n'est pas un motif
