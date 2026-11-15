@@ -38,6 +38,8 @@ export const networkSearchValidator = v.object({
   steps: v.number(),
   attached: v.number(),
   signals: v.number(),
+  // Comptes que le plafond des comptes suivis a refusés (15/11/2026 : 36 apps à l'essai cherchées sans rien recevoir).
+  full: v.optional(v.number()),
   outcome: v.optional(networkSearchOutcomeValidator),
   error: v.optional(v.string()),
 });

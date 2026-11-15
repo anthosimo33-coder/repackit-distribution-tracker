@@ -86,9 +86,9 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       expect([exportees.get(slugFaible), exportees.get(forte.marque.toLowerCase())]).toEqual(["paused", "active"]);
       // Sa recherche n'a rien prouvé de plus : cherchée il y a moins de 2 jours, elle attend ; au-delà, en pause.
       await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: slugFaible, searchedAgoMs: 3_600_000 });
-      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: `e2eso${ts}`, now: Date.now() })).toEqual({ kept: 0, paused: 0, waiting: 1 });
+      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: `e2eso${ts}`, now: Date.now() })).toEqual({ kept: 0, paused: 0, waiting: 1, relaunched: 0 });
       await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: slugFaible, searchedAgoMs: 3 * 86_400_000 });
-      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: `e2eso${ts}`, now: Date.now() })).toEqual({ kept: 0, paused: 1, waiting: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: `e2eso${ts}`, now: Date.now() })).toEqual({ kept: 0, paused: 1, waiting: 0, relaunched: 0 });
       expect(await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: slugFaible })).toEqual({ trial: true, status: "paused", pausedReason: "essai" });
       await expect(suivie(connue.marque)).toHaveCount(1);
       await expect(classements.filter({ hasText: connue.marque })).toHaveCount(0);
@@ -310,6 +310,35 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toEqual({ followed: 4, kept: 0, attached: 0 });
       expect(await suivie(18)).toBe(true);
       expect(await suivie(19)).toBe(false);
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
+
+  test("une app à l'essai que le plafond des comptes a privée de comptes n'est pas mise en pause : elle repart (15/11/2026)", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const p = `e2eplein${ts}`;
+    try {
+      const items = ["a", "b", "c"].map((l) => ({ name: `E2eplein${ts}${l}` }));
+      expect(await admin.mutation(api.radarAuto.e2eImportList, { secret: E2E_SECRET, source: "e2e", items })).toEqual({ added: 3, existing: 0, skipped: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toMatchObject({ followed: 3 });
+      const jour = 86_400_000;
+      // a : cherchée il y a 3 jours, rien rattaché, 5 comptes refusés par le plafond → elle repart.
+      await admin.mutation(api.radarAuto.e2eSetSearchResult, { secret: E2E_SECRET, slug: `${p}a`, searchedAgoMs: 3 * jour, attached: 0, full: 5 });
+      // b : cherchée il y a 3 jours, rien rattaché, rien refusé → un vrai essai raté, en pause.
+      await admin.mutation(api.radarAuto.e2eSetSearchResult, { secret: E2E_SECRET, slug: `${p}b`, searchedAgoMs: 3 * jour, attached: 0, full: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: p, now: Date.now() })).toEqual({ kept: 0, paused: 1, waiting: 1, relaunched: 1 });
+      expect(await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: `${p}a` })).toEqual({ trial: true, status: "active", pausedReason: null });
+      expect(await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: `${p}b` })).toEqual({ trial: true, status: "paused", pausedReason: "essai" });
+      // a n'est plus « cherchée » : au passage suivant, elle attend sa nouvelle recherche.
+      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: p, now: Date.now() })).toEqual({ kept: 0, paused: 0, waiting: 2, relaunched: 0 });
+      // La relance ponctuelle (recherches d'avant le relevé des refus) : c, cherchée sans rien rattacher depuis `since`.
+      await admin.mutation(api.radarAuto.e2eSetSearchResult, { secret: E2E_SECRET, slug: `${p}c`, searchedAgoMs: 60_000, attached: 0, full: 0 });
+      const since = Date.now() - 10 * 60_000;
+      expect(await admin.mutation(api.radarAuto.e2eRelaunchBlockedTrials, { secret: E2E_SECRET, since, dryRun: true, prefix: p })).toEqual({ relaunched: 0, names: [`E2eplein${ts}c`] });
+      expect(await admin.mutation(api.radarAuto.e2eRelaunchBlockedTrials, { secret: E2E_SECRET, since, dryRun: false, prefix: p })).toEqual({ relaunched: 1, names: [`E2eplein${ts}c`] });
+      expect(await admin.mutation(api.radarAuto.e2eRelaunchBlockedTrials, { secret: E2E_SECRET, since, dryRun: true, prefix: p })).toEqual({ relaunched: 0, names: [] });
     } finally {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }

@@ -385,10 +385,13 @@ async function attachFromSearchCore(
   const counter: TrackedCounter = {};
   let attached = 0;
   let signals = 0;
+  let refused = 0;
   for (const s of videos) {
     if (!citesApp(s.caption, s.authorHandle, app)) continue;
     // La langue de la vidéo suit : un compte francophone entre même si son app non concurrente a fait le plein.
-    if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, s.lang, true)) === "added") attached++;
+    const r0 = await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter, s.lang, true);
+    if (r0 === "added") attached++;
+    else if (r0 === "full") refused++;
     const r = await writeSignal(ctx, s, now, {
       insert: keepSignal(s) && s.publishedAt >= now - RETENTION_DAYS * DAY,
       foundBy,
@@ -400,7 +403,9 @@ async function attachFromSearchCore(
   // La progression que l'écran affiche pendant la recherche.
   const ns = app.networkSearch;
   if (ns && ns.finishedAt === undefined) {
-    await ctx.db.patch(appId, { networkSearch: { ...ns, step: step ?? ns.step, attached: ns.attached + attached, signals: ns.signals + signals } });
+    await ctx.db.patch(appId, {
+      networkSearch: { ...ns, step: step ?? ns.step, attached: ns.attached + attached, signals: ns.signals + signals, ...(refused ? { full: (ns.full ?? 0) + refused } : {}) },
+    });
   }
   return { attached, signals };
 }
@@ -460,7 +465,7 @@ export const finishNetworkSearch = internalMutation({
     if (!app) return;
     const p = app.networkSearch ?? { requestedAt: now, step: 0, steps: 0, attached: 0, signals: 0 };
     // Recopié champ à champ : l'erreur d'une recherche d'avant ne survit pas.
-    const base = { requestedAt: p.requestedAt, step: p.step, steps: p.steps, attached: p.attached, signals: p.signals };
+    const base = { requestedAt: p.requestedAt, step: p.step, steps: p.steps, attached: p.attached, signals: p.signals, ...(p.full ? { full: p.full } : {}) };
     await ctx.db.patch(appId, {
       networkSearch: { ...base, ...(p.startedAt !== undefined ? { startedAt: p.startedAt } : {}), finishedAt: now, outcome, ...(error ? { error: error.slice(0, 200) } : {}) },
       ...(searched ? { networkSearchedAt: now } : {}),
