@@ -86,7 +86,8 @@ import {
   GAP_PAGES,
   freeRead,
   gapReached,
-  laneOrder,
+  firstReadMisses,
+  laneQueue,
   overflowToPay,
   paced,
   retrying,
@@ -1349,14 +1350,10 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
       if (usage.pending() >= USAGE_FLUSH_CREDITS) await usage.flush().catch(failed);
     }
   };
-  // Le PREMIER relevé d'un compte est payant : une demande rend ses 9 dernières vidéos avec tout leur détail, là où
-  // il faudrait lire une page par vidéo. Les suivants passent par la voie gratuite. Au palier « survie », les nouveaux
-  // comptes attendent (une heure à la fois, pour ne pas boucher la file des comptes suivis) que le solde remonte.
+  // Le PREMIER relevé d'un compte passe aussi par la voie gratuite (15/11/2026, cf radarFreeMath.laneQueue) ; payant
+  // seulement si la page gratuite échoue. Au palier « survie », ce repli payant attend (une heure à la fois) que le
+  // solde remonte.
   const waitFirst = tierDefers(b.tier).firstReads;
-  const firsts = waitFirst ? [] : due.filter((a) => a.first);
-  if (waitFirst && due.some((a) => a.first)) {
-    await ctx.runMutation(internal.radarNetworks.deferAccounts, { ids: due.filter((a) => a.first).map((a) => a.id), until: now + FIRST_READ_WAIT_MS });
-  }
   const paid = (list: readonly DueAccount[], reason: PaidReason): Promise<number> =>
     pooled(list, ACCOUNT_READ_POOL, (acc) => readPaid(acc, n, reason), () => Date.now() - now < ACCOUNT_READ_MAX_MS);
   try {
@@ -1364,10 +1361,7 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
     // 24 heures (leur second regard), puis les plus en retard.
     const [lane] = await Promise.all([
       runFreeLane(
-        laneOrder(
-          due.filter((a) => !a.first),
-          now,
-        ),
+        laneQueue(due, now),
         async (acc) => {
           try {
             const known = (videoIds: string[]): Promise<KnownVideo[]> => ctx.runQuery(internal.radarNetworks.freeKnown, { accountId: acc.id, videoIds });
@@ -1384,18 +1378,31 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
         },
         () => Date.now() - now < FREE_LANE_MAX_MS,
       ),
-      paid(firsts, "premier"),
     ]);
     const free = lane.state;
+    // Un premier relevé que la page gratuite n'a pas pu lire : en payant (ou il attend, palier « survie ») ; pas atteint,
+    // il attend le passage suivant, sauf voie fermée (cf radarFreeMath.firstReadMisses).
+    const firstMiss = firstReadMisses(
+      lane.failed.filter((m) => m.account.first).map((m) => m.account),
+      lane.notReached.filter((a) => a.first),
+      free.on,
+      waitFirst,
+    );
+    if (firstMiss.defer.length) await ctx.runMutation(internal.radarNetworks.deferAccounts, { ids: firstMiss.defer.map((a) => a.id), until: now + FIRST_READ_WAIT_MS });
+    await paid(firstMiss.pay, "premier");
     // Ce que le gratuit n'a pas relevé : en payant (une liste trouée, page après page jusqu'à sa dernière vidéo connue).
     await pooled(
-      lane.failed,
+      lane.failed.filter((m) => !m.account.first),
       ACCOUNT_READ_POOL,
       (m) => readPaid(m.account, n, m.why === "gap" ? "trou" : "repli", m.why === "gap" ? m.newest : undefined),
       () => Date.now() - now < ACCOUNT_READ_MAX_MS,
     );
     // Ce qu'il n'a pas eu le temps de prendre attend le passage suivant (10 minutes), sauf retard ou voie fermée.
-    const over = overflowToPay(lane.notReached, free.on, Date.now());
+    const over = overflowToPay(
+      lane.notReached.filter((a) => !a.first),
+      free.on,
+      Date.now(),
+    );
     await paid(over.pay, over.reason);
     // Sous la réserve, le solde n'est plus relu par rien d'autre : un appel d'un crédit le relit (un pack acheté
     // relance le Radar), même si aucun relevé payant n'était dû ou que le poste est coupé.

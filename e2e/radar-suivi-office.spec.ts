@@ -288,4 +288,30 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
+
+  test("une liste importée entre dans SON ordre (les plus vues d'abord) ; une app écartée n'entre pas (15/11/2026)", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const p = `e2eord${ts}`;
+    const nom = (i: number) => `E2eord${ts}${String.fromCharCode(97 + i)}`;
+    try {
+      const items = Array.from({ length: 20 }, (_, i) => ({ name: nom(i) }));
+      expect(await admin.mutation(api.radarAuto.e2eImportList, { secret: E2E_SECRET, source: "e2e", items })).toEqual({ added: 20, existing: 0, skipped: 0 });
+      // La dernière (0 vue sur 30 jours chez FarmSpot) est écartée ; une inconnue n'est rien.
+      expect(await admin.mutation(api.radarAuto.e2eIgnoreList, { secret: E2E_SECRET, names: [nom(19), `Inconnue ${ts}`], note: "0 vue sur 30 jours" })).toEqual({ ignored: 1, settled: 0, unknown: 1 });
+      expect(await admin.mutation(api.radarAuto.e2eIgnoreList, { secret: E2E_SECRET, names: [nom(19)], note: "0 vue sur 30 jours" })).toEqual({ ignored: 0, settled: 1, unknown: 0 });
+      // Un passage : 15 apps, les 15 premières de la liste.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toEqual({ followed: 15, kept: 0, attached: 0 });
+      const suivie = async (i: number) => (await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}${String.fromCharCode(97 + i)}` })) !== null;
+      expect(await suivie(0)).toBe(true);
+      expect(await suivie(14)).toBe(true);
+      expect(await suivie(15)).toBe(false);
+      // Le passage suivant prend le reste ; l'app écartée n'entre jamais.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toEqual({ followed: 4, kept: 0, attached: 0 });
+      expect(await suivie(18)).toBe(true);
+      expect(await suivie(19)).toBe(false);
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
 });
