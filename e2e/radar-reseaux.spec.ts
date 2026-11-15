@@ -201,12 +201,14 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       // Elle entre dans la liste de départ sous son vrai nom, concurrente de CE projet (WRizz et Wing AI, 10/11/2026).
       const adoptee = `E2E Adoptée ${ts}`;
       const seed = { slug: `${r.prefixe}b`, name: adoptee, rivalOf: [E2E_PROJECT_SLUG], strong: [`@${r.prefixe}b`], searches: [`${r.prefixe}b`] };
+      // Ses motifs changent (cherchée à sa création, cf e2eSeedNetwork) : son réseau se recherche de nouveau (15/11/2026).
       expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed })).toEqual({
         sync: "adopt",
         source: "seed",
         name: adoptee,
         rivalOf: [E2E_PROJECT_SLUG],
         strong: [`@${r.prefixe}b`],
+        searched: false,
         former: [],
       });
       // À l'écran : sous son nouveau nom, chez les concurrents du projet, son compte toujours là.
@@ -251,7 +253,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       // ── Un nom à slogan (« Serializd | TV tracking app ») : l'app prend le bon nom et le bon slug ──
       const renommee = `E2E Renommée ${ts}`;
       const seed = { slug: `${r.prefixe}z`, name: renommee, rivalOf: [], strong: [`${r.prefixe}z`], searches: [`${r.prefixe}z`], formerSlugs: [`${r.prefixe}c`] };
-      expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed })).toEqual({ sync: "adopt", source: "seed", name: renommee, rivalOf: [], strong: [`${r.prefixe}z`], former: [] });
+      expect(await admin.mutation(api.radarSignals.e2eSyncSeedApp, { secret: E2E_SECRET, seed })).toEqual({ sync: "adopt", source: "seed", name: renommee, rivalOf: [], strong: [`${r.prefixe}z`], searched: false, former: [] });
       await expect(groupe("Autres apps").getByTestId("radar-app").filter({ hasText: renommee })).toHaveCount(1);
       await expect(carte(r.autre)).toHaveCount(0);
 
@@ -289,8 +291,9 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await expect(page.getByText(`${r.autre} est maintenant une concurrente de E2E Test.`)).toBeVisible();
       await expect(dans("Concurrents de ce projet", r.autre)).toHaveCount(1);
       await expect(dans("Autres apps", r.autre)).toHaveCount(0);
-      // La liste de départ la dit concurrente de personne : synchronisée deux fois, la décision tient.
-      expect(await sync(liste("c", r.autre, []))).toMatchObject({ sync: "adopt", source: "seed", rivalOf: [E2E_PROJECT_SLUG] });
+      // La liste de départ la dit concurrente de personne : synchronisée deux fois, la décision tient. Mêmes motifs et
+      // mêmes recherches : son réseau, déjà cherché, ne se recherche pas pour autant.
+      expect(await sync(liste("c", r.autre, []))).toMatchObject({ sync: "adopt", source: "seed", rivalOf: [E2E_PROJECT_SLUG], searched: true });
       expect(await sync(liste("c", r.autre, []))).toMatchObject({ sync: "keep", rivalOf: [E2E_PROJECT_SLUG] });
       await expect(dans("Concurrents de ce projet", r.autre)).toHaveCount(1);
 

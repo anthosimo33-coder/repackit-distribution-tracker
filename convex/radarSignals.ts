@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind, isWebFind, signalThemes } from "./radarDiscoveryQueries";
-import { SEED_APPS, appNet, candidatesOf, hashtagCandidates, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, appNet, candidatesOf, hashtagCandidates, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedRulesChanged, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { REJECTED_KEEP_MS } from "./radarVetMath";
 import { isTextOnShot } from "./radarDisplay";
 import { LANG_BY_HAND, OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
@@ -297,7 +297,9 @@ async function syncSeedApp(ctx: MutationCtx, s: SeedApp, now: number): Promise<{
   }
   if (!app || sync === "keep") return { app, sync };
   // « adopt » : l'app ajoutée à la main devient une app de départ ; ses comptes et ses vidéos restent.
-  const patch = { ...fields, ...(sync === "adopt" ? { source: "seed" as const } : {}) };
+  // Motifs ou recherches changés : son réseau se recherche de nouveau, à fond (cf seedRulesChanged).
+  const research = seedRulesChanged(app, fields) ? { networkSearchedAt: undefined, deepSearchedAt: undefined } : {};
+  const patch = { ...fields, ...(sync === "adopt" ? { source: "seed" as const } : {}), ...research };
   await ctx.db.patch(app._id, patch);
   return { app: { ...app, ...patch }, sync };
 }
@@ -326,7 +328,7 @@ export const e2eSyncSeedApp = e2eMutation({
       const accounts = await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", old._id)).collect();
       former.push({ slug, name: old.name, status: old.status, merged: old.mergedInto === app?._id, accounts: accounts.length });
     }
-    return { sync, source: app?.source ?? null, name: app?.name ?? null, rivalOf: app?.rivalOf ?? [], strong: app?.strong ?? [], former };
+    return { sync, source: app?.source ?? null, name: app?.name ?? null, rivalOf: app?.rivalOf ?? [], strong: app?.strong ?? [], searched: app?.networkSearchedAt !== undefined, former };
   },
 });
 
