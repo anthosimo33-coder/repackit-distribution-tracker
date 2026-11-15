@@ -333,11 +333,13 @@ const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
   // v9 : 150 recherches/jour (14/11/2026, accord du fondateur) : les produits web (« ce site », pubs déclarées,
   // allemand, polonais, néerlandais, italien) passent chaque jour, comme le thème « argent ».
   { before: 9, postes: ["search"] },
-  // v10 (15/11/2026, « Monter le budget », fondateur) : autant d'apps que FarmSpot (~1 700) — 15 000 relevés/jour
-  // pour ~24 000 comptes, 200 000 crédits/mois pour le premier tour des réseaux, plafond 1 300 $.
-  { before: 10, postes: ["tiktok", "network"] },
+  // v10 (15/11/2026, « Monter le budget », puis « recale-la » — fondateur) : autant d'apps que FarmSpot (~1 700).
+  // Les relevés de routine passent par la voie gratuite (radarFreeMath : 96,5 % des comptes) ; les 9 000 relevés
+  // PAYÉS par jour (premiers relevés, replis) suffisent. La recherche des réseaux passe à 100 000 crédits/mois
+  // (~28 par app : premier tour de ~1 350 apps et revisites), le plafond à 900 $.
+  { before: 10, postes: ["network"] },
 ];
-/** Le plafond se garde à partir de cette version (4 jusqu'au 15/11/2026 : la v10 le remonte à 1 300 $). */
+/** Le plafond se garde à partir de cette version (4 jusqu'au 15/11/2026 : la v10 le remonte à 900 $). */
 const CAP_KEPT_FROM = 10;
 /** Plafond le plus haut qu'on peut régler. */
 export const CAP_MAX_USD = 2_000;
@@ -373,14 +375,16 @@ export type BudgetSettings = {
 // réseaux passe à 40 000 crédits/mois (des centaines d'apps, chacune cherchée à fond). Prévu au plus :
 // ~630 $/mois sous un plafond de 650 $ — environ 10 000 comptes au prix du pack de 25 000 crédits, le double
 // avec celui de 500 000.
-// Depuis le 15/11/2026 (« autant d'apps que FarmSpot » ; « Monter le budget », fondateur) : 15 000 relevés/jour
-// suivent ~24 000 comptes au même rythme, et 200 000 crédits/mois font le premier tour du réseau de ~1 350 apps
-// de plus (~150 crédits chacune). Prévu au plus : 1 271,94 $/mois sous un plafond de 1 300 $, au prix du pack de
-// 25 000 crédits ; ce sont des plafonds, dépensés seulement s'il y a des comptes à relever et des apps à chercher.
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 150, curve: 100, tiktok: 15_000, network: 200_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
+// Depuis le 15/11/2026 (« autant d'apps que FarmSpot », fondateur) : jusqu'à 40 000 comptes. Leurs relevés de
+// routine sont gratuits (pages publiques, radarFreeMath) ; les 9 000 relevés payés par jour couvrent les premiers
+// relevés et les replis (1 à 9 % des comptes par jour, mesuré les 14 et 15/11). La recherche des réseaux coûte
+// ~28 crédits par app (mesuré du 13 au 15/11 : 108 apps pour 3 114 crédits) : 100 000 crédits/mois font le premier
+// tour de ~1 350 apps de plus et les revisites. Prévu au plus : 745,54 $/mois sous un plafond de 900 $ ; attendu
+// en régime : 170 à 300 $/mois. Ce sont des plafonds, dépensés seulement s'il y a des comptes et des apps.
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 150, curve: 100, tiktok: 9_000, network: 100_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
-  capUsd: 1_300,
+  capUsd: 900,
   postes: POSTES.map((p) => ({ key: p.key, qty: DEFAULT_QTY[p.key], on: p.live })),
   // L'analyse IA est coupée la première : la veille marche sans elle.
   cutOrder: ["ai", "search", "transcript", "curve", "ads", "insta", "network", "tiktok"],
