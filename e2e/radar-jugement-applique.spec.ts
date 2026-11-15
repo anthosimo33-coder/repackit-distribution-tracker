@@ -163,6 +163,16 @@ test.describe("Radar — jugement appliqué", () => {
       expect(applied.verdicts).toEqual({ pause: 2, placement: 3, move: 1, lead: 2, note: 2, none: 4 });
       // Relu, déjà appliqué : rien à refaire.
       expect((await admin.mutation(api.radarJudge.e2eApplyJudgments, { secret: E2E_SECRET, review, apps: scope, slugs })).verdicts).toEqual({});
+      // Un lot de plus (nouvelle version de la liste) : les comptes déjà appliqués se sautent sans compter, et le passage
+      // s'arrête après sa part d'actions réelles — ici une : h(14) en pause, h(11) attend le passage suivant.
+      const lot2 = await admin.mutation(api.radarJudge.e2eApplyJudgments, {
+        secret: E2E_SECRET,
+        review: [...review, { handle: h(14), app: a, verdict: "sans_rapport" as const }, { handle: h(11), app: a, verdict: "sans_rapport" as const }],
+        apps: scope,
+        slugs,
+        maxActs: 1,
+      });
+      expect(lot2).toMatchObject({ verdicts: { pause: 1 }, read: review.length + 1 });
 
       // La piste compte les 4 comptes qui la désignent : 2 « à la place » (en pause), 2 qui poussent les deux (actifs).
       expect(await admin.mutation(api.radarSignals.e2eCandidates, { secret: E2E_SECRET, marker: `${p}moka` })).toEqual([{ key: `ia:${p}moka`, kind: "ia", authorCount: 4 }]);
@@ -186,8 +196,8 @@ test.describe("Radar — jugement appliqué", () => {
       expect(tracked.get(h(9))).toMatchObject({ status: "active", placement: false });
       expect(tracked.get(h(10))).toMatchObject({ status: "active" });
       expect(tracked.get(h(11))).toMatchObject({ status: "paused" });
-      // Non relu : l'IA seule n'a rien fait, il est toujours suivi.
-      expect(tracked.get(h(14))).toBeDefined();
+      // Relu au lot 2 « sans rapport » : en pause, ne part plus.
+      expect(tracked.has(h(14))).toBe(false);
       expect(tracked.get(h(15))).toMatchObject({ status: "active", placement: true });
       // Mis en pause avant la relecture, relu placement : remis en route, étiqueté.
       expect(tracked.get(h(16))).toMatchObject({ status: "active", placement: true });
