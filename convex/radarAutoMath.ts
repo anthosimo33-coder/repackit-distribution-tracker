@@ -78,6 +78,16 @@ export const LIST_MIN_CORE = 4;
 /** En dessous, même « nomapp » ne dit rien de sûr. */
 const LIST_FALLBACK_MIN = 3;
 
+/**
+ * La clé d'une app d'une liste (« liste:blowup »), ou `null` sous trois lettres (« 99 ») : trois lettres suffisent à
+ * la poser, puisqu'elle entrera sous « nomapp » (cf `autoPlan`). Le 15/11/2026, l'import écartait ces noms (PSL, Tab,
+ * Fig, Elo…) alors que le suivi d'office savait les prendre.
+ */
+export function listKey(name: string): string | null {
+  const core = productKey(name);
+  return core.length >= LIST_FALLBACK_MIN ? `liste:${core}` : null;
+}
+
 /** Le motif d'une app d'une liste : son nom collé (« Blow Up » → « blowup »), s'il a au moins 4 lettres. */
 export function listPatterns(name: string): string[] {
   const core = productKey(name);
