@@ -51,11 +51,13 @@ test.describe("Radar — juge v2", () => {
       expect(r.asked.map((a: { handle: string }) => a.handle).sort()).toEqual([h(1), h(2)].sort());
       expect(r.written).toBe(2);
       const block = r.prompt.split("\n\n").find((b: string) => b.includes(`account: @${h(1)}`))!;
-      expect(block).toContain("evidence: 2 of 12 stored videos contain the product's name or tag (listed first); bio names it: no; account found through a video naming the product");
+      expect(block).toContain(
+        "evidence: 2 of 12 stored videos contain the product's name or tag (listed first); 0 of 12 carry an ad or partner disclosure; 0 of 12 carry a numbered campaign hashtag; bio names it: no; account found through a video naming the product",
+      );
       const list = block.split("then the latest: ")[1];
       expect(list.startsWith(`"mon avis sur ${p}a numéro 10" | "mon avis sur ${p}a numéro 11" | "vlog du jour 0"`)).toBe(true);
       // Le jugement v1 est remplacé : un seul jugement, le v2.
-      expect(await admin.mutation(api.radarJudge.e2eJudgmentsOf, { secret: E2E_SECRET, handle: h(2) })).toEqual([{ verdict: "sans_rapport", why: "recettes", v: 2 }]);
+      expect(await admin.mutation(api.radarJudge.e2eJudgmentsOf, { secret: E2E_SECRET, handle: h(2) })).toEqual([{ verdict: "sans_rapport", why: "recettes", v: 3 }]);
       // Jugés en v2 : plus redemandés.
       const again = await admin.mutation(api.radarJudge.e2eJudgeAccounts, { secret: E2E_SECRET, handles: [h(1), h(2)], answers: [] });
       expect(again.asked).toEqual([]);

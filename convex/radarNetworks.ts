@@ -1832,6 +1832,8 @@ export const e2eSeedNetwork = e2eMutation({
         igBest7d: v.optional(v.object({ code: v.string(), views: v.number(), multiplier: v.number() })),
         // Semé déjà mis en pause parce qu'il ne cite jamais l'app.
         offTopic: v.optional(v.boolean()),
+        // Venu d'une liste de créateurs (radarSeedAccounts) plutôt que d'une légende.
+        seed: v.optional(v.boolean()),
         lang: v.optional(v.string()),
         bio: v.optional(v.string()),
         // Le pays d'où il publie, déjà connu.
@@ -1890,7 +1892,7 @@ export const e2eSeedNetwork = e2eMutation({
         appId,
         status: t.offTopic ? "paused" : "active",
         ...(t.offTopic ? { pausedReason: "offTopic" as const } : {}),
-        matchedBy: "caption",
+        matchedBy: t.seed ? ("seed" as const) : ("caption" as const),
         fans: t.fans,
         ...(t.medianViews !== undefined ? { medianViews: t.medianViews } : {}),
         ...(t.lang !== undefined ? { lang: t.lang } : {}),
