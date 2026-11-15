@@ -196,3 +196,33 @@ describe("Radar — les apps que poussent les mêmes réseaux UGC (15/11/2026)",
       expect(of(caption), caption).toBeUndefined();
   });
 });
+
+describe("Radar — les apps en tête de FarmSpot, et Higgsfield et Blow Up AI reprises (15/11/2026)", () => {
+  const of = (caption: string, handle = "x") => findApp(caption, handle, SEED_APPS)?.name;
+  it("chacune est trouvée sous la forme qu'emploient ses comptes", () => {
+    for (const [caption, name] of [
+      ["made this whole video with Higgsfield #higgsfield", "Higgsfield"],
+      ["Blow Up AI wrote my script in seconds #blowupai", "Blow Up AI"],
+      ["the Blow Up app analysed my profile", "Blow Up AI"],
+      ["chatting with my AI bestie, only on Cantina #cantinaapp", "Cantina"],
+      ["edited on Hypic in 2 minutes", "Hypic"],
+      ["this song was made with Suno AI", "Suno"],
+      ["the Tethered app keeps us close across 3 time zones", "Tethered"],
+      ["Haven app explained this verse to me", "Haven"],
+      ["EcoGPT plants trees while I study", "EcoGPT"],
+      ["found his profile on Cheaterbuster", "Cheaterbuster"],
+    ] as const)
+      expect(of(caption), caption).toBe(name);
+  });
+  it("un mot courant n'est pas l'app : cantina, haven, tethered, blow up, suno caché dans une phrase", () => {
+    for (const caption of [
+      "lunch at the cantina with the girls",
+      "a safe haven app for kids",
+      "the haven appeared in the distance",
+      "my phone tethered apple watch setup",
+      "this video is going to blow up",
+      "its unorthodox but it works",
+    ])
+      expect(of(caption), caption).toBeUndefined();
+  });
+});

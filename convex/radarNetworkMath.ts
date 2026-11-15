@@ -219,6 +219,22 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "heavenly", name: "Heavenly", rivalOf: [], strong: ["theheavenlyapp", "heavenlyapp"], not: ["heavenly appe", "heavenly appl", "heavenly appr"], searches: ["#theheavenlyapp", "heavenly app bible verse widget"] },
   // « bible basher » est aussi une insulte (un prêcheur insistant) : le nom seul n'est pas l'app.
   { slug: "biblebasher", name: "Bible Basher", rivalOf: [], strong: ["biblebasherapp", "#biblebasher"], searches: ["bible basher app", "#biblebasher"] },
+  // Les apps en tête de la page publique de FarmSpot (15/11/2026) absentes du Radar ou presque vides : le fondateur
+  // veut « autant d'apps que FarmSpot, les mêmes au minimum ». Seuls les noms viennent de là (leurs conditions
+  // interdisent d'extraire leurs données) : la recherche et la preuve de chaque compte sont les nôtres. Higgsfield et
+  // Blow Up AI étaient suivies à la main : la liste les reprend sous leur slug, et leur réseau se recherche à fond
+  // (seedRulesChanged) — Higgsfield n'avait jamais été cherchée (budget épuisé le 14/11, 1 compte contre 274 chez
+  // eux), Blow Up n'avait que « blowupapp » (17 contre 119). Cantina, Haven et Tethered sont des mots courants :
+  // seulement collés à ce qu'une phrase ne dit pas ; « suno » seul est dans « its unorthodox ».
+  { slug: "higgsfield", name: "Higgsfield", rivalOf: [], strong: ["higgsfield"], searches: ["higgsfield", "#higgsfield", "higgsfield ai"] },
+  { slug: "blowupai", name: "Blow Up AI", rivalOf: [], strong: ["blowupapp", "blowupai"], searches: ["blow up app", "#blowupapp", "blow up ai"] },
+  { slug: "cantina", name: "Cantina", rivalOf: [], strong: ["cantinaai", "cantina.ai", "cantinaapp", "oncantina"], searches: ["cantina app", "cantina ai", "#cantinaapp"] },
+  { slug: "hypic", name: "Hypic", rivalOf: [], strong: ["hypic"], searches: ["hypic", "#hypic", "hypic photo editor"] },
+  { slug: "suno", name: "Suno", rivalOf: [], strong: ["sunoai", "suno.ai", "#suno", "@suno", "sunoapp", "madewithsuno"], searches: ["suno ai", "#suno", "made with suno"] },
+  { slug: "tethered", name: "Tethered", rivalOf: [], strong: ["tetheredapp", "tethered.app"], not: ["tethered appl"], searches: ["tethered app", "#tetheredapp", "tethered app long distance"] },
+  { slug: "haven", name: "Haven", rivalOf: [], strong: ["havenapp", "havenbible"], not: ["safe haven", "haven appe", "haven appl", "haven appr"], searches: ["haven app bible", "#havenapp", "haven bible app"] },
+  { slug: "ecogpt", name: "EcoGPT", rivalOf: [], strong: ["ecogpt"], searches: ["ecogpt", "#ecogpt", "ecogpt app"] },
+  { slug: "cheaterbuster", name: "Cheaterbuster", rivalOf: [], strong: ["cheaterbuster"], searches: ["cheaterbuster", "#cheaterbuster", "cheater buster app"] },
   // Les 5 premières apps trouvées par les classements de l'App Store et confirmées par le fondateur (13/11/2026) :
   // trois apps de révision francophones, une app de langues (66 000 vidéos sous #pingoai), un compteur de
   // calories, une app de rencontre. Aucune n'est concurrente d'un projet. « diane ai » seul n'est pas un motif
@@ -407,6 +423,18 @@ const DAY = 24 * HOUR;
  *    app « à la main » qui porte le slug d'une app de départ la précède forcément.
  */
 export type SeedSync = "create" | "adopt" | "align" | "keep";
+
+/** Ce qu'une app cherche et reconnaît : ses motifs et ses recherches. */
+export type SeedRules = { strong?: readonly string[]; weak?: readonly string[]; context?: readonly string[]; not?: readonly string[]; searches?: readonly string[] };
+/**
+ * Les motifs ou les recherches d'une app ont changé à sa synchronisation (adoptée ou réalignée) : son réseau se
+ * recherche de nouveau, à fond, au lieu d'attendre sa semaine. Blow Up AI, ajoutée à la main le 15/11/2026 sous le
+ * seul motif « blowupapp », avait 17 comptes pour 119 chez FarmSpot. Un nom ou une concurrence qui change ne relance rien.
+ */
+export function seedRulesChanged(app: SeedRules, next: SeedRules): boolean {
+  const key = (r: SeedRules) => JSON.stringify([r.strong ?? [], r.weak ?? [], r.context ?? [], r.not ?? [], r.searches ?? []]);
+  return key(app) !== key(next);
+}
 export function seedSync(existing: { source: "seed" | "manual" } | null, sameFields: boolean): SeedSync {
   if (!existing) return "create";
   if (existing.source !== "seed") return "adopt";

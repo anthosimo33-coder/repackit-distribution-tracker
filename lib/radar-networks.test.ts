@@ -32,6 +32,7 @@ import {
   seedRemoval,
   handPause,
   canRejudge,
+  seedRulesChanged,
   seedSync,
   shadowingApp,
   suggestedAppName,
@@ -227,6 +228,18 @@ describe("WRizz et Wing AI, concurrentes de BLUSH (10/11/2026)", () => {
     expect(seedSync({ source: "manual" }, true)).toBe("adopt");
     expect(seedSync({ source: "seed" }, false)).toBe("align");
     expect(seedSync({ source: "seed" }, true)).toBe("keep");
+  });
+
+  it("motifs ou recherches changés : le réseau se recherche de nouveau ; un nom ou une concurrence, non (15/11/2026)", () => {
+    // Blow Up AI, ajoutée à la main sous un seul motif, reprise par la liste avec « blowupai » en plus.
+    const avant = { strong: ["blowupapp"], weak: [], context: [], searches: ["blowupapp", "#blowupapp"] };
+    expect(seedRulesChanged(avant, { ...avant, strong: ["blowupapp", "blowupai"] })).toBe(true);
+    expect(seedRulesChanged(avant, { ...avant, searches: ["blow up app", "#blowupapp", "blow up ai"] })).toBe(true);
+    expect(seedRulesChanged(avant, { ...avant, not: ["blow up ai art"] })).toBe(true);
+    expect(seedRulesChanged(avant, { ...avant, weak: ["blowup"], context: ["app"] })).toBe(true);
+    // Mêmes règles : rien ne se relance, même si un champ vide manque d'un côté.
+    expect(seedRulesChanged(avant, { strong: ["blowupapp"], searches: ["blowupapp", "#blowupapp"] })).toBe(false);
+    expect(seedRulesChanged({ ...avant, not: [] }, avant)).toBe(false);
   });
 });
 
