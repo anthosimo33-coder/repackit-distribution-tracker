@@ -85,17 +85,6 @@ describe("Radar — JobStep et Pimzi dans la liste de départ (14/11/2026)", () 
   });
 });
 
-describe("Radar — les domaines de toutes les extensions (14/11/2026)", () => {
-  it("un produit en .com, .de, .fr est un domaine cité ; les réseaux, boutiques, liens raccourcis et l'État non", () => {
-    expect(domainsIn("Je lis avec reading.com tous les soirs, et je prie avec Hallow.com")).toEqual(["reading.com", "hallow.com"]);
-    expect(domainsIn("Klage einreichen auf meta-klage.de ! #anzeige")).toEqual(["meta-klage.de"]);
-    expect(domainsIn("vu sur tiktok.com, acheté sur amazon.fr, lien tinyurl.com/x, monté sur capcut.com, impots.gouv.fr")).toEqual([]);
-    // Les extensions d'avant restent lues.
-    expect(domainsIn("le site c'est stalkie.io")).toEqual(["stalkie.io"]);
-  });
-});
-
-
 describe("Radar — la file des recherches de réseau (15/11/2026)", () => {
   it("les concurrentes, puis les apps demandées jamais cherchées, puis la plus anciennement cherchée", () => {
     const apps = [
@@ -121,3 +110,14 @@ describe("Radar — la file des recherches de réseau (15/11/2026)", () => {
     expect(networkChainNext({ timedOut: true, neverLeft: false })).toBe(false);
   });
 });
+
+describe("Radar — les domaines de toutes les extensions (14/11/2026)", () => {
+  it("un produit en .com, .de, .fr est un domaine cité ; les réseaux, boutiques, liens raccourcis et l'État non", () => {
+    expect(domainsIn("Je lis avec reading.com tous les soirs, et je prie avec Hallow.com")).toEqual(["reading.com", "hallow.com"]);
+    expect(domainsIn("Klage einreichen auf meta-klage.de ! #anzeige")).toEqual(["meta-klage.de"]);
+    expect(domainsIn("vu sur tiktok.com, acheté sur amazon.fr, lien tinyurl.com/x, monté sur capcut.com, impots.gouv.fr")).toEqual([]);
+    // Les extensions d'avant restent lues.
+    expect(domainsIn("le site c'est stalkie.io")).toEqual(["stalkie.io"]);
+  });
+});
+
