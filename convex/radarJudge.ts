@@ -596,9 +596,14 @@ async function applyPerimeterCore(ctx: MutationCtx, now: number, only?: (slug: s
   return paused;
 }
 
+/**
+ * COUPÉ (15/11/2026, demande du fondateur : « aucune erreur ne doit passer », ~7 % d'actions v3 fausses à la relecture).
+ * La tâche n'applique rien tant que `radarSettings.judgeApplyOn` n'est pas allumé ; les verdicts restent rangés.
+ */
 export const applyJudgmentsNow = internalMutation({
   args: {},
-  handler: async (ctx): Promise<{ verdicts: Record<string, number>; perimeter: string[] }> => {
+  handler: async (ctx): Promise<{ off: true } | { verdicts: Record<string, number>; perimeter: string[] }> => {
+    if ((await ctx.db.query("radarSettings").first())?.judgeApplyOn !== true) return { off: true };
     const now = Date.now();
     return { perimeter: await applyPerimeterCore(ctx, now), verdicts: await applyVerdictsCore(ctx, now) };
   },
