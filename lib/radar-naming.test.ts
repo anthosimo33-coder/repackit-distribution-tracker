@@ -95,3 +95,44 @@ describe("Radar — les domaines de toutes les extensions (14/11/2026)", () => {
   });
 });
 
+
+describe("Radar — le classement appkittie dans la liste de départ (15/11/2026)", () => {
+  const of = (caption: string, handle = "x") => findApp(caption, handle, SEED_APPS)?.name;
+  it("les 19 apps sont suivies, chacune trouvée sous son nom", () => {
+    for (const [caption, name] of [
+      ["binge this on #BlinkDrama tonight", "BlinkDrama"],
+      ["Whispy AI made my story come alive #whispyai", "Whispy AI"],
+      ["Algor AI turned my notes into a mind map", "Algor"],
+      ["@TizzChat roleplay goes crazy", "TizzChat"],
+      ["met someone on the Peach app 😭 #peachapp", "Peach"],
+      ["l'app Clarté m'a appris à parler en public #clarteapp", "Clarté"],
+      ["CarTV IPTV in my car #cartvapp", "CarTV"],
+      ["my Animates app companion said this", "Animates"],
+      ["edited in seconds with #CutAI", "CutAI"],
+      ["épisode 3 sur Anamana", "Anamana"],
+      ["WorkBuddy AI wrote my emails #workbuddyai", "WorkBuddy"],
+      ["watch the full series on Miralune", "Miralune"],
+      ["my passwords live in the Glacier app", "Glacier"],
+      ["TCG Card Scanner says this charizard is worth", "TCG Card Scanner"],
+      ["réviser avec Oria Notes #orianotes", "Oria Notes"],
+      ["full drama on Cinerra", "Cinerra"],
+      ["the Live Traffic app saved my commute", "Live Traffic"],
+      ["made this beat on Dawcade", "Dawcade"],
+      ["sermon notes on HolyNote", "HolyNote"],
+    ] as const)
+      expect(of(caption), caption).toBe(name);
+  });
+  it("un nom courant n'est pas l'app : algorithm, peach, glacier, clarté, work buddy, car tv, live traffic", () => {
+    for (const caption of [
+      "the algorithm hates me",
+      "peach smoothie recipe 🍑",
+      "hiking the glacier trail",
+      "la clarté du matin",
+      "my work buddy is the best #workbuddy",
+      "car tv setup in my van",
+      "stuck in live traffic again",
+      "this cut and the ai voice",
+    ])
+      expect(of(caption), caption).toBeUndefined();
+  });
+});
