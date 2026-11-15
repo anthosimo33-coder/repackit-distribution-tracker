@@ -615,17 +615,39 @@ async function applyReviewedOne(
 }
 
 /** Les verdicts relus donnés, appliqués (ou défaits) un à un. */
-async function applyReviewedCore(ctx: MutationCtx, entries: readonly (readonly [string, Reviewed])[], now: number): Promise<Record<string, number>> {
+/**
+ * Les verdicts relus donnés, appliqués (ou défaits) un à un. `maxActs` : on s'arrête après ce nombre de comptes
+ * réellement touchés (un compte déjà appliqué tel quel ne compte pas) ; rend aussi combien d'entrées ont été lues.
+ */
+async function applyReviewedCore(
+  ctx: MutationCtx,
+  entries: readonly (readonly [string, Reviewed])[],
+  now: number,
+  maxActs = Infinity,
+): Promise<{ done: Record<string, number>; read: number }> {
   const done: Record<string, number> = {};
   const apps = await ctx.db.query("radarApps").collect();
   const touched = new Set<Id<"radarApps">>();
+  let acts = 0;
+  let read = 0;
   for (const [handle, r] of entries) {
+    if (acts >= maxActs) break;
+    read++;
     const kind = await applyReviewedOne(ctx, handle, r, apps, now, touched);
-    if (kind) done[kind] = (done[kind] ?? 0) + 1;
+    if (kind) {
+      done[kind] = (done[kind] ?? 0) + 1;
+      acts++;
+    }
   }
   for (const id of touched) await refreshAppNet(ctx, id, now);
-  return done;
+  return { done, read };
 }
+
+/**
+ * Entrées de la liste relue lues au plus par passage : une nouvelle version (un lot de plus) repasse sur toute la liste,
+ * et les comptes déjà appliqués tels quels se sautent vite (2 lectures) — on ne s'arrête qu'après APPLY_BATCH actions.
+ */
+const REVIEW_SCAN = 500;
 
 /**
  * Le périmètre RELU (radarJudgeReview.APP_REVIEW) : une app relue « dehors » (ni app, ni SaaS, ni jeu mobile) passe en
@@ -664,10 +686,10 @@ export const applyJudgmentsNow = internalMutation({
     const s = await ensureSettings(ctx);
     const entries = Object.entries(JUDGE_REVIEW).sort(([a], [b]) => (a < b ? -1 : 1));
     const from = s.reviewV === REVIEW_VERSION ? (s.reviewAt ?? 0) : 0;
-    const slice = entries.slice(from, from + APPLY_BATCH);
-    const verdicts = slice.length ? await applyReviewedCore(ctx, slice, now) : {};
-    await ctx.db.patch(s._id, { reviewV: REVIEW_VERSION, reviewAt: from + slice.length });
-    return { verdicts, perimeter: await applyPerimeterCore(ctx, APP_REVIEW, now), at: from + slice.length };
+    const slice = entries.slice(from, from + REVIEW_SCAN);
+    const { done: verdicts, read } = slice.length ? await applyReviewedCore(ctx, slice, now, APPLY_BATCH) : { done: {}, read: 0 };
+    await ctx.db.patch(s._id, { reviewV: REVIEW_VERSION, reviewAt: from + read });
+    return { verdicts, perimeter: await applyPerimeterCore(ctx, APP_REVIEW, now), at: from + read };
   },
 });
 
@@ -680,12 +702,19 @@ const reviewedValidator = v.object({
 
 /** e2e : applique ces verdicts relus et ce périmètre relu (les apps données seulement). */
 export const e2eApplyJudgments = e2eMutation({
-  args: { review: v.array(reviewedValidator), apps: v.array(v.object({ slug: v.string(), scope: v.union(v.literal("dehors"), v.literal("dedans")) })), slugs: v.array(v.string()) },
-  handler: async (ctx, { review, apps, slugs }) => {
+  args: {
+    review: v.array(reviewedValidator),
+    apps: v.array(v.object({ slug: v.string(), scope: v.union(v.literal("dehors"), v.literal("dedans")) })),
+    slugs: v.array(v.string()),
+    maxActs: v.optional(v.number()),
+  },
+  handler: async (ctx, { review, apps, slugs, maxActs }) => {
     const now = Date.now();
+    const r = await applyReviewedCore(ctx, review.map((x) => [x.handle, { app: x.app, verdict: x.verdict, ...(x.other ? { other: x.other } : {}) }] as const), now, maxActs);
     return {
       perimeter: await applyPerimeterCore(ctx, Object.fromEntries(apps.map((a) => [a.slug, a.scope])), now, (s) => slugs.includes(s)),
-      verdicts: await applyReviewedCore(ctx, review.map((r) => [r.handle, { app: r.app, verdict: r.verdict, ...(r.other ? { other: r.other } : {}) }] as const), now),
+      verdicts: r.done,
+      read: r.read,
     };
   },
 });
