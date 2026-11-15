@@ -12,13 +12,19 @@ import {
   WEAK_SHARE,
   accountAnswer,
   accountPrompt,
+  JUDGE_CHAIN_MS,
   accountTexts,
+  adDisclosed,
+  campaignCoded,
+  chainNext,
+  cronYields,
   groupedByApp,
   judgeCursorOf,
   natureAnswer,
   natureDue,
   naturePrompt,
   productName,
+  settledVerdict,
   shownInSwarm,
   weakProof,
 } from "../convex/radarJudgeMath";
@@ -169,6 +175,57 @@ describe("Radar — jugement : pousse-t-il CE produit ?", () => {
     expect(accountAnswer(raw, [{ id: "c1" }])).toEqual([{ id: "c1", verdict: "incertain", why: "deux apps d'étude" }]);
   });
 
+  it("v3 : mentions de pub et de partenariat, hashtags de campagne — dans les langues du Radar, sans faux amis", () => {
+    for (const t of [
+      "Puuubli. Así es como vas a mejorar tus notas #4604",
+      "QUEL COMPAGNO CHE NON STUDIA MAI #studytok adv",
+      "Abi 2027 wird easy #abitur | anzeige 🫣",
+      "publi Veja se suas amizades são verdadeiras",
+      "Si estudias medicina necesitas esto ad #StudyTips",
+      "What is something you're grateful for? #gratitude #finchpartner",
+      "friend stealing the moment #airlearnambassador",
+      "#publicidad la mejor app",
+      "Sponsored by Cal AI",
+    ])
+      expect(adDisclosed(t), t).toBe(true);
+    for (const t of ["ad esempio, studia ad un amico ogni giorno", "my dad loves this", "#adventure time", "the republic of letters", "pub quiz tonight"])
+      expect(adDisclosed(t), t).toBe(false);
+    for (const t of ["#studytok #4601", "ESTUDIA 2H #8547", "#9999 adv"]) expect(campaignCoded(t), t).toBe(true);
+    for (const t of ["#maturita #2026", "born in #1998", "#45012", "#12 tips", "#4u #xyzbca"]) expect(campaignCoded(t), t).toBe(false);
+  });
+
+  it("v3 : un compte de liste sans autre preuve n'est jamais « sans rapport » (incertain) ; le reste est gardé", () => {
+    expect(settledVerdict("sans_rapport", "seed")).toBe("incertain");
+    expect(settledVerdict("sans_rapport", "videos")).toBe("sans_rapport");
+    expect(settledVerdict("sans_rapport", "handle")).toBe("sans_rapport");
+    expect(settledVerdict("sans_rapport", null)).toBe("sans_rapport");
+    expect(settledVerdict("placement", "seed")).toBe("placement");
+  });
+
+  it("v3 : « pousse » garde l'autre app qu'il pousse aussi ; « placement » non", () => {
+    const raw = {
+      accounts: [
+        { id: "c1", verdict: "pousse", other: "Mokascore", why: "pousse les deux" },
+        { id: "c2", verdict: "placement", other: "Cal AI", why: "une vidéo" },
+      ],
+    };
+    expect(accountAnswer(raw, [{ id: "c1" }, { id: "c2" }])).toEqual([
+      { id: "c1", verdict: "pousse", other: "Mokascore", why: "pousse les deux" },
+      { id: "c2", verdict: "placement", why: "une vidéo" },
+    ]);
+  });
+
+  it("v3 : un passage qui a jugé enchaîne le suivant ; la tâche de 30 min cède à une chaîne en cours", () => {
+    expect(chainNext({ judged: 12, done: false })).toBe(true);
+    expect(chainNext({ judged: 0, done: false })).toBe(false);
+    expect(chainNext({ judged: 12, done: true })).toBe(false);
+    expect(chainNext({ judged: 12, done: false, error: "Analyse IA : trop de demandes" })).toBe(false);
+    expect(JUDGE_CHAIN_MS).toBe(60_000);
+    expect(cronYields(NOW - 60_000, NOW)).toBe(true);
+    expect(cronYields(NOW - 5 * 60_000, NOW)).toBe(false);
+    expect(cronYields(null, NOW)).toBe(false);
+  });
+
   it("v2 : le parcours d'une version d'avant repart du début ; un passage range ses comptes par app", () => {
     expect(judgeCursorOf({ judgeCursor: "c-v1" })).toBeNull();
     expect(judgeCursorOf({ judgeCursor: "c-v2", judgeCursorV: JUDGE_VERSION })).toBe("c-v2");
@@ -179,7 +236,7 @@ describe("Radar — jugement : pousse-t-il CE produit ?", () => {
   });
 
   it("v2 : placement = une ou deux vidéos ; un nom absent des textes d'un compte de liste = incertain", () => {
-    expect(JUDGE_VERSION).toBe(2);
+    expect(JUDGE_VERSION).toBe(3);
     expect(ACCOUNT_SYSTEM).toContain("names the product in only one or two videos");
     expect(ACCOUNT_SYSTEM).toContain("Three or more videos naming the product is never a placement");
     expect(ACCOUNT_SYSTEM).toContain("found through a list of the product's creators, answer \"incertain\"");
@@ -194,13 +251,21 @@ describe("Radar — jugement : pousse-t-il CE produit ?", () => {
         bio: "",
         texts: [],
         app: { name: "Knowunity", searches: ["knowunity"], pitch: "App de fiches de révision" },
-        evidence: { cites: 3, of: 11, bioNames: false, source: "seed" },
+        evidence: { cites: 3, of: 11, ads: 9, codes: 7, bioNames: false, source: "seed" },
       },
     ]);
     expect(p).toContain("product: Knowunity — App de fiches de révision");
     expect(p).toContain("account: @lea.revise");
     expect(p).toContain("bio: (empty)");
-    expect(p).toContain("evidence: 3 of 11 stored videos contain the product's name or tag (listed first); bio names it: no; account found through a list of the product's creators");
+    expect(p).toContain(
+      "evidence: 3 of 11 stored videos contain the product's name or tag (listed first); 9 of 11 carry an ad or partner disclosure; 7 of 11 carry a numbered campaign hashtag; bio names it: no; account found through a list of the product's creators",
+    );
+    // Sans phrase connue, le produit est décrit par son jugement (v3) ; avec, la phrase seule.
+    expect(p).not.toContain("from an earlier review");
+    const q = accountPrompt([
+      { id: "c2", handle: "seviiqq_", bio: "", texts: [], app: { name: "Love8", searches: ["love8"], about: "App de couple : widgets d'écran verrouillé, sommeil" }, evidence: { cites: 3, of: 15, ads: 0, codes: 0, bioNames: false, source: "caption" } },
+    ]);
+    expect(q).toContain("what the product is, from an earlier review: App de couple : widgets d'écran verrouillé, sommeil");
     expect(p).toContain("videos (on-screen text — caption), those naming the product first, then the latest: (none)");
   });
 });

@@ -165,10 +165,27 @@ export type AccountToJudge = {
   handle: string;
   bio: string;
   texts: string[];
-  app: { name: string; searches: string[]; pitch?: string; store?: { genre: string; artist: string } };
-  /** Ce que compte le filtre lexical : vidéos rangées qui citent l'app, la bio qui la nomme, et d'où vient le compte. */
-  evidence: { cites: number; of: number; bioNames: boolean; source: "caption" | "seed" };
+  /** `about` : ce qu'est le produit d'après son jugement (`radarApps.nature.why`), quand il n'a pas de phrase connue. */
+  app: { name: string; searches: string[]; pitch?: string; about?: string; store?: { genre: string; artist: string } };
+  /**
+   * Ce que compte le filtre lexical : vidéos rangées qui citent l'app, celles qui portent une mention de pub ou de
+   * partenariat (`ads`) ou un hashtag de campagne numéroté (`codes`, #4601), la bio qui la nomme, d'où vient le compte.
+   */
+  evidence: { cites: number; of: number; ads: number; codes: number; bioNames: boolean; source: "caption" | "seed" };
 };
+
+/**
+ * Une mention de pub ou de partenariat, dans les langues du Radar (relecture du 15/11/2026 : le réseau d'Astra AI marque
+ * presque chaque vidéo « adv », « publi », « anzeige », sans toujours nommer l'app, qui est à l'écran). « ad » seul ne
+ * compte qu'en fin de légende ou devant un hashtag : en italien, « ad » est une préposition.
+ */
+const AD_WORDS =
+  /(^|[^\p{L}\p{N}])(#ad|adv|advert\p{L}*|anzeige|werbung|publi|pu+bli+|publicidad|publicidade|publicit[ée]|pubblicit[àa]|sponsored|sponsoris[ée]e?|patrocinad[oa]|reklama|paid partnership)(?=$|[^\p{L}\p{N}])/iu;
+const AD_LAST = /(^|\s)ad(?=\s*(#|$))/iu;
+const PARTNER_TAG = /#[\p{L}\p{N}]*(partner|ambassador|ambassadeur|ambassadrice|embajador\p{L}*)(?=$|[^\p{L}\p{N}])/iu;
+export const adDisclosed = (text: string): boolean => AD_WORDS.test(text) || AD_LAST.test(text) || PARTNER_TAG.test(text);
+/** Un hashtag de campagne numéroté (#4601, #8544, #9999) ; pas une année (#2026, #1998). */
+export const campaignCoded = (text: string): boolean => /#(?!19\d\d|20\d\d)\d{4}(?!\p{N})/u.test(text);
 
 /**
  * La version des définitions et de ce qui est donné à lire. v2 (14/11/2026), après la relecture à la main des 125
@@ -177,11 +194,27 @@ export type AccountToJudge = {
  * fondateur : un créateur généraliste payé une ou deux fois) ; un nom absent des textes n'est pas « sans rapport ».
  * Un jugement d'une version d'avant ne compte plus : le compte est rejugé.
  */
-export const JUDGE_VERSION = 2;
+/**
+ * v3 (15/11/2026), après la relecture de 227 actions v2 (~15 % fausses) : la preuve compte aussi les mentions de pub et
+ * les hashtags de campagne (un créateur UGC payé à répétition n'est ni un placement ni « sans rapport », même s'il ne
+ * nomme l'app qu'une fois) ; un compte qui pousse son produit ET un autre est « pousse », l'autre noté dans `other` ;
+ * le produit est décrit par son jugement quand il n'a pas de phrase connue (« #love8 » pris pour un simple hashtag).
+ */
+export const JUDGE_VERSION = 3;
 
 /** Où reprend le parcours des comptes : un parcours d'une version d'avant repart du début (tous rejugés). */
 export const judgeCursorOf = (s: { judgeCursor?: string; judgeCursorV?: number } | null | undefined): string | null =>
   s && (s.judgeCursorV ?? 1) === JUDGE_VERSION ? (s.judgeCursor ?? null) : null;
+
+/**
+ * Un passage qui a jugé des comptes enchaîne le suivant une minute après : un rejugement de version (~3 000 comptes
+ * parcourus jusqu'aux derniers jugés) prend ~20 minutes au lieu de 10 heures. Un passage qui n'a rien jugé, une erreur
+ * ou la fin du parcours rendent la main à la tâche de 30 minutes, qui ne double pas une chaîne en cours.
+ */
+export const JUDGE_CHAIN_MS = 60_000;
+export const JUDGE_CHAIN_HOLD_MS = 5 * 60_000;
+export const chainNext = (r: { judged: number; error?: string; done: boolean }): boolean => r.judged > 0 && !r.error && !r.done;
+export const cronYields = (chainAt: number | null | undefined, now: number): boolean => chainAt != null && now - chainAt < JUDGE_CHAIN_HOLD_MS;
 
 /** Les comptes d'un passage rangés par app : un appel à l'IA ne mêle pas deux apps voisines quand il peut l'éviter. */
 export const groupedByApp = <T extends { appId: string }>(items: readonly T[]): T[] =>
@@ -191,12 +224,13 @@ export const ACCOUNT_SYSTEM = [
   "You check whether a TikTok account promotes a given product (an app or a web tool).",
   "Each account comes with its own product: judge it only against that product, never against another account's product.",
   "Verdicts:",
-  '- "pousse": the account posts about THIS product in several videos (three or more), or its bio names the product as its own, its partner or its link — the product\'s own account, an ambassador, a UGC creator paid repeatedly (partner or ambassador hashtags, a promo code, ad disclosures on the product\'s videos), even when it also posts other content.',
-  '- "placement": a general creator whose videos are mostly about other things and who names the product in only one or two videos, usually paid. Three or more videos naming the product is never a placement.',
-  '- "autre_app": the account promotes a different product, named in its texts or bio; give that one product\'s exact name as written, in "other". If that product is not named, answer "incertain".',
+  '- "pousse": the account posts about THIS product in several videos (three or more), or its bio names the product as its own, its partner or its link — the product\'s own account, an ambassador, a UGC creator paid repeatedly (partner or ambassador hashtags, a promo code, ad disclosures on the product\'s videos), even when it also posts other content. Also "pousse": an account whose videos mostly carry ad or partner disclosures, or numbered campaign hashtags (#4601-like), and that names this product at least once — a UGC creator paid repeatedly, the product may appear only on screen. If it promotes this product and another one too, answer "pousse" and give the other one in "other".',
+  '- "placement": a general creator whose videos are mostly about other things, without repeated ad disclosures or campaign hashtags, and who names the product in only one or two videos, usually paid. Three or more videos naming the product is never a placement.',
+  '- "autre_app": the account promotes a different product INSTEAD of this one, named in its texts or bio; give that one product\'s exact name as written, in "other". If that product is not named, answer "incertain".',
   '- "sans_rapport": the product\'s name or tag appears only with another meaning — an ordinary word in some language, a song, a person, a slang or genre hashtag — or the account clearly posts about something else and names the product at most once, without promoting it.',
   '- "incertain": the texts do not allow a decision. In particular, when the texts never name the product and the account was found through a list of the product\'s creators, answer "incertain": the product may appear only on screen in the videos.',
-  "The evidence line counts the videos whose text contains the product's name or tag: check what each of them means, a match can be an ordinary word.",
+  "The evidence line counts the videos whose text contains the product's name or tag (check what each of them means, a match can be an ordinary word), and those with an ad or partner disclosure or a numbered campaign hashtag.",
+  '"other": the exact name of ONE other product the account promotes — for "autre_app" the one it promotes instead, for "pousse" another one it also promotes; empty otherwise.',
   "why: one plain French sentence of at most 120 characters with the decisive clue.",
   "Use only the evidence given. Answer for every account, using its id.",
 ].join("\n");
@@ -249,6 +283,8 @@ export function accountTexts(videos: readonly VideoText[], max = ACCOUNT_TEXTS_M
 export function evidenceLine(e: AccountToJudge["evidence"]): string {
   return [
     `${e.cites} of ${e.of} stored videos contain the product's name or tag (listed first)`,
+    `${e.ads} of ${e.of} carry an ad or partner disclosure`,
+    `${e.codes} of ${e.of} carry a numbered campaign hashtag`,
     `bio names it: ${e.bioNames ? "yes" : "no"}`,
     `account found ${e.source === "seed" ? "through a list of the product's creators" : "through a video naming the product"}`,
   ].join("; ");
@@ -260,6 +296,7 @@ export function accountPrompt(batch: readonly AccountToJudge[]): string {
       [
         `id: ${a.id}`,
         `product: ${a.app.name}${a.app.pitch ? ` — ${a.app.pitch}` : ""}`,
+        ...(!a.app.pitch && a.app.about ? [`what the product is, from an earlier review: ${a.app.about}`] : []),
         ...(a.app.store ? [`product app store: genre "${a.app.store.genre}", publisher "${a.app.store.artist}"`] : []),
         `product search terms: ${a.app.searches.slice(0, 6).join(", ") || "(none)"}`,
         `account: @${a.handle}`,
@@ -274,6 +311,15 @@ export function accountPrompt(batch: readonly AccountToJudge[]): string {
 const isVerdict = (x: unknown): x is AccountVerdict => typeof x === "string" && (ACCOUNT_VERDICTS as readonly string[]).includes(x);
 
 export type AccountJudgment = { id: string; verdict: AccountVerdict; other?: string; why: string };
+
+/**
+ * Ce que le Radar garde du verdict de l'IA. Un compte venu d'une liste de créateurs de l'app, sans autre preuve
+ * (`proof.by === "seed"`), n'est jamais « sans rapport » : l'IA ne voit que ses textes, l'app peut n'être qu'à l'écran.
+ * La consigne le disait en v2 ; l'IA l'a ignorée 6 fois sur les comptes relus (réseau d'Astra AI). Devient « incertain ».
+ */
+export function settledVerdict(verdict: AccountVerdict, proofBy: string | null): AccountVerdict {
+  return verdict === "sans_rapport" && proofBy === "seed" ? "incertain" : verdict;
+}
 
 /**
  * Le nom d'UNE app, tel qu'écrit : pas une liste (« StemUp, SimpleStudy »), pas une description (« web de révision TKA
@@ -295,7 +341,8 @@ export function accountAnswer(raw: unknown, batch: readonly { id: string }[]): A
     const id = typeof x.id === "string" ? x.id : "";
     if (!asked.has(id) || !isVerdict(x.verdict)) continue;
     asked.delete(id);
-    const other = x.verdict === "autre_app" ? productName(tidy(typeof x.other === "string" ? x.other : "", 60)) : "";
+    // « autre » : l'app poussée à la place (autre_app), ou une autre app poussée en plus (pousse, v3).
+    const other = x.verdict === "autre_app" || x.verdict === "pousse" ? productName(tidy(typeof x.other === "string" ? x.other : "", 60)) : "";
     const verdict: AccountVerdict = x.verdict === "autre_app" && !other ? "incertain" : x.verdict;
     out.push({ id, verdict, ...(other ? { other } : {}), why: tidy(typeof x.why === "string" ? x.why : "", WHY_MAX) });
   }
