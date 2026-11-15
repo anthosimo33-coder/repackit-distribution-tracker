@@ -51,6 +51,17 @@ export const e2eSwarmExport = e2eMutation({
   handler: (ctx, { table, cursor, apps }) => exportPage(ctx, table, cursor, appIdsOf(ctx, apps)),
 });
 
+/** e2e : met une app en pause, à l'essai, ou de nouveau suivie (ce que Swarm montre d'elle, cf swarmExportPage.appShown). */
+export const e2eSetAppState = e2eMutation({
+  args: { slug: v.string(), state: v.union(v.literal("active"), v.literal("paused"), v.literal("trial")) },
+  handler: async (ctx, { slug, state }) => {
+    const a = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!a) return null;
+    await ctx.db.patch(a._id, { status: state === "paused" ? "paused" : "active", trialSince: state === "trial" ? Date.now() : undefined });
+    return null;
+  },
+});
+
 /** Comparaison en temps constant : la durée ne dit rien de la clé. */
 function sameSecret(given: string, expected: string): boolean {
   if (given.length !== expected.length) return false;

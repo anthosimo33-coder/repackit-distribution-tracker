@@ -179,4 +179,44 @@ test.describe("Radar → Swarm — l'export", () => {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
+
+  test("une app en pause ou à l'essai ne part pas : ni ses créateurs, ni leurs vidéos, ni leurs reprises, ni leurs signaux (15/11/2026)", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const p = `e2eswh${ts}`;
+    const m = `e2eswhm${ts}`;
+    const h = (l: string) => `${p}${l}_fan`;
+    const nom = (l: string) => `E2E Cachée ${l} ${ts}`;
+    // Trois apps : suivie (a), en pause (b, comme Hipobuy hors périmètre), à l'essai (c) ; un compte prouvé chacune.
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: ["a", "b", "c"].map((l) => ({ slug: `${p}${l}`, name: nom(l), rivalOf: [], strong: [`${p}${l}`] })),
+      accounts: ["a", "b", "c"].map((l) => ({ handle: h(l), appSlug: `${p}${l}`, fans: 500, posts7d: 1, videos: [{ videoId: `${m}${l}1`, ageH: 6, views: 2_000, caption: `Avec ${p}${l}` }] })),
+      formats: [{ kind: "hook", key: `${p}hook`, label: "pov tu caches", members: ["a", "b", "c"].map((l) => ({ handle: h(l), videoId: `${m}${l}1`, views: 2_000, ageH: 6 })) }],
+    });
+    await admin.mutation(api.radarSignals.e2eSeedSignals, {
+      secret: E2E_SECRET,
+      signals: ["a", "b", "c"].map((l) => ({ videoId: `${m}s${l}`, handle: h(l), fans: 500, caption: `Avec ${p}${l} ${m}`, lang: "fr", publishedAt: ts - 6 * 3_600_000, views: 40_000, app: nom(l), tracked: true })),
+    });
+    await admin.mutation(api.swarmExport.e2eSetAppState, { secret: E2E_SECRET, slug: `${p}b`, state: "paused" });
+    await admin.mutation(api.swarmExport.e2eSetAppState, { secret: E2E_SECRET, slug: `${p}c`, state: "trial" });
+    try {
+      const mine = (rows: Row[], k: string) => rows.map((r) => r[k] as string).filter((x) => x.startsWith(p) || x.startsWith(m)).sort();
+      expect(mine(await exportAll("tracked"), "handle")).toEqual([h("a")]);
+      expect(mine(await exportAll("trackedVideos"), "videoId")).toEqual([`${m}a1`]);
+      expect(mine(await exportAll("signals"), "videoId")).toEqual([`${m}sa`]);
+      const format = (await exportAll("formats")).find((f) => f.key === `${p}hook`);
+      expect((format!.members as { handle: string }[]).map((x) => x.handle)).toEqual([h("a")]);
+      // Filtré par apps, pareil : l'app cachée ne rend rien.
+      const ids = new Map((await exportAll("apps")).filter((a) => (a.slug as string).startsWith(p)).map((a) => [a.slug as string, a.id as string]));
+      expect(mine(await exportAll("tracked", [ids.get(`${p}b`)!, ids.get(`${p}c`)!]), "handle")).toEqual([]);
+      // L'essai réussi (l'app redevient suivie) : tout revient à la synchro suivante.
+      await admin.mutation(api.swarmExport.e2eSetAppState, { secret: E2E_SECRET, slug: `${p}c`, state: "active" });
+      expect(mine(await exportAll("tracked"), "handle")).toEqual([h("a"), h("c")]);
+      expect(mine(await exportAll("signals"), "videoId")).toEqual([`${m}sa`, `${m}sc`]);
+    } finally {
+      await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
 });

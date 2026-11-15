@@ -159,17 +159,32 @@ function projectSignal(s: Doc<"radarSignals">, app: Doc<"radarApps"> | null) {
 
 
 /** Le compte d'une ligne s'il est encore suivi (sinon `null`), relu au plus une fois par page. */
-function activeAccounts(ctx: QueryCtx) {
+function activeAccounts(ctx: QueryCtx, apps: AppsById) {
   const seen = new Map<Id<"radarTracked">, Doc<"radarTracked"> | null>();
   return async (id: Id<"radarTracked">): Promise<Doc<"radarTracked"> | null> => {
     let acc = seen.get(id);
     if (acc === undefined) {
       const got = await ctx.db.get(id);
-      acc = got?.status === "active" ? got : null;
+      acc = got?.status === "active" && appShown(apps, got.appId) !== "hidden" ? got : null;
       seen.set(id, acc);
     }
     return acc;
   };
+}
+
+type AppsById = Map<Id<"radarApps">, Doc<"radarApps">>;
+
+/**
+ * Ce que Swarm montre d'une app (15/11/2026, « Oui, retire-les », fondateur) : `hidden` pour une app EN PAUSE (hors
+ * périmètre, essai raté…) ou À L'ESSAI — ni ses comptes, ni leurs vidéos, ni leurs signaux, ni leurs reprises ne
+ * partent ; jusque-là, 114 créateurs d'apps hors périmètre (Hipobuy, Meta-Klage, Arkose+) s'affichaient dans Swarm
+ * sans fiche d'app. Une app fondue vaut la vraie ; une app inconnue (`unknown`) garde la règle d'avant.
+ */
+export function appShown(apps: AppsById, id: Id<"radarApps"> | undefined): "shown" | "hidden" | "unknown" {
+  let app = id ? apps.get(id) : undefined;
+  if (app?.mergedInto) app = apps.get(app.mergedInto);
+  if (!app) return "unknown";
+  return app.status === "active" && app.trialSince === undefined ? "shown" : "hidden";
 }
 
 /**
@@ -239,6 +254,7 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       const rows = [];
       for (const t of r.page) {
         if (t.status !== "active") continue;
+        if (appShown(apps, t.appId) === "hidden") continue;
         const app = apps.get(t.appId);
         // Relié à son app : par sa preuve, par un placement payé (il cite peu son app par nature, mais sa vidéo compte et
         // s'étiquette), ou parce que l'IA (v2, JUDGE_VERSION) dit qu'il la pousse. Sinon il part « en pause » : pas un
@@ -258,7 +274,7 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       const r = at
         ? await ctx.db.query("radarTrackedVideos").withIndex("by_app", (q) => q.eq("appId", appIds![at.i])).paginate(opts)
         : await ctx.db.query("radarTrackedVideos").paginate(opts);
-      const accountOf = activeAccounts(ctx);
+      const accountOf = activeAccounts(ctx, apps);
       const rows = [];
       for (const x of r.page) {
         const t = await accountOf(x.accountId);
@@ -271,7 +287,7 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
     case "formats": {
       // Les reprises des comptes encore suivis seulement.
       const r = await ctx.db.query("radarFormats").paginate(opts);
-      const isActive = activeAccounts(ctx);
+      const isActive = activeAccounts(ctx, apps);
       const rows = [];
       for (const f of r.page) {
         const members = [];
@@ -281,12 +297,14 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       return { rows, cursor: r.continueCursor, done: r.isDone };
     }
     case "signals": {
-      // Pas les signaux d'un compte en pause ; l'app d'un signal, seulement si elle est suivie (ou fondue).
+      // Pas les signaux d'un compte en pause ni d'une app cachée (en pause, à l'essai) ; l'app d'un signal, seulement si
+      // elle est suivie (ou fondue).
       const r = await ctx.db.query("radarSignals").paginate(opts);
-      const isActive = activeAccounts(ctx);
+      const isActive = activeAccounts(ctx, apps);
       const rows = [];
       for (const s of r.page) {
         if (s.trackedAccountId && !(await isActive(s.trackedAccountId))) continue;
+        if (s.appId && appShown(apps, s.appId) === "hidden") continue;
         const app = s.appId ? apps.get(s.appId) : undefined;
         rows.push(projectSignal(s, app && (app.status === "active" || app.mergedInto) ? app : null));
       }
