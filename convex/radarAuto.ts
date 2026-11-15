@@ -28,6 +28,9 @@ import {
   autoPlan,
   autoPrompt,
   inTriageScope,
+  listFallback,
+  listPatterns,
+  listSearches,
   shortenedPattern,
   trialDecision,
   TRIAGE_BATCH,
@@ -62,7 +65,7 @@ type AutoRun = { followed: number; kept: number; attached: number };
  * au-delà n'était jamais regardée une fois les 300 premières vues.
  */
 async function pickCandidates(ctx: QueryCtx, only?: (key: string) => boolean): Promise<Doc<"radarAppCandidates">[]> {
-  const pick = async (kind: "store" | "market" | "ia") =>
+  const pick = async (kind: "store" | "market" | "ia" | "liste") =>
     (
       await ctx.db
         .query("radarAppCandidates")
@@ -83,7 +86,14 @@ async function pickCandidates(ctx: QueryCtx, only?: (key: string) => boolean): P
     )
       .filter((c) => c.triage !== undefined && (!only || only(c.key)))
       .slice(0, AUTO_BATCH);
-  return [...(await pick("store")), ...(await pick("market")), ...(await pick("ia")), ...(await triaged("mention")), ...(await triaged("domain"))];
+  return [
+    ...(await pick("store")),
+    ...(await pick("market")),
+    ...(await pick("ia")),
+    ...(await pick("liste")),
+    ...(await triaged("mention")),
+    ...(await triaged("domain")),
+  ];
 }
 
 /** Celles qui entreraient : à faire juger (leur motif est-il un mot de tous les jours ?). */
@@ -104,7 +114,9 @@ export const autoToJudge = internalQuery({
             ? "product promoted by TikTok creators"
             : c.triage
               ? `${c.triage.kind === "software" ? "web software" : c.triage.kind === "game" ? "mobile game" : "mobile app"} cited by TikTok creators`
-              : "";
+              : c.liste
+                ? `${c.liste.category ? `${c.liste.category} ` : ""}app promoted by TikTok creator farms`
+                : "";
       out.push({ id: c._id, name: c.triage?.name || c.label, what, patterns: plan.patterns });
     }
     return out;
@@ -134,7 +146,9 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
     }
     const common = verdicts.get(c._id);
     if (common === undefined) continue;
-    if (common) {
+    // Une app d'une liste au nom courant (Simple, Glow) : sous « nomapp », sans les tournures qui le contiennent.
+    const fallback = c.kind === "liste" && (common || listPatterns(c.label).length === 0) ? listFallback(c.label) : null;
+    if (common && !fallback) {
       await ctx.db.patch(c._id, { autoAt: now, autoNote: AUTO_COMMON_NOTE });
       kept++;
       continue;
@@ -143,9 +157,13 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
       // Une mention ou un site trié : le nom du produit dit par l'IA, ses motifs marqués (@, #), ses propres recherches.
       const r = c.triage
         ? await followCandidateCore(ctx, c, c.triage.name, [], plan.patterns, now, true, { marks: true, searches: triageSearches(c, c.triage.name) })
-        : await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true);
+        : fallback
+          ? await followCandidateCore(ctx, c, c.label, [], fallback.patterns, now, true, { searches: fallback.searches, not: fallback.not })
+          : c.kind === "liste"
+            ? await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true, { searches: listSearches(c.label) })
+            : await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true);
       if (plan.trial) await ctx.db.patch(r.appId, { trialSince: now });
-      await ctx.db.patch(c._id, { autoAt: now, autoNote: plan.trial ? TRIAL_NOTE : "suivie d'office" });
+      await ctx.db.patch(c._id, { autoAt: now, autoNote: plan.trial ? (fallback ? `${TRIAL_NOTE} (nom courant : sous « ${fallback.patterns[0]} »)` : TRIAL_NOTE) : "suivie d'office" });
       followed++;
       attached += r.attached;
     } catch (e) {
@@ -320,13 +338,69 @@ export const e2eTriageCandidates = e2eMutation({
   },
 });
 
-/** e2e : ce qu'est devenue l'app suivie depuis une mention ou un site (motifs, recherches, essai). */
+/** e2e : ce qu'est devenue l'app suivie depuis une mention, un site ou une liste (motifs, recherches, tournures, essai). */
 export const e2eAppRules = e2eMutation({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
     const a = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
-    return a ? { name: a.name, strong: a.strong, searches: a.searches, trial: a.trialSince !== undefined } : null;
+    return a ? { name: a.name, strong: a.strong, searches: a.searches, not: a.not, trial: a.trialSince !== undefined } : null;
   },
+});
+
+// ─── L'import d'une liste (15/11/2026) ───────────────────────────────────────
+
+/** Apps d'une liste écrites par appel : un import se fait en plusieurs appels. */
+export const LIST_IMPORT_MAX = 400;
+
+const listItem = v.object({ name: v.string(), category: v.optional(v.string()) });
+
+/**
+ * Pose les apps d'une liste comme apps repérées (genre « liste ») : le suivi d'office les prend, 15 par passage, et
+ * chacune entre à l'essai. Une app déjà repérée sous la même clé, ou au nom trop court, n'est pas reposée. Les noms
+ * viennent de l'appel, jamais du code : la liste n'est pas publiée avec le dépôt.
+ */
+async function importListCore(ctx: MutationCtx, source: string, items: readonly { name: string; category?: string }[], now: number) {
+  if (items.length > LIST_IMPORT_MAX) throw new ConvexError({ code: "LIST_TOO_LONG", message: `${LIST_IMPORT_MAX} apps au plus par appel.` });
+  const out = { added: 0, existing: 0, skipped: 0 };
+  for (const it of items) {
+    const name = it.name.replace(/\s+/g, " ").trim().slice(0, 60);
+    const core = listPatterns(name)[0];
+    if (!core) {
+      out.skipped++;
+      continue;
+    }
+    const key = `liste:${core}`;
+    if (await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", key)).first()) {
+      out.existing++;
+      continue;
+    }
+    await ctx.db.insert("radarAppCandidates", {
+      key,
+      kind: "liste",
+      label: name,
+      authors: [],
+      authorCount: 0,
+      fromApps: [],
+      examples: [],
+      status: "new",
+      firstSeenAt: now,
+      lastSeenAt: now,
+      liste: { source: source.slice(0, 40), ...(it.category ? { category: it.category.slice(0, 60) } : {}) },
+    });
+    out.added++;
+  }
+  return out;
+}
+
+/** À lancer sur la prod avec la liste (`convex-prod.sh run radarAuto:importListCandidates '<json>'`), par lots de 400. */
+export const importListCandidates = internalMutation({
+  args: { source: v.string(), items: v.array(listItem) },
+  handler: (ctx, { source, items }) => importListCore(ctx, source, items, Date.now()),
+});
+
+export const e2eImportList = e2eMutation({
+  args: { source: v.string(), items: v.array(listItem) },
+  handler: (ctx, { source, items }) => importListCore(ctx, source, items, Date.now()),
 });
 
 // ─── L'essai (15/11/2026) ────────────────────────────────────────────────────

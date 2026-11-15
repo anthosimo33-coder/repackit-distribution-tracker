@@ -12,7 +12,7 @@ export const shortenedPattern = (tag: string): string | null => (tagCore(tag) !=
 export type AutoPlan = { patterns: string[]; trial?: true } | { skip: string };
 
 type Candidate = {
-  kind: "mention" | "domain" | "store" | "market" | "hashtag" | "ia";
+  kind: "mention" | "domain" | "store" | "market" | "hashtag" | "ia" | "liste";
   label: string;
   authorCount?: number;
   store?: { tag: string; genre?: string; creators: readonly { handle: string; why: CreatorWhy }[] };
@@ -48,6 +48,15 @@ export function autoPlan(c: Candidate): AutoPlan {
     const patterns = marketPatterns(c.label, "");
     return patterns.length ? { patterns } : { skip: "nom trop court" };
   }
+  // Une app d'une liste importée (15/11/2026) : à l'essai sous son nom collé ; si l'IA le dit courant, sous
+  // « nomapp » (cf `listFallback`, appelé par le suivi d'office).
+  if (c.kind === "liste") {
+    const patterns = listPatterns(c.label);
+    if (patterns.length) return { patterns, trial: true };
+    // Trois lettres (Tab, Fig, Flo) : compactées, elles sont partout (« table », « figure ») ; seulement « nomapp ».
+    const fb = listFallback(c.label);
+    return fb ? { patterns: fb.patterns, trial: true } : { skip: "nom trop court" };
+  }
   // Un compte mentionné ou un site cité par deux comptes ou plus, que l'IA a dit app, logiciel ou jeu mobile et su
   // nommer (15/11/2026) : à l'essai, sous des motifs qu'une phrase n'emploie pas (cf `triagePatterns`).
   if ((c.kind === "mention" || c.kind === "domain") && c.triage) {
@@ -56,6 +65,44 @@ export function autoPlan(c: Candidate): AutoPlan {
     return patterns.length ? { patterns, trial: true } : { skip: "nom trop court" };
   }
   return { skip: "pas une source suivie d'office" };
+}
+
+// ─── Les listes importées (15/11/2026) ───────────────────────────────────────
+
+/**
+ * Les apps d'une liste importée (« autant d'apps que FarmSpot, les mêmes au minimum », fondateur, 15/11/2026 ; leur
+ * liste copiée, avec l'accord de son avocat). Seuls les NOMS viennent de la liste : la recherche de chaque réseau et
+ * la preuve de chaque compte sont les nôtres, et chaque app entre à l'essai.
+ */
+export const LIST_MIN_CORE = 4;
+/** En dessous, même « nomapp » ne dit rien de sûr. */
+const LIST_FALLBACK_MIN = 3;
+
+/** Le motif d'une app d'une liste : son nom collé (« Blow Up » → « blowup »), s'il a au moins 4 lettres. */
+export function listPatterns(name: string): string[] {
+  const core = productKey(name);
+  return core.length >= LIST_MIN_CORE ? [core] : [];
+}
+
+/** Ce qu'on cherche sur TikTok pour elle : son nom, son hashtag, « nom app ». */
+export function listSearches(name: string): string[] {
+  const n = name.toLowerCase().replace(/\s+/g, " ").trim();
+  return [n, `#${productKey(name)}`, `${n} app`].filter((x, i, a) => a.indexOf(x) === i);
+}
+
+/** Les débuts de mots qui suivent « app » dans une phrase (« simple approach », « tab apple ») : jamais l'app. */
+const APP_WORD_TAILS = ["appl", "appe", "appr", "appo", "appa", "appi"];
+
+/**
+ * Un nom COURANT (Simple, Glow, Reset, Tab) : pas le nom seul, mais « nomapp » ; et les tournures où « app » ouvre un
+ * autre mot (« simple approach » contient « simpleapp » une fois compacté) sont retirées avant de chercher.
+ * `null` : le nom finit déjà par « app », il n'y a rien de plus sûr.
+ */
+export function listFallback(name: string): { patterns: string[]; not: string[]; searches: string[] } | null {
+  const core = productKey(name);
+  if (core.length < LIST_FALLBACK_MIN || core.endsWith("app")) return null;
+  const n = name.toLowerCase().replace(/\s+/g, " ").trim();
+  return { patterns: [`${core}app`], not: APP_WORD_TAILS.map((t) => `${n} ${t}`), searches: [`${n} app`, `#${core}app`] };
 }
 
 // ─── Le tri des mentions et des sites (15/11/2026) ───────────────────────────

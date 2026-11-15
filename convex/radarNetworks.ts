@@ -1637,9 +1637,10 @@ async function requestNetworkSearch(ctx: MutationCtx, appId: Id<"radarApps">, st
 /** Crée une app suivie : ses motifs (cités dans une légende) font aussi ses recherches. */
 /**
  * `marks` : garder l'arobase et le dièse des motifs (« @learna », « #learna » : une mention triée par l'IA, dont le
- * nom compacté seul serait dans « learn a new language ») ; `searches` : les recherches, sinon tirées des motifs.
+ * nom compacté seul serait dans « learn a new language ») ; `searches` : les recherches, sinon tirées des motifs ;
+ * `not` : les tournures retirées avant de chercher (radarNetworkMath.AppRule.not).
  */
-type CreateOpts = { marks?: boolean; searches?: readonly string[] };
+type CreateOpts = { marks?: boolean; searches?: readonly string[]; not?: readonly string[] };
 
 async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[], auto = false, opts: CreateOpts = {}): Promise<Doc<"radarApps">> {
   const clean = cleanText(name.trim(), 60);
@@ -1669,6 +1670,8 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
     weak: [],
     context: [],
     searches,
+    // Tournures qui contiennent le nom sans le citer (« simple approach » pour Simple, cf radarAutoMath.listFallback).
+    ...(opts.not?.length ? { not: [...opts.not] } : {}),
     status: "active",
     source: "manual",
     createdAt: now,
