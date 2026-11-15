@@ -110,7 +110,7 @@ describe("plafond de comptes par app non concurrente (300 ; 100 jusqu'au 13/11/2
   });
 
   it("une app au plafond : une vidéo en français fait entrer son compte, une vidéo en anglais non", () => {
-    expect([MAX_TRACKED, MAX_PER_OTHER_APP, MAX_OTHER_TOTAL]).toEqual([15_000, 300, 13_000]);
+    expect([MAX_TRACKED, MAX_PER_OTHER_APP, MAX_OTHER_TOTAL]).toEqual([24_000, 300, 22_000]);
     const plein = counts(2_174, MAX_PER_OTHER_APP, 1_300);
     expect(canAttach(plein, false, "caption", "fr")).toBe(true);
     expect(canAttach(plein, false, "caption", "en")).toBe(false);

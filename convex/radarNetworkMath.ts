@@ -248,20 +248,21 @@ export const SEED_APPS: readonly SeedApp[] = [
 
 /**
  * Comptes suivis au plus (tous réseaux) : le budget des relevés est calé dessus
- * (9 000 relevés/jour suivent 15 000 comptes au rythme mesuré le 13/11/2026 :
+ * (15 000 relevés/jour suivent 24 000 comptes au rythme mesuré le 13/11/2026 :
  * 0,62 relevé par compte et par jour). 3 000 jusqu'au 13/11/2026 (2 385 pris) :
- * le Radar devient un produit vendu, il doit suivre des centaines d'apps.
+ * le Radar devient un produit vendu, il doit suivre des centaines d'apps ; 15 000
+ * jusqu'au 15/11/2026 : autant d'apps que FarmSpot (~1 700, budget v10).
  */
-export const MAX_TRACKED = 15_000;
+export const MAX_TRACKED = 24_000;
 /**
  * Une app qui n'est concurrente d'aucun projet ne prend pas plus de 300 comptes
  * (100 jusqu'au 13/11/2026 : on veut tous les créateurs d'une app, Astra AI en a
- * 269), et toutes ensemble pas plus de 13 000 : 2 000 places restent aux
+ * 269), et toutes ensemble pas plus de 22 000 (13 000 jusqu'au 15/11/2026) : 2 000 places restent aux
  * concurrentes. Les comptes de départ, ceux ajoutés à la main et les comptes
  * francophones (cf `capFree`) passent outre.
  */
 export const MAX_PER_OTHER_APP = 300;
-export const MAX_OTHER_TOTAL = 13_000;
+export const MAX_OTHER_TOTAL = 22_000;
 
 /** Ce que l'onglet Comptes suivis montre du réseau d'une app, calculé sur ses comptes et rangé sur l'app. */
 export type AppNet = {

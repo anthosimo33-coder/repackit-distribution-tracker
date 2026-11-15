@@ -318,7 +318,7 @@ export const POSTES: readonly PosteDef[] = [
  * courbe et plafond passent au cran au-dessus. Des réglages plus anciens relus
  * prennent pour ces postes, et pour le plafond, les valeurs par défaut.
  */
-export const BUDGET_VERSION = 9;
+export const BUDGET_VERSION = 10;
 // v4 : Instagram, transcriptions et pubs branchés (éteints tant qu'ils ne l'étaient pas).
 // v5 : l'analyse IA branchée (familles de hooks) ; le plafond et les autres postes d'une v4 sont gardés.
 const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
@@ -333,15 +333,20 @@ const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
   // v9 : 150 recherches/jour (14/11/2026, accord du fondateur) : les produits web (« ce site », pubs déclarées,
   // allemand, polonais, néerlandais, italien) passent chaque jour, comme le thème « argent ».
   { before: 9, postes: ["search"] },
+  // v10 (15/11/2026, « Monter le budget », fondateur) : autant d'apps que FarmSpot (~1 700) — 15 000 relevés/jour
+  // pour ~24 000 comptes, 200 000 crédits/mois pour le premier tour des réseaux, plafond 1 300 $.
+  { before: 10, postes: ["tiktok", "network"] },
 ];
-/** Le plafond se garde à partir de cette version. */
-const CAP_KEPT_FROM = 4;
+/** Le plafond se garde à partir de cette version (4 jusqu'au 15/11/2026 : la v10 le remonte à 1 300 $). */
+const CAP_KEPT_FROM = 10;
+/** Plafond le plus haut qu'on peut régler. */
+export const CAP_MAX_USD = 2_000;
 
 export const POSTE_KEYS = POSTES.map((p) => p.key);
 export const isPosteKey = (k: string): k is PosteKey => (POSTE_KEYS as string[]).includes(k);
 export const posteDef = (k: PosteKey) => POSTES.find((p) => p.key === k)!;
 
-export const CAP_CHOICES = [300, 450, 650, 900] as const;
+export const CAP_CHOICES = [300, 450, 650, 900, 1_300] as const;
 
 export type BudgetSettings = {
   capUsd: number;
@@ -368,10 +373,14 @@ export type BudgetSettings = {
 // réseaux passe à 40 000 crédits/mois (des centaines d'apps, chacune cherchée à fond). Prévu au plus :
 // ~630 $/mois sous un plafond de 650 $ — environ 10 000 comptes au prix du pack de 25 000 crédits, le double
 // avec celui de 500 000.
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 150, curve: 100, tiktok: 9_000, network: 40_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
+// Depuis le 15/11/2026 (« autant d'apps que FarmSpot » ; « Monter le budget », fondateur) : 15 000 relevés/jour
+// suivent ~24 000 comptes au même rythme, et 200 000 crédits/mois font le premier tour du réseau de ~1 350 apps
+// de plus (~150 crédits chacune). Prévu au plus : 1 271,94 $/mois sous un plafond de 1 300 $, au prix du pack de
+// 25 000 crédits ; ce sont des plafonds, dépensés seulement s'il y a des comptes à relever et des apps à chercher.
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 150, curve: 100, tiktok: 15_000, network: 200_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
-  capUsd: 650,
+  capUsd: 1_300,
   postes: POSTES.map((p) => ({ key: p.key, qty: DEFAULT_QTY[p.key], on: p.live })),
   // L'analyse IA est coupée la première : la veille marche sans elle.
   cutOrder: ["ai", "search", "transcript", "curve", "ads", "insta", "network", "tiktok"],
@@ -389,7 +398,7 @@ export function normalizeBudget(
   const cap = raw?.capUsd;
   // Écrit « 0 < cap » : la garde i18n lit « > 0 && cap < » comme du texte JSX.
   const version = raw?.budgetVersion ?? 0;
-  const capUsd = version >= CAP_KEPT_FROM && typeof cap === "number" && 0 < cap && cap <= 1_000 ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
+  const capUsd = version >= CAP_KEPT_FROM && typeof cap === "number" && 0 < cap && cap <= CAP_MAX_USD ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
   const postes = POSTES.map((def) => {
     const stale = RESETS.some((r) => version < r.before && r.postes.includes(def.key));
     const got = stale ? undefined : raw?.postes?.find((p) => p.key === def.key);
