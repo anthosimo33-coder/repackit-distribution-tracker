@@ -4653,7 +4653,7 @@ export default defineSchema({
     // « market » : une app ou un logiciel qui paie des créateurs sur une place de marché de campagnes (convex/radarMarket).
     // « hashtag » : le hashtag d'une vidéo de produit web (« ce site », « diese Seite »…, radarDiscoveryQueries.WEB_QUERIES).
     // « ia » : une app que des comptes suivis poussent à la place de la leur, d'après le jugement de l'IA (radarJudge).
-    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store"), v.literal("market"), v.literal("hashtag"), v.literal("ia")),
+    kind: v.union(v.literal("mention"), v.literal("domain"), v.literal("store"), v.literal("market"), v.literal("hashtag"), v.literal("ia"), v.literal("liste")),
     label: v.string(),
     authors: v.array(v.string()), // pseudos qui la citent (50 au plus)
     authorCount: v.number(),
@@ -4665,6 +4665,8 @@ export default defineSchema({
     // Le suivi d'office l'a regardée (convex/radarAuto) : suivie, ou laissée proposée avec la raison.
     autoAt: v.optional(v.number()),
     autoNote: v.optional(v.string()),
+    // App d'une liste importée (radarAuto.importListCandidates, 15/11/2026) : la liste d'où elle vient, sa catégorie.
+    liste: v.optional(v.object({ source: v.string(), category: v.optional(v.string()) })),
     // Mention ou site trié par l'IA (radarAutoMath.triageAnswer, 15/11/2026) : ce que c'est, et le nom du produit.
     triage: v.optional(v.object({ at: v.number(), kind: v.union(v.literal("app"), v.literal("software"), v.literal("game"), v.literal("other")), name: v.string() })),
     // L'app suivie qu'elle est devenue : sa fiche (App Store, campagne) y est recopiée, et tenue à jour.

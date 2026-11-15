@@ -6,6 +6,9 @@ import {
   autoAnswer,
   autoPlan,
   autoPrompt,
+  listFallback,
+  listPatterns,
+  listSearches,
   shortenedPattern,
   TRIAGE_OUT_NOTE,
   TRIAGE_SYSTEM,
@@ -258,5 +261,32 @@ describe("Radar — suivi d'office : le garde « nom courant »", () => {
     // « d » n'a pas de verdict : elle attendra le passage suivant.
     expect(got.map((g) => g.id)).not.toContain("d");
     for (const raw of [null, "texte", {}, { items: "non" }]) expect(autoAnswer(raw, batch)).toEqual([]);
+  });
+});
+
+describe("Radar — les apps d'une liste importée (15/11/2026)", () => {
+  it("chacune entre à l'essai sous son nom collé, avec son nom, son hashtag et « nom app » pour recherches", () => {
+    expect(listPatterns("Blow Up")).toEqual(["blowup"]);
+    expect(listPatterns("Higgsfield AI")).toEqual(["higgsfieldai"]);
+    expect(listPatterns("99")).toEqual([]);
+    expect(autoPlan({ kind: "liste", label: "Higgsfield AI" })).toEqual({ patterns: ["higgsfieldai"], trial: true });
+    // Trois lettres : seulement « nomapp » ; moins, rien.
+    expect(autoPlan({ kind: "liste", label: "Tab" })).toEqual({ patterns: ["tabapp"], trial: true });
+    expect(autoPlan({ kind: "liste", label: "99" })).toEqual({ skip: "nom trop court" });
+    expect(listSearches("Blow Up")).toEqual(["blow up", "#blowup", "blow up app"]);
+  });
+
+  it("un nom courant entre sous « nomapp », sans les tournures où « app » ouvre un autre mot", () => {
+    const fb = listFallback("Simple")!;
+    expect(fb.patterns).toEqual(["simpleapp"]);
+    expect(fb.searches).toEqual(["simple app", "#simpleapp"]);
+    const simple = { strong: fb.patterns, not: fb.not };
+    expect(citesApp("the Simple app helped me lose 5kg #simpleapp", "x", simple)).toBe(true);
+    expect(citesApp("a simple approach to life", "x", simple)).toBe(false);
+    expect(citesApp("simple apple pie recipe", "x", simple)).toBe(false);
+    expect(citesApp("keep it simple appreciate the little things", "x", simple)).toBe(false);
+    expect(citesApp("so simple", "x", simple)).toBe(false);
+    // Un nom qui finit déjà par « app » : rien de plus sûr, il reste proposé.
+    expect(listFallback("Recime App")).toBeNull();
   });
 });

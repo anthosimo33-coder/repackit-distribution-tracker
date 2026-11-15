@@ -245,4 +245,32 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
+
+  test("une liste importée : chaque app entre à l'essai sous son nom collé, ou sous « nomapp » si son nom est courant", async () => {
+    const ts = Date.now();
+    const p = `e2elist${ts}`;
+    try {
+      const items = [{ name: `E2elist${ts}a`, category: "Study tools" }, { name: `E2elist${ts}b` }, { name: "99" }];
+      expect(await admin.mutation(api.radarAuto.e2eImportList, { secret: E2E_SECRET, source: "e2e", items })).toEqual({ added: 2, existing: 0, skipped: 1 });
+      // Un second import ne repose rien.
+      expect(await admin.mutation(api.radarAuto.e2eImportList, { secret: E2E_SECRET, source: "e2e", items })).toEqual({ added: 0, existing: 2, skipped: 1 });
+      // Le suivi d'office : la seconde a un nom que l'IA dit courant.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p], common: [`${p}b`] })).toEqual({ followed: 2, kept: 0, attached: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}a` })).toEqual({
+        name: `E2elist${ts}a`,
+        strong: [`${p}a`],
+        searches: [`${p}a`, `#${p}a`, `${p}a app`],
+        trial: true,
+      });
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}b` })).toEqual({
+        name: `E2elist${ts}b`,
+        strong: [`${p}bapp`],
+        searches: [`${p}b app`, `#${p}bapp`],
+        not: ["appl", "appe", "appr", "appo", "appa", "appi"].map((t) => `${p}b ${t}`),
+        trial: true,
+      });
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
 });
