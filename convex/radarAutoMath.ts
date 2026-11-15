@@ -3,18 +3,18 @@
  */
 import { LEAD_MIN_ACCOUNTS } from "./radarJudgeMath";
 import { marketPatterns } from "./radarMarketMath";
-import { storeAutoFollow, tagCore, type CreatorWhy } from "./radarStoreMath";
+import { AUTO_MIN_CREATORS, storeAutoFollow, storeTrial, tagCore, type CreatorWhy } from "./radarStoreMath";
 
 /** Le motif raccourci du hashtag prouvé (« hush » pour « hushapp ») : celui que le suivi d'office a utilisé à tort le 13/11/2026. */
 export const shortenedPattern = (tag: string): string | null => (tagCore(tag) !== tag ? tagCore(tag) : null);
 
-export type AutoPlan = { patterns: string[] } | { skip: string };
+export type AutoPlan = { patterns: string[]; trial?: true } | { skip: string };
 
 type Candidate = {
   kind: "mention" | "domain" | "store" | "market" | "hashtag" | "ia";
   label: string;
   authorCount?: number;
-  store?: { tag: string; creators: readonly { handle: string; why: CreatorWhy }[] };
+  store?: { tag: string; genre?: string; creators: readonly { handle: string; why: CreatorWhy }[] };
   market?: { handle: string };
 };
 
@@ -29,7 +29,10 @@ type Candidate = {
  */
 export function autoPlan(c: Candidate): AutoPlan {
   if (c.kind === "store" && c.store) {
-    return storeAutoFollow(c.store.tag, c.store.creators) ? { patterns: [c.store.tag] } : { skip: "preuve insuffisante" };
+    if (storeAutoFollow(c.store.tag, c.store.creators)) return { patterns: [c.store.tag] };
+    // Deux comptes créateurs : à l'essai, sauf une boutique (hors périmètre : ni app, ni SaaS, ni jeu mobile).
+    if (storeTrial(c.store.tag, c.store.creators) && !SHOP_GENRES.has(c.store.genre ?? "")) return { patterns: [c.store.tag], trial: true };
+    return { skip: "preuve insuffisante" };
   }
   if (c.kind === "market" && c.market) {
     const patterns = marketPatterns(c.label, c.market.handle);
@@ -45,6 +48,33 @@ export function autoPlan(c: Candidate): AutoPlan {
   return { skip: "pas une source suivie d'office" };
 }
 
+
+/** Les genres de l'App Store qui sont des boutiques (Hipobuy, The Bradery, Superdrug : hors périmètre le 15/11/2026). */
+export const SHOP_GENRES: ReadonlySet<string> = new Set(["Shopping", "Achats", "Compras", "Einkaufen", "Acquisti", "Winkelen"]);
+
+// ─── L'essai ─────────────────────────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+/** Comptes actifs qui gardent une app à l'essai : le seuil du suivi d'office. */
+export const TRIAL_KEEP_MIN = AUTO_MIN_CREATORS;
+/** Après sa recherche, le temps laissé aux premiers relevés de ses nouveaux comptes (« en contrôle ») pour la juger. */
+export const TRIAL_SETTLE_MS = 2 * DAY_MS;
+/** Au-delà, elle est jugée même si des comptes attendent encore leur premier relevé (palier du solde). */
+export const TRIAL_MAX_WAIT_MS = 7 * DAY_MS;
+
+/**
+ * Ce qu'on fait d'une app à l'essai : la garder dès qu'elle a `TRIAL_KEEP_MIN` comptes actifs ; sinon attendre que
+ * sa recherche ait tourné et que ses nouveaux comptes soient contrôlés (Peach, 15/11 : 17 rattachés, 1 seul gardé à
+ * son premier relevé) ; puis la mettre en pause. `null` : elle n'est pas à l'essai.
+ */
+export function trialDecision(app: { trialSince?: number; networkSearchedAt?: number }, n: { active: number; vetting: number }, now: number): "keep" | "wait" | "pause" | null {
+  if (app.trialSince === undefined) return null;
+  if (n.active >= TRIAL_KEEP_MIN) return "keep";
+  if (app.networkSearchedAt === undefined) return "wait";
+  const since = now - app.networkSearchedAt;
+  if (since < TRIAL_SETTLE_MS || (n.vetting > 0 && since < TRIAL_MAX_WAIT_MS)) return "wait";
+  return "pause";
+}
 
 // ─── Le garde « nom courant » ────────────────────────────────────────────────
 

@@ -4300,6 +4300,9 @@ export default defineSchema({
     // La reprise des marques à slogan dans la file des contrôles (radarStore.requeueRetagged) : où elle en est, et sa fin.
     storeRetagCursor: v.optional(v.string()),
     storeRetagDoneAt: v.optional(v.number()),
+    // La reprise des apps des classements « preuve insuffisante » pour l'essai (radarAuto.requeueTrialCandidates).
+    trialRequeueCursor: v.optional(v.string()),
+    trialRequeueDoneAt: v.optional(v.number()),
     lastDiscoveryAt: v.optional(v.number()),
     lastCurveAt: v.optional(v.number()),
     lastAccountsAt: v.optional(v.number()),
@@ -4329,8 +4332,12 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("paused")),
     // Mise en pause d'office parce qu'elle n'est ni une app, ni un SaaS, ni un jeu mobile (radarJudgeMath.outOfScope,
     // définition du 14/11/2026). Remise en route à la main : `scopeByHand`, plus jamais remise en pause pour ce motif.
-    pausedReason: v.optional(v.literal("perimetre")),
+    // « essai » : suivie à l'essai (radarAutoMath.trialDecision), sa recherche n'a pas prouvé assez de comptes créateurs.
+    pausedReason: v.optional(v.union(v.literal("perimetre"), v.literal("essai"))),
     scopeByHand: v.optional(v.boolean()),
+    // Suivie À L'ESSAI depuis (15/11/2026) : une app des classements à deux comptes créateurs, que sa recherche de
+    // réseau doit prouver avant qu'elle compte. Effacé quand elle est gardée ; Swarm ne la voit pas avant.
+    trialSince: v.optional(v.number()),
     source: v.union(v.literal("seed"), v.literal("manual")),
     networkSearchedAt: v.optional(v.number()),
     // Sa recherche COMPLÈTE est faite (radarNetworkMath.needsDeepSearch) : les suivantes sont courtes.
@@ -4694,6 +4701,8 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_status_count", ["status", "authorCount"])
     .index("by_kind_status_count", ["kind", "status", "authorCount"])
+    // Les apps repérées jamais regardées par le suivi d'office (`autoAt` absent), les plus prouvées d'abord.
+    .index("by_kind_status_auto", ["kind", "status", "autoAt", "authorCount"])
     .index("by_last", ["lastSeenAt"]),
 
   // Les petits réseaux (convex/radarNaming) : par jour, ce que les recherches des tournures qui nomment un produit

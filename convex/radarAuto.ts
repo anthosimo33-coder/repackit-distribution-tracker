@@ -7,21 +7,22 @@
  *  - dans les deux cas, seulement si son motif n'est pas un mot de tous les jours (une IA le dit, radarAutoMath) :
  *    sinon la recherche de son réseau rattache des centaines de comptes sans rapport.
  * Entrer = créer l'app (jamais « concurrente » d'un projet), rattacher ses comptes, et lancer sa recherche
- * complète. Ce qui n'entre pas reste PROPOSÉ à l'écran, avec la raison. Les sites cités par de petits comptes
+ * complète. Depuis le 15/11/2026 (« autant d'apps que FarmSpot »), une app des classements à DEUX comptes créateurs
+ * entre À L'ESSAI : sa recherche décide (gardée à 3 comptes actifs, en pause sinon, cf `settleTrials`). Ce qui n'entre pas reste PROPOSÉ à l'écran, avec la raison. Les sites cités par de petits comptes
  * (convex/radarNaming) ne sont pas suivis d'office : cette recherche est encore à l'essai.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { e2eMutation } from "./functions";
 import { ERR } from "./errorCodes";
 import { FAMILY_MODEL, haikuCostUsd } from "./radarFamiliesMath";
 import { followCandidateCore, judgeStoredAccount } from "./radarNetworks";
-import { AUTO_COMMON_NOTE, AUTO_SCHEMA, AUTO_SYSTEM, autoAnswer, autoPlan, autoPrompt, shortenedPattern, type AutoToJudge, type AutoVerdict } from "./radarAutoMath";
+import { AUTO_COMMON_NOTE, AUTO_SCHEMA, AUTO_SYSTEM, autoAnswer, autoPlan, autoPrompt, shortenedPattern, trialDecision, type AutoToJudge, type AutoVerdict } from "./radarAutoMath";
 import { ficheApp } from "./radarFicheMath";
-import { refreshAppNet } from "./radarSignals";
+import { ensureSettings, refreshAppNet } from "./radarSignals";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { alreadyFollowed } from "./radarStoreMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
@@ -33,17 +34,21 @@ const MIN_ALLOWANCE_USD = 0.01;
 
 type AutoRun = { followed: number; kept: number; attached: number };
 
-/** Les apps repérées à regarder à ce passage : jamais regardées, les plus prouvées d'abord. */
+/**
+ * Les apps repérées à regarder à ce passage : jamais regardées, les plus prouvées d'abord. Lues par leur index
+ * (`autoAt` absent) : avant le 15/11/2026, les 300 plus prouvées étaient lues puis filtrées, et une app classée
+ * au-delà n'était jamais regardée une fois les 300 premières vues.
+ */
 async function pickCandidates(ctx: QueryCtx, only?: (key: string) => boolean): Promise<Doc<"radarAppCandidates">[]> {
   const pick = async (kind: "store" | "market" | "ia") =>
     (
       await ctx.db
         .query("radarAppCandidates")
-        .withIndex("by_kind_status_count", (q) => q.eq("kind", kind).eq("status", "new"))
+        .withIndex("by_kind_status_auto", (q) => q.eq("kind", kind).eq("status", "new").eq("autoAt", undefined))
         .order("desc")
-        .take(300)
+        .take(only ? 300 : AUTO_BATCH)
     )
-      .filter((c) => c.autoAt === undefined && (!only || only(c.key)))
+      .filter((c) => !only || only(c.key))
       .slice(0, AUTO_BATCH);
   return [...(await pick("store")), ...(await pick("market")), ...(await pick("ia"))];
 }
@@ -93,7 +98,8 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
     }
     try {
       const r = await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true);
-      await ctx.db.patch(c._id, { autoAt: now, autoNote: "suivie d'office" });
+      if (plan.trial) await ctx.db.patch(r.appId, { trialSince: now });
+      await ctx.db.patch(c._id, { autoAt: now, autoNote: plan.trial ? TRIAL_NOTE : "suivie d'office" });
       followed++;
       attached += r.attached;
     } catch (e) {
@@ -121,6 +127,7 @@ export const runAutoFollow = internalAction({
     // Sans la clé du fournisseur de données (tests, intégration continue), rien n'est suivi d'office.
     if (!scKeyPresent()) return { skipped: "no-key" };
     const now = Date.now();
+    await ctx.runMutation(internal.radarAuto.requeueTrialCandidates, {});
     const batch: AutoToJudge[] = await ctx.runQuery(internal.radarAuto.autoToJudge, {});
     let verdicts: AutoVerdict[] = [];
     let usd = 0;
@@ -160,6 +167,85 @@ export const runAutoFollow = internalAction({
     // Les comptes rattachés sont relevés tout de suite ; la recherche complète de l'app part à la tâche de l'heure.
     if (r.attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
     return { ...r, usd };
+  },
+});
+
+// ─── L'essai (15/11/2026) ────────────────────────────────────────────────────
+
+export const TRIAL_NOTE = "à l'essai : sa recherche décide";
+/** Apps repérées relues par appel de la reprise. */
+const TRIAL_REQUEUE_SCAN = 200;
+/** Apps à l'essai jugées par passage (toutes les heures). */
+const TRIAL_SETTLE_BATCH = 60;
+
+/**
+ * Une fois : les apps des classements laissées « preuve insuffisante » avant l'essai sont regardées de nouveau (leur
+ * `autoAt` effacé) ; celles à deux comptes créateurs entrent à l'essai. Par lots, à chaque passage, jusqu'au bout.
+ */
+export const requeueTrialCandidates = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const s = await ensureSettings(ctx);
+    if (s.trialRequeueDoneAt !== undefined) return 0;
+    const r = await ctx.db
+      .query("radarAppCandidates")
+      .withIndex("by_kind_status_count", (q) => q.eq("kind", "store").eq("status", "new"))
+      .paginate({ cursor: s.trialRequeueCursor ?? null, numItems: TRIAL_REQUEUE_SCAN });
+    let requeued = 0;
+    for (const c of r.page) {
+      if (c.autoNote !== "preuve insuffisante") continue;
+      await ctx.db.patch(c._id, { autoAt: undefined, autoNote: undefined });
+      requeued++;
+    }
+    await ctx.db.patch(s._id, r.isDone ? { trialRequeueCursor: undefined, trialRequeueDoneAt: Date.now() } : { trialRequeueCursor: r.continueCursor });
+    return requeued;
+  },
+});
+
+/** Juge les apps à l'essai (cf radarAutoMath.trialDecision) : gardées, ou en pause « essai » — leurs comptes ne sont plus relevés. */
+async function settleTrialsCore(ctx: MutationCtx, now: number, only?: (slug: string) => boolean): Promise<{ kept: number; paused: number; waiting: number }> {
+  const out = { kept: 0, paused: 0, waiting: 0 };
+  const trials = (await ctx.db.query("radarApps").collect()).filter((a) => a.trialSince !== undefined && a.status === "active" && (!only || only(a.slug)));
+  // Pas encore cherchée : elle attend sa recherche, sans relire ses comptes. Les autres, les plus anciennement
+  // cherchées d'abord, `TRIAL_SETTLE_BATCH` au plus par passage (chacune relit ses comptes).
+  const searched = trials.filter((a) => a.networkSearchedAt !== undefined).sort((x, y) => x.networkSearchedAt! - y.networkSearchedAt!);
+  out.waiting += trials.length - searched.length;
+  for (const a of searched.slice(0, TRIAL_SETTLE_BATCH)) {
+    const rows = await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", a._id as Id<"radarApps">)).collect();
+    const n = { active: rows.filter((t) => t.status === "active").length, vetting: rows.filter((t) => t.status === "paused" && t.pausedReason === "vetting").length };
+    const d = trialDecision(a, n, now);
+    if (d === "keep") {
+      await ctx.db.patch(a._id, { trialSince: undefined });
+      out.kept++;
+    } else if (d === "pause") {
+      await ctx.db.patch(a._id, { status: "paused", pausedReason: "essai" });
+      out.paused++;
+    } else out.waiting++;
+  }
+  return out;
+}
+
+export const settleTrials = internalMutation({
+  args: {},
+  handler: (ctx) => settleTrialsCore(ctx, Date.now()),
+});
+
+/** e2e : juge les apps à l'essai dont le slug commence par `prefix`, à l'heure `now` (pour passer les délais). */
+export const e2eSettleTrials = e2eMutation({
+  args: { prefix: v.string(), now: v.number() },
+  handler: (ctx, { prefix, now }) => settleTrialsCore(ctx, now, (slug) => slug.startsWith(prefix)),
+});
+
+/** e2e : où en est une app (essai, statut, raison de la pause, date de sa recherche). */
+export const e2eTrialState = e2eMutation({
+  args: { slug: v.string(), searchedAgoMs: v.optional(v.number()) },
+  handler: async (ctx, { slug, searchedAgoMs }) => {
+    const a = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!a) return null;
+    // Simule une recherche faite il y a `searchedAgoMs` (la vraie ne tourne pas en e2e : pas de clé).
+    if (searchedAgoMs !== undefined) await ctx.db.patch(a._id, { networkSearchedAt: Date.now() - searchedAgoMs });
+    const b = (await ctx.db.get(a._id))!;
+    return { trial: b.trialSince !== undefined, status: b.status, pausedReason: b.pausedReason ?? null };
   },
 });
 

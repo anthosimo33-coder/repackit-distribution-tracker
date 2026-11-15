@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_COMMON_NOTE, AUTO_SCHEMA, AUTO_SYSTEM, autoAnswer, autoPlan, autoPrompt, shortenedPattern } from "../convex/radarAutoMath";
+import { AUTO_COMMON_NOTE, AUTO_SCHEMA, AUTO_SYSTEM, autoAnswer, autoPlan, autoPrompt, shortenedPattern, SHOP_GENRES, TRIAL_KEEP_MIN, TRIAL_MAX_WAIT_MS, TRIAL_SETTLE_MS, trialDecision } from "../convex/radarAutoMath";
 import { AUTO_MIN_CREATORS, brandFamily, storeAutoFollow, type CreatorWhy } from "../convex/radarStoreMath";
 
 /**
@@ -82,7 +82,42 @@ describe("Radar — suivi d'office : ce qu'on fait d'une app repérée", () => {
     // Un hashtag qui n'a pas été raccourci n'a rien à réparer.
     expect(shortenedPattern("sideshift")).toBeNull();
     expect(shortenedPattern("myapp")).toBeNull();
-    expect(autoPlan({ kind: "store", label: "Survie", store: { tag: "survie", creators: [c("zwz997"), c("le_survivaliste.fr")] } })).toEqual({ skip: "preuve insuffisante" });
+    // Deux comptes créateurs : à l'essai depuis le 15/11/2026 (sa recherche décide). « survie » est un mot courant :
+    // le garde « nom courant » (l'IA) la laisse proposée avant tout essai.
+    expect(autoPlan({ kind: "store", label: "Survie", store: { tag: "survie", creators: [c("zwz997"), c("le_survivaliste.fr")] } })).toEqual({ patterns: ["survie"], trial: true });
+  });
+
+  it("à l'essai : deux comptes créateurs hors famille de la marque, sauf une boutique ; un seul, rien (15/11/2026)", () => {
+    const deux = [c("lea.ghostedapp"), c("tom_ghostedapp")];
+    expect(autoPlan({ kind: "store", label: "Ghosted", store: { tag: "ghostedapp", genre: "Lifestyle", creators: deux } })).toEqual({ patterns: ["ghostedapp"], trial: true });
+    // Les comptes de la marque (pseudo qui COMMENCE par son nom) ne comptent pas.
+    expect(autoPlan({ kind: "store", label: "Ghosted", store: { tag: "ghostedapp", creators: [c("ghostedapp.fr"), c("tom_ghostedapp")] } })).toEqual({ skip: "preuve insuffisante" });
+    expect(autoPlan({ kind: "store", label: "Ghosted", store: { tag: "ghostedapp", creators: [c("tom_ghostedapp")] } })).toEqual({ skip: "preuve insuffisante" });
+    // Une boutique (Hipobuy, The Bradery : hors périmètre) n'entre pas à l'essai ; assez prouvée, elle entre comme avant.
+    for (const genre of ["Shopping", "Achats", "Compras"]) {
+      expect(SHOP_GENRES.has(genre)).toBe(true);
+      expect(autoPlan({ kind: "store", label: "Lolobuy", store: { tag: "lolobuy", genre, creators: [c("ana.lolobuy"), c("bea.lolobuy")] } })).toEqual({ skip: "preuve insuffisante" });
+    }
+    const trois = [c("ana.lolobuy"), c("bea.lolobuy"), c("cleo.lolobuy")];
+    expect(autoPlan({ kind: "store", label: "Lolobuy", store: { tag: "lolobuy", genre: "Shopping", creators: trois } })).toEqual({ patterns: ["lolobuy"] });
+  });
+
+  it("une app à l'essai est gardée à 3 comptes actifs ; sinon jugée une fois sa recherche faite et ses comptes contrôlés", () => {
+    const now = 1_794_800_000_000;
+    const essai = (searchedAgo?: number) => ({ trialSince: now - 10 * TRIAL_MAX_WAIT_MS, ...(searchedAgo === undefined ? {} : { networkSearchedAt: now - searchedAgo }) });
+    expect(TRIAL_KEEP_MIN).toBe(AUTO_MIN_CREATORS);
+    // Pas à l'essai : rien à décider.
+    expect(trialDecision({}, { active: 0, vetting: 0 }, now)).toBeNull();
+    // Trois comptes actifs : gardée, même avant sa recherche.
+    expect(trialDecision(essai(), { active: 3, vetting: 0 }, now)).toBe("keep");
+    // Pas encore cherchée : elle attend.
+    expect(trialDecision(essai(), { active: 2, vetting: 0 }, now)).toBe("wait");
+    // Cherchée il y a moins de 2 jours : ses nouveaux comptes passent leur premier relevé.
+    expect(trialDecision(essai(TRIAL_SETTLE_MS - 1), { active: 2, vetting: 0 }, now)).toBe("wait");
+    expect(trialDecision(essai(TRIAL_SETTLE_MS), { active: 2, vetting: 0 }, now)).toBe("pause");
+    // Des comptes encore en contrôle : on les attend, 7 jours au plus.
+    expect(trialDecision(essai(TRIAL_SETTLE_MS), { active: 2, vetting: 5 }, now)).toBe("wait");
+    expect(trialDecision(essai(TRIAL_MAX_WAIT_MS), { active: 2, vetting: 5 }, now)).toBe("pause");
   });
 
   it("un produit d'une place de marché entre dès qu'on sait le nommer", () => {

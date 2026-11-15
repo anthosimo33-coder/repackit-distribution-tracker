@@ -29,7 +29,8 @@ function projectApp(a: Doc<"radarApps">) {
     id: a._id,
     slug: a.slug,
     name: a.name,
-    status: a.status,
+    // À l'essai (radarAuto.settleTrials) : pas encore prouvée, Swarm ne la montre pas.
+    status: a.trialSince !== undefined ? ("paused" as const) : a.status,
     trackedCount: a.trackedCount ?? null,
     mergedInto: a.mergedInto ?? null,
     createdAt: a.createdAt,
