@@ -4,7 +4,7 @@
 import { LEAD_MIN_ACCOUNTS } from "./radarJudgeMath";
 import { marketPatterns, productKey } from "./radarMarketMath";
 import { normalize } from "./radarNetworkMath";
-import { AUTO_MIN_CREATORS, storeAutoFollow, storeTrial, tagCore, type CreatorWhy } from "./radarStoreMath";
+import { AUTO_MIN_CREATORS, isShopGenre, storeAutoFollow, storeTrial, tagCore, type CreatorWhy } from "./radarStoreMath";
 
 /** Le motif raccourci du hashtag prouvé (« hush » pour « hushapp ») : celui que le suivi d'office a utilisé à tort le 13/11/2026. */
 export const shortenedPattern = (tag: string): string | null => (tagCore(tag) !== tag ? tagCore(tag) : null);
@@ -34,7 +34,7 @@ export function autoPlan(c: Candidate): AutoPlan {
   if (c.kind === "store" && c.store) {
     if (storeAutoFollow(c.store.tag, c.store.creators)) return { patterns: [c.store.tag] };
     // Deux comptes créateurs : à l'essai, sauf une boutique (hors périmètre : ni app, ni SaaS, ni jeu mobile).
-    if (storeTrial(c.store.tag, c.store.creators) && !SHOP_GENRES.has(c.store.genre ?? "")) return { patterns: [c.store.tag], trial: true };
+    if (storeTrial(c.store.tag, c.store.creators) && !isShopGenre(c.store.genre ?? "")) return { patterns: [c.store.tag], trial: true };
     return { skip: "preuve insuffisante" };
   }
   if (c.kind === "market" && c.market) {
@@ -157,9 +157,6 @@ export function triageSearches(c: { kind: "mention" | "domain" | string; label: 
   return [first, `#${core}`, `${c.kind === "domain" ? core : name.toLowerCase()} app`].filter((x, i, a) => a.indexOf(x) === i);
 }
 
-
-/** Les genres de l'App Store qui sont des boutiques (Hipobuy, The Bradery, Superdrug : hors périmètre le 15/11/2026). */
-export const SHOP_GENRES: ReadonlySet<string> = new Set(["Shopping", "Achats", "Compras", "Einkaufen", "Acquisti", "Winkelen"]);
 
 // ─── L'essai ─────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,6 @@ import {
   autoPlan,
   autoPrompt,
   shortenedPattern,
-  SHOP_GENRES,
   TRIAGE_OUT_NOTE,
   TRIAGE_SYSTEM,
   triageAnswer,
@@ -20,7 +19,7 @@ import {
   trialDecision,
 } from "../convex/radarAutoMath";
 import { citesApp } from "../convex/radarNetworkMath";
-import { AUTO_MIN_CREATORS, brandFamily, storeAutoFollow, type CreatorWhy } from "../convex/radarStoreMath";
+import { AUTO_MIN_CREATORS, brandFamily, isShopGenre, storeAutoFollow, type CreatorWhy } from "../convex/radarStoreMath";
 
 /**
  * Radar — suivi d'office des apps trouvées (13/11/2026). Les comptes d'essai sont ceux des 46 apps que les
@@ -114,8 +113,8 @@ describe("Radar — suivi d'office : ce qu'on fait d'une app repérée", () => {
     expect(autoPlan({ kind: "store", label: "Ghosted", store: { tag: "ghostedapp", creators: [c("ghostedapp.fr"), c("tom_ghostedapp")] } })).toEqual({ skip: "preuve insuffisante" });
     expect(autoPlan({ kind: "store", label: "Ghosted", store: { tag: "ghostedapp", creators: [c("tom_ghostedapp")] } })).toEqual({ skip: "preuve insuffisante" });
     // Une boutique (Hipobuy, The Bradery : hors périmètre) n'entre pas à l'essai ; assez prouvée, elle entre comme avant.
-    for (const genre of ["Shopping", "Achats", "Compras"]) {
-      expect(SHOP_GENRES.has(genre)).toBe(true);
+    for (const genre of ["Shopping", "Achats", "Compras", "Magasinage", "Zakupy", "Alışveriş", "Belanja"]) {
+      expect(isShopGenre(genre)).toBe(true);
       expect(autoPlan({ kind: "store", label: "Lolobuy", store: { tag: "lolobuy", genre, creators: [c("ana.lolobuy"), c("bea.lolobuy")] } })).toEqual({ skip: "preuve insuffisante" });
     }
     const trois = [c("ana.lolobuy"), c("bea.lolobuy"), c("cleo.lolobuy")];
