@@ -175,6 +175,30 @@ export const SEED_APPS: readonly SeedApp[] = [
   // Pimzi). Adoptées par la liste de départ sous leur nom nu. « job step(s) » est une tournure courante, pas JobStep.
   { slug: "jobstep", name: "JobStep", rivalOf: [], strong: ["jobstep"], not: ["job step", "jobsteps"], searches: ["jobstep", "#jobstep", "jobstep.io", "#jobstepio"] },
   { slug: "pimzi", name: "Pimzi", rivalOf: [], strong: ["pimzi"], searches: ["pimzi", "#pimzi", "pimzi.app"] },
+  // Le classement appkittie (top 20 du revenu iOS, novembre 2026) donné par le fondateur le 15/11 : 19 apps qu'on ne
+  // suivait pas (mise l'est déjà). 12 étaient passées par le contrôle gratuit des classements sans réseau trouvé sous
+  // leur seul hashtag ; elles ont ici une vraie recherche. Un compte n'entre toujours que prouvé. Les noms courants
+  // ne sont pris que sous une forme qui ne peut pas être un mot ordinaire : « algor » est dans « algorithm », « peach »,
+  // « glacier », « clarté », « live traffic », « work buddy », « car tv » se disent tous les jours.
+  { slug: "blinkdrama", name: "BlinkDrama", rivalOf: [], strong: ["blinkdrama"], searches: ["blinkdrama", "#blinkdrama", "blink drama app"] },
+  { slug: "whispyai", name: "Whispy AI", rivalOf: [], strong: ["whispyai"], searches: ["whispy ai", "#whispyai", "whispy app"] },
+  { slug: "algor", name: "Algor", rivalOf: [], strong: ["algorai", "algorapp", "algoreducation"], searches: ["algor ai", "#algorai", "algor app", "algor education"] },
+  { slug: "tizzchat", name: "TizzChat", rivalOf: [], strong: ["tizzchat"], searches: ["tizzchat", "#tizzchat", "tizz chat app"] },
+  { slug: "peach", name: "Peach", rivalOf: [], strong: ["peachapp", "peachvideochat"], searches: ["peach app video chat", "#peachapp", "peach video chat"] },
+  { slug: "clarte", name: "Clarté", rivalOf: [], strong: ["clartéapp", "clarteapp", "appclarté", "appclarte", "clartécoach", "clartecoach"], searches: ["clarté app", "clarté coach éloquence", "#clarteapp"] },
+  { slug: "cartv", name: "CarTV", rivalOf: [], strong: ["cartvapp", "cartviptv"], searches: ["cartv app", "cartv iptv", "#cartvapp"] },
+  { slug: "animates", name: "Animates", rivalOf: [], strong: ["animatesapp", "animatesai"], searches: ["animates app", "animates ai companion", "#animatesapp"] },
+  { slug: "cutai", name: "CutAI", rivalOf: [], strong: ["cutaiapp", "cutaivideo", "#cutai"], searches: ["cutai", "#cutai", "cutai video editor"] },
+  { slug: "anamana", name: "Anamana", rivalOf: [], strong: ["anamana"], searches: ["anamana", "#anamana", "anamana séries"] },
+  { slug: "workbuddy", name: "WorkBuddy", rivalOf: [], strong: ["workbuddyai", "workbuddyapp"], searches: ["workbuddy ai", "#workbuddyai", "workbuddy app"] },
+  { slug: "miralune", name: "Miralune", rivalOf: [], strong: ["miralune"], searches: ["miralune", "#miralune", "miralune drama"] },
+  { slug: "glacier", name: "Glacier", rivalOf: [], strong: ["glacierapp"], searches: ["glacier app", "#glacierapp"] },
+  { slug: "tcgcardscanner", name: "TCG Card Scanner", rivalOf: [], strong: ["tcgcardscanner"], searches: ["tcg card scanner", "#tcgcardscanner"] },
+  { slug: "orianotes", name: "Oria Notes", rivalOf: [], strong: ["orianotes"], searches: ["oria notes", "#orianotes", "oria notes app"] },
+  { slug: "cinerra", name: "Cinerra", rivalOf: [], strong: ["cinerra"], searches: ["cinerra", "#cinerra", "cinerra drama"] },
+  { slug: "livetraffic", name: "Live Traffic", rivalOf: [], strong: ["livetrafficapp"], searches: ["live traffic app", "#livetrafficapp"] },
+  { slug: "dawcade", name: "Dawcade", rivalOf: [], strong: ["dawcade"], searches: ["dawcade", "#dawcade", "dawcade app"] },
+  { slug: "holynote", name: "HolyNote", rivalOf: [], strong: ["holynote"], searches: ["holynote", "#holynote", "holynote app"] },
   // Les 5 premières apps trouvées par les classements de l'App Store et confirmées par le fondateur (13/11/2026) :
   // trois apps de révision francophones, une app de langues (66 000 vidéos sous #pingoai), un compteur de
   // calories, une app de rencontre. Aucune n'est concurrente d'un projet. « diane ai » seul n'est pas un motif
