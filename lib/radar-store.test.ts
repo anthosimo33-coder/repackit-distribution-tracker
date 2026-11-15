@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   STORE_COUNTRIES,
   STORE_FEEDS,
+  GAME_FEEDS,
+  GAMES_GENRE,
   STORE_MAX_TAG_VIDEOS,
   STORE_MIN_CREATORS,
   STORE_PROFILES_PER_TAG,
@@ -56,8 +58,15 @@ const profil = (o: Partial<AuthorProfile> = {}): AuthorProfile => ({ fans: 200, 
 const page = (videos: number, auteurs: string[], views = 1_000_000): TagPage => ({ videos, views, items: auteurs.map((author) => ({ author, desc: "" })) });
 
 describe("Radar — classements App Store : les listes", () => {
-  it("26 pays (les six d'avant en tête, comme avant le 15/11/2026), gratuites et plus rentables, 22 genres : 1 144 listes", () => {
-    expect(STORE_FEEDS).toHaveLength(26 * 2 * 22);
+  it("26 pays (les six d'avant en tête, comme avant le 15/11/2026), gratuites et plus rentables, 22 genres, puis les jeux gratuits : 1 170 listes", () => {
+    expect(STORE_FEEDS).toHaveLength(26 * 2 * 22 + 26);
+    // Les jeux (15/11/2026) : le classement GRATUIT de chaque pays seulement, en fin de liste.
+    expect(GAMES_GENRE).toBe("6014");
+    expect(STORE_FEEDS.slice(-26)).toEqual(GAME_FEEDS);
+    expect(GAME_FEEDS.every((f) => f.list === "topfreeapplications" && f.genre === "6014")).toBe(true);
+    expect(GAME_FEEDS.map((f) => f.country)).toEqual([...STORE_COUNTRIES]);
+    expect(storeFeedUrl(GAME_FEEDS[0])).toBe("https://itunes.apple.com/fr/rss/topfreeapplications/limit=200/genre=6014/json");
+    expect(STORE_FEEDS.filter((f) => f.genre === "6014" && f.list === "topgrossingapplications")).toEqual([]);
     // Les 88 premières listes n'ont pas bougé, ni les 264 des six premiers pays : le curseur de la prod garde son sens.
     expect(STORE_COUNTRIES.slice(0, 6)).toEqual(["fr", "us", "gb", "es", "mx", "br"]);
     expect(STORE_COUNTRIES).toHaveLength(26);
@@ -80,8 +89,8 @@ describe("Radar — classements App Store : les listes", () => {
     expect(a.next).toBe(60);
     // Le curseur posé à la fin des six premiers pays (264) continue sur les nouveaux.
     expect(feedsForRun(264).feeds[0].country).toBe("ca");
-    const fin = feedsForRun(1_140);
-    expect(fin.feeds.map((f) => STORE_FEEDS.indexOf(f)).slice(0, 6)).toEqual([1_140, 1_141, 1_142, 1_143, 0, 1]);
+    const fin = feedsForRun(1_166);
+    expect(fin.feeds.map((f) => STORE_FEEDS.indexOf(f)).slice(0, 6)).toEqual([1_166, 1_167, 1_168, 1_169, 0, 1]);
     expect(fin.next).toBe(56);
     // Le curseur de la prod au 13/11/2026 (60, sur 88 listes alors) continue où il en était.
     expect(feedsForRun(60).feeds[0]).toEqual(STORE_FEEDS[60]);

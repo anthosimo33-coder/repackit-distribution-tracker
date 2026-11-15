@@ -48,20 +48,34 @@ export const STORE_COUNTRIES = [
   "ca", "au", "ie", "nz", "de", "at", "ch", "it", "nl", "be", "pl", "pt", "se", "ar", "co", "cl", "ph", "id", "tr", "sa",
 ] as const;
 export const STORE_LISTS = ["topfreeapplications", "topgrossingapplications"] as const;
-/** « » = tous genres ; puis les genres de l'App Store hors jeux (éducation, style de vie, réseaux sociaux, santé…). */
+/** « » = tous genres ; puis les genres de l'App Store hors jeux (éducation, style de vie, réseaux sociaux, santé…). Les jeux : cf `GAME_FEEDS`. */
 export const STORE_GENRES = ["", "6017", "6012", "6005", "6013", "6007", "6008", "6006", "6002", "6016", "6015", "6023", "6011", "6024", "6003", "6018", "6020", "6000", "6010", "6009", "6004", "6027"] as const;
 
 export type StoreFeed = { country: string; list: string; genre: string };
 
-export const STORE_FEEDS: readonly StoreFeed[] = STORE_COUNTRIES.flatMap((country) => STORE_LISTS.flatMap((list) => STORE_GENRES.map((genre) => ({ country, list, genre }))));
+/** Le genre « Jeux » de l'App Store. */
+export const GAMES_GENRE = "6014";
+/**
+ * Les JEUX MOBILES (15/11/2026, « Oui, ajoute-les », fondateur : le périmètre est « apps, SaaS, jeux mobiles ») : le
+ * classement des jeux GRATUITS de chaque pays, pas celui des plus rentables, tenu par de grosses franchises (Candy
+ * Crush, Royal Match) dont les comptes sont des joueurs, pas des réseaux. Leurs hashtags passent le même contrôle :
+ * au-delà de `STORE_MAX_TAG_VIDEOS` vidéos, écartés. En fin de liste : le curseur de la prod garde son sens.
+ */
+export const GAME_FEEDS: readonly StoreFeed[] = STORE_COUNTRIES.map((country) => ({ country, list: "topfreeapplications", genre: GAMES_GENRE }));
+
+export const STORE_FEEDS: readonly StoreFeed[] = [
+  ...STORE_COUNTRIES.flatMap((country) => STORE_LISTS.flatMap((list) => STORE_GENRES.map((genre) => ({ country, list, genre })))),
+  ...GAME_FEEDS,
+];
 
 export function storeFeedUrl(f: StoreFeed): string {
   return `https://itunes.apple.com/${f.country}/rss/${f.list}/limit=200/${f.genre ? `genre=${f.genre}/` : ""}json`;
 }
 
 /**
- * Listes lues par passage : les 1 144 listes (26 pays × 2 × 22 genres) sont relues en 19 heures, un passage par
- * heure (30 par passage sur 264 listes jusqu'au 15/11/2026 ; 12 toutes les 3 heures jusqu'au 13/11/2026).
+ * Listes lues par passage : les 1 170 listes (26 pays × 2 × 22 genres, et les jeux gratuits de chaque pays) sont
+ * relues en 20 heures, un passage par heure (30 par passage sur 264 listes jusqu'au 15/11/2026 ; 12 toutes les
+ * 3 heures jusqu'au 13/11/2026).
  */
 export const STORE_FEEDS_PER_RUN = 60;
 
