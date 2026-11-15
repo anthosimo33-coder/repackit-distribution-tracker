@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { JUDGE_VERSION } from "./radarJudgeMath";
 import { MARKET_CURRENCY } from "./radarMarketMath";
 import { MEDIAN_WINDOW, videoCitesApp } from "./radarNetworkMath";
 import { storeUrl } from "./radarStoreMath";
@@ -41,6 +42,9 @@ function projectApp(a: Doc<"radarApps">) {
     store: a.store ? { ...a.store, url: storeUrl(a.store.storeId) } : null,
     market: a.market ? { ...a.market, rateCents: a.market.rateCents ?? null, about: a.market.about ?? null, currency: MARKET_CURRENCY } : null,
     countries: a.net?.countries ?? [],
+    // Ce qu'est le produit d'après l'IA (radarJudge) : app, saas, jeu_mobile… ; `null` tant qu'elle n'est pas jugée.
+    // Les apps hors périmètre (ni app, ni SaaS, ni jeu mobile) sont en pause dans le Radar : Swarm ne les montre pas.
+    kind: a.nature?.kind ?? null,
   };
 }
 
@@ -55,6 +59,9 @@ function projectTracked(t: Doc<"radarTracked">) {
     handle: t.handle,
     appId: t.appId,
     status: t.status,
+    // Placement payé (jugement de l'IA) : pas un créateur de l'app, mais ses vidéos qui la citent comptent dans ses
+    // vues, étiquetées « placement payé » (définition du fondateur, 14/11/2026).
+    placement: t.placement === true,
     fans: t.fans,
     bio: t.bio ?? null,
     lang: t.lang ?? null,
@@ -185,11 +192,12 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
         if (t.status !== "active") continue;
         const app = apps.get(t.appId);
         const texts = (await videosOf(ctx, t._id, MEDIAN_WINDOW)).filter((x) => !x.platform).map((x) => `${x.caption ?? ""} ${x.hook ?? ""}`);
-        // Plus rien ne le relie à son app : pas un créateur pour Swarm, qui ne liste que les comptes actifs — il part
-        // « en pause », sans aucune justification. Il part quand même : ses vidéos qui citent l'app (une seule, d'ordinaire)
-        // gardent ainsi leur pseudo et leur lien dans Swarm (14/11/2026 : sans lui, 51 vidéos des 30 derniers jours,
-        // 1,17 M de vues, s'affichaient sans pseudo ni lien).
-        const linked = !app || proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
+        // Relié à son app : par sa preuve, par un placement payé (il cite peu son app par nature, mais sa vidéo compte et
+        // s'étiquette), ou parce que l'IA (v2, JUDGE_VERSION) dit qu'il la pousse. Sinon il part « en pause » : pas un
+        // créateur pour Swarm, qui ne liste que les comptes actifs, mais ses vidéos gardent leur pseudo et leur lien
+        // (#513). Aucune justification ne part.
+        const judged = app ? (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect()).find((j) => (j.v ?? 1) >= JUDGE_VERSION) : undefined;
+        const linked = !app || t.placement === true || judged?.verdict === "pousse" || proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
         rows.push(linked ? projectTracked(t) : { ...projectTracked(t), status: "paused" as const });
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };
