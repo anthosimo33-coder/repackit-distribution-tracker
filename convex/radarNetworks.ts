@@ -1635,9 +1635,15 @@ async function requestNetworkSearch(ctx: MutationCtx, appId: Id<"radarApps">, st
 }
 
 /** Crée une app suivie : ses motifs (cités dans une légende) font aussi ses recherches. */
-async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[], auto = false): Promise<Doc<"radarApps">> {
+/**
+ * `marks` : garder l'arobase et le dièse des motifs (« @learna », « #learna » : une mention triée par l'IA, dont le
+ * nom compacté seul serait dans « learn a new language ») ; `searches` : les recherches, sinon tirées des motifs.
+ */
+type CreateOpts = { marks?: boolean; searches?: readonly string[] };
+
+async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[], auto = false, opts: CreateOpts = {}): Promise<Doc<"radarApps">> {
   const clean = cleanText(name.trim(), 60);
-  const strong = Array.from(new Set(patterns.map((p) => normalize(p.replace(/^[#@]/, "")).compact).filter((p) => p.length >= 3)));
+  const strong = Array.from(new Set(patterns.map((p) => normalize(opts.marks ? p : p.replace(/^[#@]/, "")).compact).filter((p) => p.replace(/^[#@]/, "").length >= 3)));
   if (!clean || strong.length === 0) throw err(ERR.RADAR_APP_INVALID, "Un nom et au moins un motif de 3 caractères.");
   const slug = normalize(clean).compact.replace(/[^a-z0-9.]/g, "");
   if (await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first()) {
@@ -1649,7 +1655,9 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
     const taken = shadowingApp(p, followed);
     if (taken) throw err(ERR.RADAR_APP_PATTERN_TAKEN, `Le motif « ${p} » est déjà dans ceux de « ${taken.name} ».`, { pattern: p, name: taken.name });
   }
-  const searches = [...strong, ...strong.map((p) => `#${p.replace(/\.[a-z]+$/, "")}`)].filter((x, i, a) => a.indexOf(x) === i);
+  const searches = opts.searches?.length
+    ? [...opts.searches]
+    : [...strong, ...strong.map((p) => `#${p.replace(/\.[a-z]+$/, "")}`)].filter((x, i, a) => a.indexOf(x) === i);
   const now = Date.now();
   const id = await ctx.db.insert("radarApps", {
     slug,
@@ -1700,8 +1708,9 @@ export async function followCandidateCore(
   now: number,
   // Le suivi d'office (convex/radarAuto), pas le bouton « Suivre » : sa recherche peut attendre un palier du solde.
   auto = false,
+  opts: CreateOpts = {},
 ): Promise<{ appId: Id<"radarApps">; attached: number }> {
-  const app = await createApp(ctx, name, rivalOf, patterns, auto);
+  const app = await createApp(ctx, name, rivalOf, patterns, auto, opts);
   const counter: TrackedCounter = {};
   let attached = 0;
   // Les comptes d'une app des classements sont déjà prouvés par son contrôle (pseudo, bio, moitié des vidéos) ;

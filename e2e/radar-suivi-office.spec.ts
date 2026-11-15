@@ -194,4 +194,55 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
     }
   });
+
+  test("une mention ou un site cités par deux comptes, que l'IA dit app ou logiciel, entrent à l'essai sous des motifs sûrs ; une personne reste proposée", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const p = `e2etri${ts}`;
+    // L'app que leurs comptes poussent (le contexte donné à l'IA), une mention d'app, un site, une personne.
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}z`, name: `E2E Tri ${ts}`, rivalOf: [], strong: [`${p}z`] }],
+      accounts: [],
+      candidates: [
+        { key: `@${p}1`, kind: "mention", label: `@E2etri${ts}a: learn faster`, authors: [`ana_${p}`, `bea_${p}`], fromApps: [`${p}z`] },
+        { key: `${p}b.app`, kind: "domain", label: `${p}b.app`, authors: [`cleo_${p}`, `dina_${p}`], fromApps: [`${p}z`] },
+        { key: `@${p}3`, kind: "mention", label: `@Someone ${ts}`, authors: [`eva_${p}`, `fay_${p}`], fromApps: [`${p}z`] },
+      ],
+    });
+    try {
+      // Avant le tri, le suivi d'office ne regarde ni la mention ni le site.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toEqual({ followed: 0, kept: 0, attached: 0 });
+      // Le tri : l'IA (sa réponse, validée comme en vrai) dit une app, un logiciel, une personne.
+      const tri = [
+        { key: `@${p}1`, kind: "app", name: `E2etri${ts}a` },
+        { key: `${p}b.app`, kind: "software", name: `${p}b` },
+        { key: `@${p}3`, kind: "other", name: "" },
+      ];
+      expect(await admin.mutation(api.radarAuto.e2eTriageCandidates, { secret: E2E_SECRET, markers: [p], answer: tri })).toEqual({ inScope: 2, out: 1 });
+      // Un second tri ne refait rien : chacun n'est trié qu'une fois.
+      expect(await admin.mutation(api.radarAuto.e2eTriageCandidates, { secret: E2E_SECRET, markers: [p], answer: tri })).toEqual({ inScope: 0, out: 0 });
+
+      // Le suivi d'office : l'app et le site entrent, à l'essai ; la personne n'est pas regardée.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toMatchObject({ followed: 2, kept: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}a` })).toEqual({
+        name: `E2etri${ts}a`,
+        strong: [`@${p}a`, `#${p}a`, `${p}aapp`],
+        searches: [`${p}a`, `#${p}a`, `${p}a app`],
+        trial: true,
+      });
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}b` })).toEqual({
+        name: `${p}b`,
+        strong: [`${p}b.app`],
+        searches: [`${p}b.app`, `#${p}b`, `${p}b app`],
+        trial: true,
+      });
+      // À l'écran : les deux apps suivies, la personne toujours proposée.
+      await page.goto(adminPath("/radar?onglet=comptes"));
+      await expect(page.getByRole("region", { name: "Autres apps" }).getByTestId("radar-app").filter({ hasText: `E2etri${ts}a` })).toHaveCount(1);
+      await expect(page.getByRole("region", { name: "Autres apps" }).getByTestId("radar-app").filter({ hasText: `${p}b` })).toHaveCount(1);
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
 });

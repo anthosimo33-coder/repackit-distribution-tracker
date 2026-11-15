@@ -4665,6 +4665,8 @@ export default defineSchema({
     // Le suivi d'office l'a regardée (convex/radarAuto) : suivie, ou laissée proposée avec la raison.
     autoAt: v.optional(v.number()),
     autoNote: v.optional(v.string()),
+    // Mention ou site trié par l'IA (radarAutoMath.triageAnswer, 15/11/2026) : ce que c'est, et le nom du produit.
+    triage: v.optional(v.object({ at: v.number(), kind: v.union(v.literal("app"), v.literal("software"), v.literal("game"), v.literal("other")), name: v.string() })),
     // L'app suivie qu'elle est devenue : sa fiche (App Store, campagne) y est recopiée, et tenue à jour.
     appId: v.optional(v.id("radarApps")),
     ficheAt: v.optional(v.number()),

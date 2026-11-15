@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_COMMON_NOTE, AUTO_SCHEMA, AUTO_SYSTEM, autoAnswer, autoPlan, autoPrompt, shortenedPattern, SHOP_GENRES, TRIAL_KEEP_MIN, TRIAL_MAX_WAIT_MS, TRIAL_SETTLE_MS, trialDecision } from "../convex/radarAutoMath";
+import {
+  AUTO_COMMON_NOTE,
+  AUTO_SCHEMA,
+  AUTO_SYSTEM,
+  autoAnswer,
+  autoPlan,
+  autoPrompt,
+  shortenedPattern,
+  SHOP_GENRES,
+  TRIAGE_OUT_NOTE,
+  TRIAGE_SYSTEM,
+  triageAnswer,
+  triagePatterns,
+  triagePrompt,
+  triageSearches,
+  TRIAL_KEEP_MIN,
+  TRIAL_MAX_WAIT_MS,
+  TRIAL_SETTLE_MS,
+  trialDecision,
+} from "../convex/radarAutoMath";
+import { citesApp } from "../convex/radarNetworkMath";
 import { AUTO_MIN_CREATORS, brandFamily, storeAutoFollow, type CreatorWhy } from "../convex/radarStoreMath";
 
 /**
@@ -134,9 +154,66 @@ describe("Radar — suivi d'office : ce qu'on fait d'une app repérée", () => {
     expect(autoPlan({ kind: "ia", label: "Elb", authorCount: 3 })).toEqual({ skip: "nom trop court" });
   });
 
-  it("un compte mentionné ou un site cité ne sont jamais suivis d'office", () => {
+  it("un compte mentionné ou un site cité n'est suivi d'office qu'une fois trié par l'IA, et à l'essai (15/11/2026)", () => {
     expect(autoPlan({ kind: "mention", label: "@SHEIN" })).toEqual({ skip: "pas une source suivie d'office" });
     expect(autoPlan({ kind: "domain", label: "opsion.app" })).toEqual({ skip: "pas une source suivie d'office" });
+    expect(autoPlan({ kind: "mention", label: "@Learna: Learn New Languages", triage: { kind: "app", name: "Learna" } })).toEqual({ patterns: ["@learna", "#learna", "learnaapp"], trial: true });
+    expect(autoPlan({ kind: "domain", label: "faithmode.app", triage: { kind: "software", name: "faithmode" } })).toEqual({ patterns: ["faithmode.app"], trial: true });
+    expect(autoPlan({ kind: "mention", label: "@Rohat", triage: { kind: "other", name: "" } })).toEqual({ skip: TRIAGE_OUT_NOTE });
+    expect(autoPlan({ kind: "mention", label: "@Bop", triage: { kind: "app", name: "Bop" } })).toEqual({ skip: "nom trop court" });
+  });
+});
+
+describe("Radar — le tri des mentions et des sites par l'IA (15/11/2026)", () => {
+  it("l'IA reçoit le nom affiché ou le site, combien de comptes le citent, et ce qu'ils poussent d'autre", () => {
+    const p = triagePrompt([
+      { id: "a", kind: "mention", label: "@Learna: Learn New Languages", authors: 12, apps: ["Praktika", "Vocabulary"] },
+      { id: "b", kind: "domain", label: "faithmode.app", authors: 6, apps: [] },
+    ]);
+    expect(p).toContain("mentioned account: @Learna: Learn New Languages");
+    expect(p).toContain("cited by: 12 accounts (they also promote: Praktika, Vocabulary)");
+    expect(p).toContain("website: faithmode.app");
+    expect(TRIAGE_SYSTEM).toContain("When unsure, answer other");
+  });
+
+  it("une ligne par élément demandé ; nature inconnue ou produit sans nom : autre", () => {
+    const batch = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+    const raw = {
+      items: [
+        { id: "a", kind: "app", name: "  Learna  " },
+        { id: "a", kind: "other", name: "" },
+        { id: "z", kind: "app", name: "Inventée" },
+        { id: "b", kind: "app", name: "" },
+        { id: "c", kind: "console", name: "Valorant" },
+        { id: "d", kind: "game", name: "Bop" },
+      ],
+    };
+    expect(triageAnswer(raw, batch)).toEqual([
+      { id: "a", kind: "app", name: "Learna" },
+      { id: "b", kind: "other", name: "" },
+      { id: "c", kind: "other", name: "" },
+      { id: "d", kind: "other", name: "" },
+    ]);
+    expect(triageAnswer("illisible", batch)).toEqual([]);
+  });
+
+  it("jamais le nom compacté seul : « learna » est dans « learn a new language »", () => {
+    const learna = { strong: triagePatterns({ kind: "mention", label: "@Learna" }, "Learna") };
+    expect(citesApp("learn a new language every day", "prof.anglais", learna)).toBe(false);
+    expect(citesApp("I use @learna every morning", "x", learna)).toBe(true);
+    expect(citesApp("day 12 #learna", "x", learna)).toBe(true);
+    expect(citesApp("the Learna app is free", "x", learna)).toBe(true);
+    // Un nom qui finit déjà par « app » ne prend pas « appapp ».
+    expect(triagePatterns({ kind: "mention", label: "@DitchApp" }, "DitchApp")).toEqual(["@ditchapp", "#ditchapp"]);
+    // Un site : son domaine entier ; trop court ou pas un domaine, rien.
+    expect(triagePatterns({ kind: "domain", label: "tented.ai" }, "Tented")).toEqual(["tented.ai"]);
+    expect(triagePatterns({ kind: "domain", label: "x.io" }, "X")).toEqual([]);
+  });
+
+  it("ce qu'on cherche : le nom, son hashtag, « nom app » ; le site tel quel", () => {
+    expect(triageSearches({ kind: "mention", label: "@Learna" }, "Learna")).toEqual(["learna", "#learna", "learna app"]);
+    expect(triageSearches({ kind: "mention", label: "@HealthMeter" }, "Health Meter")).toEqual(["health meter", "#healthmeter", "health meter app"]);
+    expect(triageSearches({ kind: "domain", label: "faithmode.app" }, "faithmode")).toEqual(["faithmode.app", "#faithmode", "faithmode app"]);
   });
 });
 

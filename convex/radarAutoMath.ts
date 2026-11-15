@@ -2,7 +2,8 @@
  * RADAR — SUIVI D'OFFICE : ce qu'on fait d'une app repérée. Règle pure (les écritures : convex/radarAuto).
  */
 import { LEAD_MIN_ACCOUNTS } from "./radarJudgeMath";
-import { marketPatterns } from "./radarMarketMath";
+import { marketPatterns, productKey } from "./radarMarketMath";
+import { normalize } from "./radarNetworkMath";
 import { AUTO_MIN_CREATORS, storeAutoFollow, storeTrial, tagCore, type CreatorWhy } from "./radarStoreMath";
 
 /** Le motif raccourci du hashtag prouvé (« hush » pour « hushapp ») : celui que le suivi d'office a utilisé à tort le 13/11/2026. */
@@ -16,6 +17,8 @@ type Candidate = {
   authorCount?: number;
   store?: { tag: string; genre?: string; creators: readonly { handle: string; why: CreatorWhy }[] };
   market?: { handle: string };
+  /** Ce que l'IA a dit d'une mention ou d'un site (cf `triageAnswer`). */
+  triage?: { kind: TriageKind; name: string };
 };
 
 /**
@@ -45,7 +48,113 @@ export function autoPlan(c: Candidate): AutoPlan {
     const patterns = marketPatterns(c.label, "");
     return patterns.length ? { patterns } : { skip: "nom trop court" };
   }
+  // Un compte mentionné ou un site cité par deux comptes ou plus, que l'IA a dit app, logiciel ou jeu mobile et su
+  // nommer (15/11/2026) : à l'essai, sous des motifs qu'une phrase n'emploie pas (cf `triagePatterns`).
+  if ((c.kind === "mention" || c.kind === "domain") && c.triage) {
+    if (!inTriageScope(c.triage.kind)) return { skip: TRIAGE_OUT_NOTE };
+    const patterns = triagePatterns(c, c.triage.name);
+    return patterns.length ? { patterns, trial: true } : { skip: "nom trop court" };
+  }
   return { skip: "pas une source suivie d'office" };
+}
+
+// ─── Le tri des mentions et des sites (15/11/2026) ───────────────────────────
+
+/**
+ * Les @mentions et les sites que citent deux comptes ou plus (286 mentions et 32 sites le 15/11/2026) : des
+ * personnes et des marques (@Rohat, @valorant, @H&M), mais aussi des apps qu'on ne suit pas (Learna, HealthMeter,
+ * faithmode.app, tented.ai). Claude Haiku dit ce que c'est et le nom du produit ; seuls une app, un logiciel ou un
+ * jeu mobile entrent, à l'essai.
+ */
+export const TRIAGE_KINDS = ["app", "software", "game", "other"] as const;
+export type TriageKind = (typeof TRIAGE_KINDS)[number];
+export const inTriageScope = (k: TriageKind): boolean => k === "app" || k === "software" || k === "game";
+/** Comptes qui la citent, au moins, pour la faire trier. */
+export const TRIAGE_MIN_AUTHORS = 2;
+/** Mentions et sites envoyés par appel. */
+export const TRIAGE_BATCH = 40;
+export const TRIAGE_OUT_NOTE = "ni une app, ni un logiciel, ni un jeu mobile (IA)";
+
+export const TRIAGE_SYSTEM = [
+  "Each item is something several TikTok accounts cite in their videos: either a TikTok account they @mention (we give its display name) or a website domain.",
+  "These accounts mostly promote apps. Say what the item is, and name the product.",
+  'kind: "app" = a mobile app (iOS or Android); "software" = a website, SaaS, web tool or AI tool people sign up for; "game" = a mobile game;',
+  '"other" = everything else: a person, creator, streamer, celebrity, musician or band, a TV show or film, a media or news site, a shop or a physical',
+  "product or cosmetics brand, a restaurant or employer, a console or PC game, a generic site (github.io, netlify.app, amazon), or anything you cannot tell.",
+  'name = the product\'s own name as people would search it ("Learna", "HealthMeter", "faithmode"), without slogan; empty string when kind is "other".',
+  "When the display name is only a slogan (\"Spotify but for Muslims\") and you cannot tell the product's name, answer other.",
+  "When unsure, answer other. Answer for every item, using its id.",
+].join(" ");
+
+export const TRIAGE_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { id: { type: "string" }, kind: { type: "string", enum: [...TRIAGE_KINDS] }, name: { type: "string" } },
+        required: ["id", "kind", "name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+} as const;
+
+export type TriageToJudge = { id: string; kind: "mention" | "domain"; label: string; authors: number; apps: string[] };
+
+export function triagePrompt(batch: readonly TriageToJudge[]): string {
+  return batch
+    .map((c) => `id: ${c.id}\n${c.kind === "mention" ? `mentioned account: ${c.label}` : `website: ${c.label}`}\ncited by: ${c.authors} accounts${c.apps.length ? ` (they also promote: ${c.apps.slice(0, 4).join(", ")})` : ""}`)
+    .join("\n\n");
+}
+
+export type Triage = { id: string; kind: TriageKind; name: string };
+
+/**
+ * La réponse de l'IA ramenée à ce qu'on peut écrire : une ligne par élément DEMANDÉ (inventé ou répété : écarté), une
+ * nature connue, un nom propre d'au moins 4 lettres ; un produit sans nom devient « autre ».
+ */
+export function triageAnswer(raw: unknown, batch: readonly { id: string }[]): Triage[] {
+  const asked = new Set(batch.map((c) => c.id));
+  const rows = raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown }).items) ? (raw as { items: unknown[] }).items : [];
+  const out: Triage[] = [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    const x = r as Record<string, unknown>;
+    const id = typeof x.id === "string" ? x.id : "";
+    if (!asked.has(id)) continue;
+    asked.delete(id);
+    const k = typeof x.kind === "string" && (TRIAGE_KINDS as readonly string[]).includes(x.kind) ? (x.kind as TriageKind) : "other";
+    const name = typeof x.name === "string" ? x.name.replace(/\s+/g, " ").trim().slice(0, 60) : "";
+    const named = inTriageScope(k) && productKey(name).length >= 4;
+    out.push({ id, kind: named ? k : "other", name: named ? name : "" });
+  }
+  return out;
+}
+
+/**
+ * Les motifs d'une mention ou d'un site trié : jamais le nom compacté seul. « Learna » compacté est dans « learn a new
+ * language », que des profs écrivent chaque jour : la mention prend `@learna`, `#learna` et `learnaapp`. Un site
+ * prend son domaine entier (« faithmode.app »), extension comprise.
+ */
+export function triagePatterns(c: { kind: "mention" | "domain" | string; label: string }, name: string): string[] {
+  if (c.kind === "domain") {
+    const d = normalize(c.label).compact;
+    return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d) && d.replace(/\.[a-z]+$/, "").length >= 4 ? [d] : [];
+  }
+  const core = productKey(name);
+  if (core.length < 4) return [];
+  return [`@${core}`, `#${core}`, core.endsWith("app") ? "" : `${core}app`].filter(Boolean);
+}
+
+/** Ce qu'on cherche sur TikTok pour une mention ou un site trié : son nom, son hashtag, « nom app » ; le site tel quel. */
+export function triageSearches(c: { kind: "mention" | "domain" | string; label: string }, name: string): string[] {
+  const core = productKey(c.kind === "domain" ? c.label.replace(/\.[a-z]+$/, "") : name);
+  const first = c.kind === "domain" ? c.label.toLowerCase() : name.toLowerCase();
+  return [first, `#${core}`, `${c.kind === "domain" ? core : name.toLowerCase()} app`].filter((x, i, a) => a.indexOf(x) === i);
 }
 
 
