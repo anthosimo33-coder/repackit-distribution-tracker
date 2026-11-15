@@ -300,6 +300,16 @@ export function storeAutoFollow(tag: string, creators: readonly { handle: string
   return own.length >= AUTO_MIN_CREATORS || (own.length === 2 && own.some((c) => c.why === "bio"));
 }
 
+/**
+ * Une app des classements à l'ESSAI (15/11/2026, « autant d'apps que FarmSpot ») : deux comptes créateurs hors
+ * famille de la marque, pas assez pour la suivre d'office. Sa recherche de réseau (payée) décide : gardée avec
+ * `AUTO_MIN_CREATORS` comptes actifs, en pause sinon (radarAutoMath.trialDecision). Le seuil pour compter ne bouge pas.
+ */
+export function storeTrial(tag: string, creators: readonly { handle: string; why: CreatorWhy }[]): boolean {
+  const slug = tagCore(tag);
+  return creators.filter((c) => !brandFamily(c.handle, slug)).length >= 2;
+}
+
 /** Un mot qui dit qu'on parle d'une APP (dans une bio) : sans lui, « parrot » dans une bio n'est qu'un perroquet. */
 const APP_CONTEXT =
   /\b(app|apps|appli|application|aplicativo|aplicacion|download|telecharge|baixe|baixar|descarga|descargar|app ?store|play ?store|ambassad\w*|embajador\w*|embaixador\w*|partner|partenaire|ugc|link in bio|lien en bio|link na bio|brand)\b/;

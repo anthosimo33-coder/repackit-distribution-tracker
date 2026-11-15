@@ -18,7 +18,7 @@ const admin = createE2eClient(convexUrl);
  * Apps, comptes et apps repérées sont GLOBAUX et le projet e2e est partagé : tout porte un marqueur, effacé à la fin.
  */
 test.describe("Radar — suivi d'office des apps trouvées", () => {
-  test("une app à trois comptes créateurs et un produit payé à la vue sont suivis seuls ; une app à deux comptes peu prouvés reste proposée", async ({ page }) => {
+  test("une app à trois comptes créateurs et un produit payé à la vue sont suivis seuls ; une app à deux comptes entre à l'essai, et sa recherche décide", async ({ page }) => {
     test.setTimeout(120_000);
     const ts = Date.now();
     const p = `e2eso${ts}`;
@@ -60,17 +60,36 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       await expect(classements.filter({ hasText: faible.marque })).toHaveCount(1);
       await expect(marche.filter({ hasText: produit.marque })).toHaveCount(1);
 
-      // Le passage du suivi d'office : deux apps suivies, cinq comptes rattachés, une app laissée proposée.
-      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [String(ts), produit.cle] })).toEqual({ followed: 2, kept: 1, attached: 5 });
+      // Le passage du suivi d'office : deux apps suivies, une à l'essai (deux comptes créateurs, 15/11/2026), sept
+      // comptes rattachés.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [String(ts), produit.cle] })).toEqual({ followed: 3, kept: 0, attached: 7 });
 
       // Suivies : elles ont quitté les propositions et ont leurs comptes.
       await expect(suivie(forte.marque)).toContainText("3 comptes");
       await expect(suivie(produit.marque)).toContainText("2 comptes");
       await expect(classements.filter({ hasText: forte.marque })).toHaveCount(0);
       await expect(marche.filter({ hasText: produit.marque })).toHaveCount(0);
-      // L'app à deux comptes peu prouvés reste proposée ; celle déjà suivie n'a pas été créée une seconde fois.
-      await expect(classements.filter({ hasText: faible.marque })).toHaveCount(1);
-      await expect(suivie(faible.marque)).toHaveCount(0);
+      // L'app à deux comptes est suivie à l'essai ; celle déjà suivie n'a pas été créée une seconde fois.
+      await expect(classements.filter({ hasText: faible.marque })).toHaveCount(0);
+      await expect(suivie(faible.marque)).toContainText("2 comptes");
+      const slugFaible = faible.marque.toLowerCase();
+      expect(await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: slugFaible })).toEqual({ trial: true, status: "active", pausedReason: null });
+      expect(await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: forte.marque.toLowerCase() })).toEqual({ trial: false, status: "active", pausedReason: null });
+      // Swarm ne la voit pas tant qu'elle est à l'essai ; l'app suivie d'office, si.
+      const exportees = new Map<string, unknown>();
+      for (let cursor: string | null = null, i = 0; i < 500; i++) {
+        const r = (await admin.mutation(api.swarmExport.e2eSwarmExport, { secret: E2E_SECRET, table: "apps", cursor })) as { rows: { slug: string; status: string }[]; cursor: string; done: boolean };
+        for (const row of r.rows) exportees.set(row.slug, row.status);
+        if (r.done) break;
+        cursor = r.cursor;
+      }
+      expect([exportees.get(slugFaible), exportees.get(forte.marque.toLowerCase())]).toEqual(["paused", "active"]);
+      // Sa recherche n'a rien prouvé de plus : cherchée il y a moins de 2 jours, elle attend ; au-delà, en pause.
+      await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: slugFaible, searchedAgoMs: 3_600_000 });
+      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: `e2eso${ts}`, now: Date.now() })).toEqual({ kept: 0, paused: 0, waiting: 1 });
+      await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: slugFaible, searchedAgoMs: 3 * 86_400_000 });
+      expect(await admin.mutation(api.radarAuto.e2eSettleTrials, { secret: E2E_SECRET, prefix: `e2eso${ts}`, now: Date.now() })).toEqual({ kept: 0, paused: 1, waiting: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: slugFaible })).toEqual({ trial: true, status: "paused", pausedReason: "essai" });
       await expect(suivie(connue.marque)).toHaveCount(1);
       await expect(classements.filter({ hasText: connue.marque })).toHaveCount(0);
       await suivie(forte.marque).getByRole("button", { name: new RegExp(forte.marque) }).click();
@@ -173,6 +192,57 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       await admin.mutation(api.radarStore.e2eClearStore, { secret: E2E_SECRET, prefix: String(ts) });
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
+    }
+  });
+
+  test("une mention ou un site cités par deux comptes, que l'IA dit app ou logiciel, entrent à l'essai sous des motifs sûrs ; une personne reste proposée", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const p = `e2etri${ts}`;
+    // L'app que leurs comptes poussent (le contexte donné à l'IA), une mention d'app, un site, une personne.
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}z`, name: `E2E Tri ${ts}`, rivalOf: [], strong: [`${p}z`] }],
+      accounts: [],
+      candidates: [
+        { key: `@${p}1`, kind: "mention", label: `@E2etri${ts}a: learn faster`, authors: [`ana_${p}`, `bea_${p}`], fromApps: [`${p}z`] },
+        { key: `${p}b.app`, kind: "domain", label: `${p}b.app`, authors: [`cleo_${p}`, `dina_${p}`], fromApps: [`${p}z`] },
+        { key: `@${p}3`, kind: "mention", label: `@Someone ${ts}`, authors: [`eva_${p}`, `fay_${p}`], fromApps: [`${p}z`] },
+      ],
+    });
+    try {
+      // Avant le tri, le suivi d'office ne regarde ni la mention ni le site.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toEqual({ followed: 0, kept: 0, attached: 0 });
+      // Le tri : l'IA (sa réponse, validée comme en vrai) dit une app, un logiciel, une personne.
+      const tri = [
+        { key: `@${p}1`, kind: "app", name: `E2etri${ts}a` },
+        { key: `${p}b.app`, kind: "software", name: `${p}b` },
+        { key: `@${p}3`, kind: "other", name: "" },
+      ];
+      expect(await admin.mutation(api.radarAuto.e2eTriageCandidates, { secret: E2E_SECRET, markers: [p], answer: tri })).toEqual({ inScope: 2, out: 1 });
+      // Un second tri ne refait rien : chacun n'est trié qu'une fois.
+      expect(await admin.mutation(api.radarAuto.e2eTriageCandidates, { secret: E2E_SECRET, markers: [p], answer: tri })).toEqual({ inScope: 0, out: 0 });
+
+      // Le suivi d'office : l'app et le site entrent, à l'essai ; la personne n'est pas regardée.
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [p] })).toMatchObject({ followed: 2, kept: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}a` })).toEqual({
+        name: `E2etri${ts}a`,
+        strong: [`@${p}a`, `#${p}a`, `${p}aapp`],
+        searches: [`${p}a`, `#${p}a`, `${p}a app`],
+        trial: true,
+      });
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}b` })).toEqual({
+        name: `${p}b`,
+        strong: [`${p}b.app`],
+        searches: [`${p}b.app`, `#${p}b`, `${p}b app`],
+        trial: true,
+      });
+      // À l'écran : les deux apps suivies, la personne toujours proposée.
+      await page.goto(adminPath("/radar?onglet=comptes"));
+      await expect(page.getByRole("region", { name: "Autres apps" }).getByTestId("radar-app").filter({ hasText: `E2etri${ts}a` })).toHaveCount(1);
+      await expect(page.getByRole("region", { name: "Autres apps" }).getByTestId("radar-app").filter({ hasText: `${p}b` })).toHaveCount(1);
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
 });

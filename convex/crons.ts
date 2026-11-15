@@ -119,6 +119,10 @@ crons.interval("radar-store-siblings", { hours: 1 }, internal.radarStore.runStor
 // Suivi d'office (convex/radarAuto) : les apps trouvées par les classements et la place de marché deviennent des
 // apps suivies quand leur preuve suffit ; les autres restent proposées à l'écran.
 crons.interval("radar-auto-follow", { minutes: 10 }, internal.radarAuto.runAutoFollow, {});
+// Les apps suivies à l'essai (15/11/2026) : gardées à 3 comptes actifs une fois leur recherche faite, en pause sinon.
+crons.interval("radar-trial-settle", { hours: 1 }, internal.radarAuto.settleTrials, {});
+// Les mentions et sites cités par deux comptes ou plus : l'IA dit ce que c'est (15/11/2026) ; le suivi d'office prend les apps.
+crons.interval("radar-candidate-triage", { minutes: 30 }, internal.radarAuto.runCandidateTriage, {});
 // Petits réseaux (convex/radarNaming) : les tournures qui nomment un produit (« le site c'est… »), cherchées deux
 // fois par jour dans tout TikTok, les plus récentes d'abord, sans seuil de vues (16 crédits par passage).
 crons.interval("radar-naming", { hours: 12 }, internal.radarNaming.runNaming, {});

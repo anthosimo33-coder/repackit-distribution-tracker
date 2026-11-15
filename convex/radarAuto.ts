@@ -7,21 +7,44 @@
  *  - dans les deux cas, seulement si son motif n'est pas un mot de tous les jours (une IA le dit, radarAutoMath) :
  *    sinon la recherche de son réseau rattache des centaines de comptes sans rapport.
  * Entrer = créer l'app (jamais « concurrente » d'un projet), rattacher ses comptes, et lancer sa recherche
- * complète. Ce qui n'entre pas reste PROPOSÉ à l'écran, avec la raison. Les sites cités par de petits comptes
+ * complète. Depuis le 15/11/2026 (« autant d'apps que FarmSpot »), une app des classements à DEUX comptes créateurs
+ * entre À L'ESSAI : sa recherche décide (gardée à 3 comptes actifs, en pause sinon, cf `settleTrials`). Ce qui n'entre pas reste PROPOSÉ à l'écran, avec la raison. Les sites cités par de petits comptes
  * (convex/radarNaming) ne sont pas suivis d'office : cette recherche est encore à l'essai.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { e2eMutation } from "./functions";
 import { ERR } from "./errorCodes";
 import { FAMILY_MODEL, haikuCostUsd } from "./radarFamiliesMath";
 import { followCandidateCore, judgeStoredAccount } from "./radarNetworks";
-import { AUTO_COMMON_NOTE, AUTO_SCHEMA, AUTO_SYSTEM, autoAnswer, autoPlan, autoPrompt, shortenedPattern, type AutoToJudge, type AutoVerdict } from "./radarAutoMath";
+import {
+  AUTO_COMMON_NOTE,
+  AUTO_SCHEMA,
+  AUTO_SYSTEM,
+  autoAnswer,
+  autoPlan,
+  autoPrompt,
+  inTriageScope,
+  shortenedPattern,
+  trialDecision,
+  TRIAGE_BATCH,
+  TRIAGE_MIN_AUTHORS,
+  TRIAGE_OUT_NOTE,
+  TRIAGE_SCHEMA,
+  TRIAGE_SYSTEM,
+  triageAnswer,
+  triagePrompt,
+  triageSearches,
+  type AutoToJudge,
+  type AutoVerdict,
+  type Triage,
+  type TriageToJudge,
+} from "./radarAutoMath";
 import { ficheApp } from "./radarFicheMath";
-import { refreshAppNet } from "./radarSignals";
+import { ensureSettings, refreshAppNet } from "./radarSignals";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { alreadyFollowed } from "./radarStoreMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
@@ -33,19 +56,34 @@ const MIN_ALLOWANCE_USD = 0.01;
 
 type AutoRun = { followed: number; kept: number; attached: number };
 
-/** Les apps repérées à regarder à ce passage : jamais regardées, les plus prouvées d'abord. */
+/**
+ * Les apps repérées à regarder à ce passage : jamais regardées, les plus prouvées d'abord. Lues par leur index
+ * (`autoAt` absent) : avant le 15/11/2026, les 300 plus prouvées étaient lues puis filtrées, et une app classée
+ * au-delà n'était jamais regardée une fois les 300 premières vues.
+ */
 async function pickCandidates(ctx: QueryCtx, only?: (key: string) => boolean): Promise<Doc<"radarAppCandidates">[]> {
   const pick = async (kind: "store" | "market" | "ia") =>
     (
       await ctx.db
         .query("radarAppCandidates")
-        .withIndex("by_kind_status_count", (q) => q.eq("kind", kind).eq("status", "new"))
+        .withIndex("by_kind_status_auto", (q) => q.eq("kind", kind).eq("status", "new").eq("autoAt", undefined))
         .order("desc")
-        .take(300)
+        .take(only ? 300 : AUTO_BATCH)
     )
-      .filter((c) => c.autoAt === undefined && (!only || only(c.key)))
+      .filter((c) => !only || only(c.key))
       .slice(0, AUTO_BATCH);
-  return [...(await pick("store")), ...(await pick("market")), ...(await pick("ia"))];
+  // Mentions et sites : seulement ceux que l'IA a déjà triés (les autres attendent leur tri, cf runCandidateTriage).
+  const triaged = async (kind: "mention" | "domain") =>
+    (
+      await ctx.db
+        .query("radarAppCandidates")
+        .withIndex("by_kind_status_auto", (q) => q.eq("kind", kind).eq("status", "new").eq("autoAt", undefined))
+        .order("desc")
+        .take(only ? 300 : 100)
+    )
+      .filter((c) => c.triage !== undefined && (!only || only(c.key)))
+      .slice(0, AUTO_BATCH);
+  return [...(await pick("store")), ...(await pick("market")), ...(await pick("ia")), ...(await triaged("mention")), ...(await triaged("domain"))];
 }
 
 /** Celles qui entreraient : à faire juger (leur motif est-il un mot de tous les jours ?). */
@@ -56,8 +94,18 @@ export const autoToJudge = internalQuery({
     for (const c of await pickCandidates(ctx)) {
       const plan = autoPlan(c);
       if ("skip" in plan) continue;
-      const what = c.store ? `${c.store.genre} app by ${c.store.artist}` : c.market ? (c.market.productKind === "app" ? "mobile app" : "web software") : c.kind === "ia" ? "product promoted by TikTok creators" : "";
-      out.push({ id: c._id, name: c.label, what, patterns: plan.patterns });
+      const what = c.store
+        ? `${c.store.genre} app by ${c.store.artist}`
+        : c.market
+          ? c.market.productKind === "app"
+            ? "mobile app"
+            : "web software"
+          : c.kind === "ia"
+            ? "product promoted by TikTok creators"
+            : c.triage
+              ? `${c.triage.kind === "software" ? "web software" : c.triage.kind === "game" ? "mobile game" : "mobile app"} cited by TikTok creators`
+              : "";
+      out.push({ id: c._id, name: c.triage?.name || c.label, what, patterns: plan.patterns });
     }
     return out;
   },
@@ -92,8 +140,12 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
       continue;
     }
     try {
-      const r = await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true);
-      await ctx.db.patch(c._id, { autoAt: now, autoNote: "suivie d'office" });
+      // Une mention ou un site trié : le nom du produit dit par l'IA, ses motifs marqués (@, #), ses propres recherches.
+      const r = c.triage
+        ? await followCandidateCore(ctx, c, c.triage.name, [], plan.patterns, now, true, { marks: true, searches: triageSearches(c, c.triage.name) })
+        : await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true);
+      if (plan.trial) await ctx.db.patch(r.appId, { trialSince: now });
+      await ctx.db.patch(c._id, { autoAt: now, autoNote: plan.trial ? TRIAL_NOTE : "suivie d'office" });
       followed++;
       attached += r.attached;
     } catch (e) {
@@ -121,6 +173,7 @@ export const runAutoFollow = internalAction({
     // Sans la clé du fournisseur de données (tests, intégration continue), rien n'est suivi d'office.
     if (!scKeyPresent()) return { skipped: "no-key" };
     const now = Date.now();
+    await ctx.runMutation(internal.radarAuto.requeueTrialCandidates, {});
     const batch: AutoToJudge[] = await ctx.runQuery(internal.radarAuto.autoToJudge, {});
     let verdicts: AutoVerdict[] = [];
     let usd = 0;
@@ -160,6 +213,198 @@ export const runAutoFollow = internalAction({
     // Les comptes rattachés sont relevés tout de suite ; la recherche complète de l'app part à la tâche de l'heure.
     if (r.attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
     return { ...r, usd };
+  },
+});
+
+// ─── Le tri des mentions et des sites (15/11/2026) ───────────────────────────
+
+/** Les mentions et les sites cités par deux comptes ou plus, jamais triés : les plus cités d'abord. */
+async function toTriage(ctx: QueryCtx, only?: (key: string) => boolean): Promise<TriageToJudge[]> {
+  const names = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id as string, a.name]));
+  const out: TriageToJudge[] = [];
+  for (const kind of ["domain", "mention"] as const) {
+    const rows = await ctx.db
+      .query("radarAppCandidates")
+      .withIndex("by_kind_status_count", (q) => q.eq("kind", kind).eq("status", "new").gte("authorCount", TRIAGE_MIN_AUTHORS))
+      .order("desc")
+      .take(300);
+    for (const c of rows) {
+      if (c.triage !== undefined || c.autoAt !== undefined || (only && !only(c.key))) continue;
+      out.push({ id: c._id, kind, label: c.label, authors: c.authorCount, apps: c.fromApps.map((id) => names.get(id as string) ?? "").filter(Boolean) });
+      if (out.length >= TRIAGE_BATCH) return out;
+    }
+  }
+  return out;
+}
+
+export const triageToDo = internalQuery({ args: {}, handler: (ctx) => toTriage(ctx) });
+
+async function applyTriageCore(ctx: MutationCtx, rows: readonly Triage[], now: number): Promise<{ inScope: number; out: number }> {
+  let inScope = 0;
+  let out = 0;
+  for (const t of rows) {
+    const id = ctx.db.normalizeId("radarAppCandidates", t.id);
+    if (!id) continue;
+    if (inTriageScope(t.kind)) {
+      await ctx.db.patch(id, { triage: { at: now, kind: t.kind, name: t.name } });
+      inScope++;
+    } else {
+      // Ni app, ni logiciel, ni jeu mobile : il reste proposé à l'écran, avec la raison, et n'est plus regardé d'office.
+      await ctx.db.patch(id, { triage: { at: now, kind: t.kind, name: "" }, autoAt: now, autoNote: TRIAGE_OUT_NOTE });
+      out++;
+    }
+  }
+  return { inScope, out };
+}
+
+export const applyTriage = internalMutation({
+  args: { now: v.number(), rows: v.array(v.object({ id: v.string(), kind: v.union(v.literal("app"), v.literal("software"), v.literal("game"), v.literal("other")), name: v.string() })) },
+  handler: (ctx, { now, rows }) => applyTriageCore(ctx, rows, now),
+});
+
+/** Toutes les 30 minutes : Claude Haiku trie 40 mentions ou sites (moins d'un cent l'appel). */
+export const runCandidateTriage = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ skipped: "no-key" | "budget" | "rien" } | { inScope: number; out: number; usd: number }> => {
+    if (!process.env.ANTHROPIC_API_KEY) return { skipped: "no-key" };
+    const now = Date.now();
+    const st = await ctx.runQuery(internal.radarSignals.jobState, { now });
+    if (allowanceUsd(st.budget, budgetState(st.budget, st.usage, st.balance), "ai") < MIN_ALLOWANCE_USD) return { skipped: "budget" };
+    const batch: TriageToJudge[] = await ctx.runQuery(internal.radarAuto.triageToDo, {});
+    if (batch.length === 0) return { skipped: "rien" };
+    let usd = 0;
+    let lastError: string | undefined;
+    let r = { inScope: 0, out: 0 };
+    try {
+      const response = await new Anthropic().messages.create({
+        model: FAMILY_MODEL,
+        max_tokens: 4_000,
+        system: TRIAGE_SYSTEM,
+        // Dire ce qu'est un nom, pas raisonner longuement : effort bas.
+        output_config: { effort: "low", format: { type: "json_schema", schema: TRIAGE_SCHEMA } },
+        messages: [{ role: "user", content: triagePrompt(batch) }],
+      });
+      usd = haikuCostUsd(response.usage);
+      if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") lastError = `Analyse IA : réponse interrompue (${response.stop_reason})`;
+      else r = await ctx.runMutation(internal.radarAuto.applyTriage, { now, rows: triageAnswer(JSON.parse(response.content.find((b) => b.type === "text")?.text ?? ""), batch) });
+    } catch (e) {
+      lastError =
+        e instanceof Anthropic.RateLimitError
+          ? "Analyse IA : trop de demandes, nouvel essai au prochain passage"
+          : e instanceof Anthropic.AuthenticationError
+            ? "Analyse IA : clé ANTHROPIC_API_KEY refusée"
+            : e instanceof Anthropic.APIError
+              ? `Analyse IA : erreur ${e.status ?? "réseau"}`
+              : "Analyse IA : réponse illisible";
+    }
+    await ctx.runMutation(internal.radarSignals.recordRun, { poste: "ai", credits: 0, calls: 1, errors: lastError ? 1 : 0, now, usd, ...(lastError ? { lastError } : {}) });
+    return { ...r, usd };
+  },
+});
+
+/**
+ * e2e : trie les mentions et sites dont la clé contient un des `markers`, comme l'aurait fait l'IA. `answer` donne,
+ * par CLÉ, ce qu'elle aurait répondu ; la réponse passe par la même validation qu'en vrai (`triageAnswer`).
+ */
+export const e2eTriageCandidates = e2eMutation({
+  args: { markers: v.array(v.string()), answer: v.array(v.object({ key: v.string(), kind: v.string(), name: v.string() })) },
+  handler: async (ctx, { markers, answer }) => {
+    const batch = await toTriage(ctx, (key) => markers.some((m) => key.includes(m)));
+    const idOf = new Map<string, string>();
+    for (const t of batch) {
+      const c = await ctx.db.get(ctx.db.normalizeId("radarAppCandidates", t.id)!);
+      if (c) idOf.set(c.key, t.id);
+    }
+    const raw = { items: answer.map((a) => ({ id: idOf.get(a.key) ?? "", kind: a.kind, name: a.name })) };
+    return applyTriageCore(ctx, triageAnswer(raw, batch), Date.now());
+  },
+});
+
+/** e2e : ce qu'est devenue l'app suivie depuis une mention ou un site (motifs, recherches, essai). */
+export const e2eAppRules = e2eMutation({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const a = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    return a ? { name: a.name, strong: a.strong, searches: a.searches, trial: a.trialSince !== undefined } : null;
+  },
+});
+
+// ─── L'essai (15/11/2026) ────────────────────────────────────────────────────
+
+export const TRIAL_NOTE = "à l'essai : sa recherche décide";
+/** Apps repérées relues par appel de la reprise. */
+const TRIAL_REQUEUE_SCAN = 200;
+/** Apps à l'essai jugées par passage (toutes les heures). */
+const TRIAL_SETTLE_BATCH = 60;
+
+/**
+ * Une fois : les apps des classements laissées « preuve insuffisante » avant l'essai sont regardées de nouveau (leur
+ * `autoAt` effacé) ; celles à deux comptes créateurs entrent à l'essai. Par lots, à chaque passage, jusqu'au bout.
+ */
+export const requeueTrialCandidates = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const s = await ensureSettings(ctx);
+    if (s.trialRequeueDoneAt !== undefined) return 0;
+    const r = await ctx.db
+      .query("radarAppCandidates")
+      .withIndex("by_kind_status_count", (q) => q.eq("kind", "store").eq("status", "new"))
+      .paginate({ cursor: s.trialRequeueCursor ?? null, numItems: TRIAL_REQUEUE_SCAN });
+    let requeued = 0;
+    for (const c of r.page) {
+      if (c.autoNote !== "preuve insuffisante") continue;
+      await ctx.db.patch(c._id, { autoAt: undefined, autoNote: undefined });
+      requeued++;
+    }
+    await ctx.db.patch(s._id, r.isDone ? { trialRequeueCursor: undefined, trialRequeueDoneAt: Date.now() } : { trialRequeueCursor: r.continueCursor });
+    return requeued;
+  },
+});
+
+/** Juge les apps à l'essai (cf radarAutoMath.trialDecision) : gardées, ou en pause « essai » — leurs comptes ne sont plus relevés. */
+async function settleTrialsCore(ctx: MutationCtx, now: number, only?: (slug: string) => boolean): Promise<{ kept: number; paused: number; waiting: number }> {
+  const out = { kept: 0, paused: 0, waiting: 0 };
+  const trials = (await ctx.db.query("radarApps").collect()).filter((a) => a.trialSince !== undefined && a.status === "active" && (!only || only(a.slug)));
+  // Pas encore cherchée : elle attend sa recherche, sans relire ses comptes. Les autres, les plus anciennement
+  // cherchées d'abord, `TRIAL_SETTLE_BATCH` au plus par passage (chacune relit ses comptes).
+  const searched = trials.filter((a) => a.networkSearchedAt !== undefined).sort((x, y) => x.networkSearchedAt! - y.networkSearchedAt!);
+  out.waiting += trials.length - searched.length;
+  for (const a of searched.slice(0, TRIAL_SETTLE_BATCH)) {
+    const rows = await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", a._id as Id<"radarApps">)).collect();
+    const n = { active: rows.filter((t) => t.status === "active").length, vetting: rows.filter((t) => t.status === "paused" && t.pausedReason === "vetting").length };
+    const d = trialDecision(a, n, now);
+    if (d === "keep") {
+      await ctx.db.patch(a._id, { trialSince: undefined });
+      out.kept++;
+    } else if (d === "pause") {
+      await ctx.db.patch(a._id, { status: "paused", pausedReason: "essai" });
+      out.paused++;
+    } else out.waiting++;
+  }
+  return out;
+}
+
+export const settleTrials = internalMutation({
+  args: {},
+  handler: (ctx) => settleTrialsCore(ctx, Date.now()),
+});
+
+/** e2e : juge les apps à l'essai dont le slug commence par `prefix`, à l'heure `now` (pour passer les délais). */
+export const e2eSettleTrials = e2eMutation({
+  args: { prefix: v.string(), now: v.number() },
+  handler: (ctx, { prefix, now }) => settleTrialsCore(ctx, now, (slug) => slug.startsWith(prefix)),
+});
+
+/** e2e : où en est une app (essai, statut, raison de la pause, date de sa recherche). */
+export const e2eTrialState = e2eMutation({
+  args: { slug: v.string(), searchedAgoMs: v.optional(v.number()) },
+  handler: async (ctx, { slug, searchedAgoMs }) => {
+    const a = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!a) return null;
+    // Simule une recherche faite il y a `searchedAgoMs` (la vraie ne tourne pas en e2e : pas de clé).
+    if (searchedAgoMs !== undefined) await ctx.db.patch(a._id, { networkSearchedAt: Date.now() - searchedAgoMs });
+    const b = (await ctx.db.get(a._id))!;
+    return { trial: b.trialSince !== undefined, status: b.status, pausedReason: b.pausedReason ?? null };
   },
 });
 
