@@ -29,6 +29,7 @@ import {
   autoPrompt,
   inTriageScope,
   listFallback,
+  listKey,
   listPatterns,
   listSearches,
   shortenedPattern,
@@ -364,12 +365,11 @@ async function importListCore(ctx: MutationCtx, source: string, items: readonly 
   const out = { added: 0, existing: 0, skipped: 0 };
   for (const it of items) {
     const name = it.name.replace(/\s+/g, " ").trim().slice(0, 60);
-    const core = listPatterns(name)[0];
-    if (!core) {
+    const key = listKey(name);
+    if (!key) {
       out.skipped++;
       continue;
     }
-    const key = `liste:${core}`;
     if (await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", key)).first()) {
       out.existing++;
       continue;

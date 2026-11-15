@@ -7,6 +7,7 @@ import {
   autoPlan,
   autoPrompt,
   listFallback,
+  listKey,
   listPatterns,
   listSearches,
   shortenedPattern,
@@ -273,6 +274,12 @@ describe("Radar — les apps d'une liste importée (15/11/2026)", () => {
     // Trois lettres : seulement « nomapp » ; moins, rien.
     expect(autoPlan({ kind: "liste", label: "Tab" })).toEqual({ patterns: ["tabapp"], trial: true });
     expect(autoPlan({ kind: "liste", label: "99" })).toEqual({ skip: "nom trop court" });
+    // L'import pose les noms de trois lettres (ils entrent sous « nomapp »), pas en dessous.
+    expect(listKey("Tab")).toBe("liste:tab");
+    expect(listKey("TBN+")).toBe("liste:tbn");
+    expect(listKey("Blow Up")).toBe("liste:blowup");
+    expect(listKey("99")).toBeNull();
+    expect(listKey("美团")).toBeNull();
     expect(listSearches("Blow Up")).toEqual(["blow up", "#blowup", "blow up app"]);
   });
 
