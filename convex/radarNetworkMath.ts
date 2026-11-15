@@ -726,6 +726,23 @@ export function nextSearchPage(read: { page: number; dry: number }, deep: boolea
 /** Un réseau se recherche à nouveau au bout de 3 jours pour une concurrente, d'une semaine sinon. */
 export const networkRefreshMs = (rival: boolean) => (rival ? 3 : 7) * DAY;
 
+/**
+ * L'ordre de la file des recherches de réseau : les concurrentes d'abord ; puis les apps de la liste de départ jamais
+ * cherchées — celles que le fondateur a demandées (JobStep, Pimzi, le classement appkittie du 15/11), qui attendaient
+ * derrière 169 apps adoptées des classements ; puis la plus anciennement cherchée.
+ */
+/** Rattrapage (15/11/2026) : un passage coupé par le temps enchaîne le suivant tant qu'il reste des apps jamais cherchées. */
+export const NETWORK_CHAIN_MS = 60_000;
+export const networkChainNext = (r: { timedOut: boolean; neverLeft: boolean }): boolean => r.timedOut && r.neverLeft;
+
+export function networkQueueOrder(
+  x: { rival: boolean; source?: string; networkSearchedAt?: number },
+  y: { rival: boolean; source?: string; networkSearchedAt?: number },
+): number {
+  const asked = (a: { source?: string; networkSearchedAt?: number }) => Number(a.networkSearchedAt === undefined && a.source === "seed");
+  return Number(y.rival) - Number(x.rival) || asked(y) - asked(x) || (x.networkSearchedAt ?? 0) - (y.networkSearchedAt ?? 0);
+}
+
 // ─── Formats qui circulent, apps repérées ────────────────────────────────────
 
 /** Un format partagé se lit sur les 14 derniers jours de publication. */

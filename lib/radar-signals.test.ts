@@ -14,6 +14,7 @@ import {
   nextQueries,
   normalizeBudget,
   allowanceUsd,
+  catchUpAllowance,
   parseScVideo,
   plannedUsd,
   BALANCE_PROBE_MS,
@@ -382,6 +383,15 @@ describe("budget", () => {
     const bas = budgetState(d, [], lu(CREDIT_RESERVE - 1));
     expect([bas.balanceLeft, bas.reserveReached, bas.balanceStale]).toEqual([0, true, false]);
     for (const k of ["search", "curve", "tiktok", "network", "insta", "transcript", "ads"] as const) expect(allowance(d, bas, k, 0, 1)).toBe(0);
+    // Le rattrapage (15/11/2026) : une app jamais cherchée puise dans le reste du mois, borné par le solde moins la
+    // réserve ; jamais sous la réserve.
+    const plein = budgetState(d, [usage("network", 3_839, "2026-11-14")], lu(28_477));
+    expect(allowance(d, plein, "network", 1_333, 1)).toBe(0);
+    // Le solde (moins la réserve) borne d'abord ; avec plus en compte, c'est le reste de l'enveloppe du mois.
+    expect(catchUpAllowance(d, plein, "network")).toBe(28_477 - CREDIT_RESERVE);
+    expect(catchUpAllowance(d, budgetState(d, [usage("network", 3_839, "2026-11-14")], lu(100_000)), "network")).toBe(40_000 - 3_839);
+    expect(catchUpAllowance(d, budgetState(d, [], lu(CREDIT_RESERVE + 200)), "network")).toBe(200);
+    expect(catchUpAllowance(d, bas, "network")).toBe(0);
     // La sonde (un appel d'un crédit de la tâche des relevés, hors postes) : sous la réserve, solde lu il y a 50 min
     // ou plus — moins que la période de la tâche (1 h), sinon elle en sauterait une sur deux.
     expect(BALANCE_PROBE_MS).toBeLessThan(60 * 60_000);
