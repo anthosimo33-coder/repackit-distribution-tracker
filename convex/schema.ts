@@ -4293,7 +4293,9 @@ export default defineSchema({
     rejudgeCursor: v.optional(v.string()), // où reprend le rejugement des comptes en pause (convex/radarNetworks)
     judgeCursor: v.optional(v.string()), // où reprend le jugement IA des comptes à preuve faible (convex/radarJudge)
     judgeCursorV: v.optional(v.number()), // la version du parcours en cours ; une autre version repart du début
-    judgeApplyOn: v.optional(v.boolean()), // les jugements IA agissent (radarJudge.applyJudgmentsNow) ; absent = coupé
+    judgeApplyOn: v.optional(v.boolean()), // ancien interrupteur (#519) : plus lu, seuls les verdicts relus agissent
+    reviewV: v.optional(v.number()), // version de la liste relue parcourue (radarJudgeReview.REVIEW_VERSION)
+    reviewAt: v.optional(v.number()), // où en est le parcours de la liste relue
     judgeChainAt: v.optional(v.number()), // dernier passage enchaîné du jugement (radarJudgeMath.chainNext) ; la tâche de 30 min lui cède
     // La reprise des marques à slogan dans la file des contrôles (radarStore.requeueRetagged) : où elle en est, et sa fin.
     storeRetagCursor: v.optional(v.string()),
@@ -4490,6 +4492,9 @@ export default defineSchema({
     // Appliqué (phase B) : ce qui a été fait (radarJudgeMath.VerdictAction.kind) et quand.
     appliedAt: v.optional(v.number()),
     applied: v.optional(v.string()),
+    // Le verdict RELU appliqué (radarJudgeReview) ; absent = appliqué avant la relecture, ou jamais.
+    reviewed: v.optional(v.union(v.literal("pousse"), v.literal("autre_app"), v.literal("sans_rapport"), v.literal("placement"), v.literal("incertain"))),
+    reviewedOther: v.optional(v.string()),
   })
     .index("by_account", ["accountId"])
     .index("by_applied", ["appliedAt"]),

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { APP_REVIEW, JUDGE_REVIEW } from "../convex/radarJudgeReview";
 import {
   ACCOUNT_BATCH,
   ACCOUNT_SYSTEM,
+  ACCOUNT_VERDICTS,
   ACCOUNT_TEXTS_MAX,
   JUDGE_VERSION,
   NATURE_BATCH,
@@ -345,3 +347,17 @@ describe("Radar — jugement, phase B : ce que fait chaque verdict (définition 
   });
 });
 
+
+describe("Radar — la liste relue à la main (15/11/2026)", () => {
+  it("chaque compte relu a un verdict de la liste, une app, et une « autre app » propre quand il en faut une", () => {
+    const entries = Object.entries(JUDGE_REVIEW);
+    expect(entries.length).toBeGreaterThan(700);
+    for (const [handle, r] of entries) {
+      expect(ACCOUNT_VERDICTS, handle).toContain(r.verdict);
+      expect(r.app.length, handle).toBeGreaterThan(0);
+      if (r.verdict === "autre_app") expect(productName(r.other ?? ""), handle).not.toBe("");
+      if (r.other) expect(["autre_app", "pousse"], handle).toContain(r.verdict);
+    }
+    for (const scope of Object.values(APP_REVIEW)) expect(["dehors", "dedans"]).toContain(scope);
+  });
+});

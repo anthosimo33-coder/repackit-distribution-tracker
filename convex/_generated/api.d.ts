@@ -263,6 +263,7 @@ import type * as radarInsights from "../radarInsights.js";
 import type * as radarInsightsMath from "../radarInsightsMath.js";
 import type * as radarJudge from "../radarJudge.js";
 import type * as radarJudgeMath from "../radarJudgeMath.js";
+import type * as radarJudgeReview from "../radarJudgeReview.js";
 import type * as radarMarket from "../radarMarket.js";
 import type * as radarMarketMath from "../radarMarketMath.js";
 import type * as radarNaming from "../radarNaming.js";
@@ -623,6 +624,7 @@ declare const fullApi: ApiFromModules<{
   radarInsightsMath: typeof radarInsightsMath;
   radarJudge: typeof radarJudge;
   radarJudgeMath: typeof radarJudgeMath;
+  radarJudgeReview: typeof radarJudgeReview;
   radarMarket: typeof radarMarket;
   radarMarketMath: typeof radarMarketMath;
   radarNaming: typeof radarNaming;

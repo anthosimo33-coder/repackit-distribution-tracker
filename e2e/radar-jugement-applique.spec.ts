@@ -85,10 +85,12 @@ test.describe("Radar — jugement appliqué", () => {
         },
         { handle: h(10), appSlug: `${p}a`, fans: 100, posts7d: 1, bio: `Ambassadrice officielle ${p}a`, videos: six(10, 0) },
         { handle: h(11), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(11, 0) },
+        // La relecture (15/11) : non relu ; relu autrement que l'IA ; appliqué avant la relecture puis contredit.
+        ...[14, 15, 16, 17, 18].map((n) => ({ handle: h(n), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(n, 1) })),
       ],
     });
     try {
-      const handles = [1, 2, 3, 4, 5, 6, 9, 10, 12, 13].map(h);
+      const handles = [1, 2, 3, 4, 5, 6, 9, 10, 12, 13, 14, 15, 16, 17, 18].map(h);
       // Un « pousse » v1 : ni il n'agit, ni il ne relie le compte à son app pour Swarm.
       await admin.mutation(api.radarJudge.e2eLegacyJudgment, { secret: E2E_SECRET, handle: h(11), verdict: "pousse" });
       const judged = await admin.mutation(api.radarJudge.e2eJudgeAccounts, {
@@ -105,9 +107,17 @@ test.describe("Radar — jugement appliqué", () => {
           { handle: h(10), verdict: "sans_rapport", why: "vlogs" },
           { handle: h(12), verdict: "autre_app", other: `${p}moka`, why: "pousse Moka" },
           { handle: h(13), verdict: "pousse", other: `${p}moka`, why: "pousse les deux" },
+          ...[14, 15, 16].map((n) => ({ handle: h(n), verdict: "sans_rapport" as const, why: "vlogs" })),
+          { handle: h(17), verdict: "placement", why: "une vidéo" },
+          { handle: h(18), verdict: "pousse", other: `${p}moka2`, why: "pousse les deux" },
         ],
       });
-      expect(judged.written).toBe(10);
+      expect(judged.written).toBe(15);
+      // Ce que l'IA avait appliqué seule avant la relecture (le 15/11 à 10 h 06), et une app mise hors périmètre.
+      await admin.mutation(api.radarJudge.e2eAppliedBefore, { secret: E2E_SECRET, handle: h(16), applied: "pause" });
+      await admin.mutation(api.radarJudge.e2eAppliedBefore, { secret: E2E_SECRET, handle: h(17), applied: "placement" });
+      await admin.mutation(api.radarJudge.e2eAppliedBefore, { secret: E2E_SECRET, handle: h(18), applied: "note", other: `${p}moka2` });
+      await admin.mutation(api.radarJudge.e2eAppliedBefore, { secret: E2E_SECRET, pausedApp: `${p}vide` });
 
       // Les apps : celle dont on ne sait rien n'est pas donnée à juger.
       const natures = await admin.mutation(api.radarJudge.e2eJudgeNatures, {
@@ -120,12 +130,39 @@ test.describe("Radar — jugement appliqué", () => {
       });
       expect(natures.asked.map((a: { name: string }) => a.name).sort()).toEqual([`Rival ${ts}`, `Shop ${ts}`]);
 
-      const applied = await admin.mutation(api.radarJudge.e2eApplyJudgments, { secret: E2E_SECRET, handles: [...handles, h(11)], slugs: [`${p}shop`, `${p}rival`] });
-      // Hors périmètre : en pause ; une concurrente, jamais.
-      expect(applied.perimeter).toEqual([`${p}shop`]);
-      // h(9) (3 vidéos) n'est pas un placement, h(10) (sa bio nomme l'app) n'est pas mis en pause, le v1 de h(11) n'agit pas.
-      // h(12) et h(13) poussent les deux : l'autre app est notée, eux restent.
-      expect(applied.verdicts).toEqual({ pause: 1, placement: 1, move: 1, lead: 2, note: 2, none: 3, obsolete: 1 });
+      // Seuls les verdicts RELUS agissent. h(14) n'est pas relu ; h(11) (un « pousse » v1) non plus.
+      const a = `${p}a`;
+      const review = [
+        { handle: h(1), app: a, verdict: "sans_rapport" as const },
+        { handle: h(2), app: a, verdict: "placement" as const },
+        { handle: h(3), app: a, verdict: "autre_app" as const, other: `Cringe${ts}` },
+        { handle: h(4), app: a, verdict: "autre_app" as const, other: `${p}moka` },
+        { handle: h(5), app: a, verdict: "autre_app" as const, other: `${p}moka` },
+        { handle: h(6), app: a, verdict: "pousse" as const },
+        { handle: h(9), app: a, verdict: "placement" as const },
+        { handle: h(10), app: a, verdict: "sans_rapport" as const },
+        { handle: h(12), app: a, verdict: "autre_app" as const, other: `${p}moka` },
+        { handle: h(13), app: a, verdict: "pousse" as const, other: `${p}moka` },
+        // Relu autrement que l'IA : c'est la relecture qui agit.
+        { handle: h(15), app: a, verdict: "placement" as const },
+        // Appliqué avant la relecture, que la relecture contredit : défait.
+        { handle: h(16), app: a, verdict: "placement" as const },
+        { handle: h(17), app: a, verdict: "pousse" as const },
+        { handle: h(18), app: a, verdict: "sans_rapport" as const },
+      ];
+      const scope = [
+        { slug: `${p}shop`, scope: "dehors" as const },
+        { slug: `${p}rival`, scope: "dehors" as const },
+      ];
+      const slugs = [`${p}shop`, `${p}rival`, `${p}vide`];
+      const applied = await admin.mutation(api.radarJudge.e2eApplyJudgments, { secret: E2E_SECRET, review, apps: scope, slugs });
+      // Hors périmètre relu : en pause ; une concurrente, jamais ; une app mise en pause sans relecture : remise en route.
+      expect(applied.perimeter).toEqual({ paused: [`${p}shop`], resumed: [`${p}vide`] });
+      // h(9) (3 vidéos) n'est pas un placement, h(10) (sa bio nomme l'app) n'est pas mis en pause ; h(12) et h(13)
+      // poussent les deux : l'autre app est notée, eux restent ; h(17) n'est plus un placement ; h(18) passe en pause.
+      expect(applied.verdicts).toEqual({ pause: 2, placement: 3, move: 1, lead: 2, note: 2, none: 4 });
+      // Relu, déjà appliqué : rien à refaire.
+      expect((await admin.mutation(api.radarJudge.e2eApplyJudgments, { secret: E2E_SECRET, review, apps: scope, slugs })).verdicts).toEqual({});
 
       // La piste compte les 4 comptes qui la désignent : 2 « à la place » (en pause), 2 qui poussent les deux (actifs).
       expect(await admin.mutation(api.radarSignals.e2eCandidates, { secret: E2E_SECRET, marker: `${p}moka` })).toEqual([{ key: `ia:${p}moka`, kind: "ia", authorCount: 4 }]);
@@ -149,6 +186,17 @@ test.describe("Radar — jugement appliqué", () => {
       expect(tracked.get(h(9))).toMatchObject({ status: "active", placement: false });
       expect(tracked.get(h(10))).toMatchObject({ status: "active" });
       expect(tracked.get(h(11))).toMatchObject({ status: "paused" });
+      // Non relu : l'IA seule n'a rien fait, il est toujours suivi.
+      expect(tracked.get(h(14))).toBeDefined();
+      expect(tracked.get(h(15))).toMatchObject({ status: "active", placement: true });
+      // Mis en pause avant la relecture, relu placement : remis en route, étiqueté.
+      expect(tracked.get(h(16))).toMatchObject({ status: "active", placement: true });
+      // Étiqueté placement avant la relecture, relu « pousse » : plus de placement, relié à son app par la relecture.
+      expect(tracked.get(h(17))).toMatchObject({ status: "active", placement: false });
+      // Noté pour une autre app avant la relecture, relu sans rapport : en pause, et la piste n'existe plus.
+      expect(tracked.has(h(18))).toBe(false);
+      expect(await admin.mutation(api.radarSignals.e2eCandidates, { secret: E2E_SECRET, marker: `${p}moka2` })).toEqual([]);
+      expect(apps.get(`${p}vide`)).toMatchObject({ status: "active" });
       // Moka suivie d'office (4 comptes la désignent) : seuls les 2 mis en pause par la piste la rejoignent.
       expect(tracked.get(h(12))).toMatchObject({ status: "active", appId: apps.get(`${p}a`)!.id });
       expect(tracked.get(h(13))).toMatchObject({ status: "active", appId: apps.get(`${p}a`)!.id });

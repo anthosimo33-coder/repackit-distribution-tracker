@@ -18,7 +18,6 @@ import { FAMILY_MODEL, haikuCostUsd } from "./radarFamiliesMath";
 import { NICHE_BIOS_MAX, nicheTexts } from "./radarFicheMath";
 import {
   ACCOUNT_BATCH,
-  outOfScope,
   verdictAction,
   type VerdictAction,
   ACCOUNT_SCHEMA,
@@ -54,7 +53,8 @@ import {
 } from "./radarJudgeMath";
 import { MEDIAN_WINDOW, bioNamesApp, citesNormalized, findApp, normalize } from "./radarNetworkMath";
 import { productKey } from "./radarMarketMath";
-import { moveAccount, refreshAppNet } from "./radarSignals";
+import { APP_REVIEW, JUDGE_REVIEW, REVIEW_VERSION, type Reviewed } from "./radarJudgeReview";
+import { ensureSettings, moveAccount, refreshAppNet } from "./radarSignals";
 import { allowanceUsd, budgetState } from "./radarSignalsMath";
 import { proofDetail, type ProofDetail } from "./radarVetMath";
 import { scKeyPresent } from "./scrapeCreatorsApi";
@@ -514,110 +514,206 @@ async function noteLead(ctx: MutationCtx, product: string, handle: string, fromA
 }
 
 /** Applique les jugements de comptes pas encore appliqués. Rend ce qui a été fait, par genre. */
-async function applyVerdictsCore(ctx: MutationCtx, now: number, only?: (handle: string) => boolean): Promise<Record<string, number>> {
+/** Retire ce compte d'une app repérée (`ia:`) qu'une action d'avant la relecture lui avait fait désigner. */
+async function removeLead(ctx: MutationCtx, product: string, handle: string): Promise<void> {
+  const got = await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", `ia:${productKey(product)}`)).first();
+  if (!got || !got.authors.includes(handle)) return;
+  const authors = got.authors.filter((h) => h !== handle);
+  if (authors.length === 0 && got.status === "new") {
+    await ctx.db.delete(got._id);
+    return;
+  }
+  await ctx.db.patch(got._id, { authors, authorCount: Math.max(0, got.authorCount - 1), examples: got.examples.filter((e) => e.handle !== handle) });
+}
+
+/**
+ * Applique UN verdict relu (radarJudgeReview) à son compte. L'IA ne fait plus rien seule : sans relecture, un jugement
+ * reste rangé. Ce qu'une application d'avant la relecture a fait (le 15/11 à 10 h 06, 60 lignes) et que la relecture
+ * contredit est défait : pause levée, étiquette « placement » retirée, déplacement annulé, piste retirée.
+ * Rend l'action faite, ou `null` si rien n'est à faire (déjà appliqué tel quel, compte ou app introuvable).
+ */
+async function applyReviewedOne(
+  ctx: MutationCtx,
+  handle: string,
+  r: Reviewed,
+  apps: Doc<"radarApps">[],
+  now: number,
+  touched: Set<Id<"radarApps">>,
+): Promise<VerdictAction["kind"] | null> {
+  const app = apps.find((a) => a.slug === r.app);
+  let acc = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+  if (!app || !acc) return null;
+  const judgments = await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", acc!._id)).collect();
+  const j = judgments.filter((x) => x.appId === app._id).sort((a, b) => (b.v ?? 1) - (a.v ?? 1) || b.at - a.at)[0];
+  if (!j) return null;
+  if (j.reviewed === r.verdict && (j.reviewedOther ?? "") === (r.other ?? "")) return null;
+  // Ce qu'avait fait l'application d'avant la relecture (rien si la ligne a déjà été relue).
+  const before = j.reviewed === undefined ? j.applied : undefined;
+  const followed = (name: string) => {
+    const a = followedByName(name, apps);
+    return a ? { id: a._id, active: a.status === "active" } : null;
+  };
+  // Déplacé avant la relecture : le verdict se lit sous l'app d'origine ; s'il ne confirme pas ce départ, retour.
+  if (acc.appId !== app._id) {
+    if (before !== "move") return null;
+    const kept = verdictAction(r, { ...acc, status: "active" }, followed, { cites: j.proof.cites, bioNames: bioNamesApp(acc.bio, app) });
+    if (kept.kind === "move" && kept.to === acc.appId) {
+      await ctx.db.patch(j._id, { appliedAt: now, applied: "move", reviewed: r.verdict, ...(r.other ? { reviewedOther: r.other } : {}) });
+      return "move";
+    }
+    const from = apps.find((a) => a._id === acc!.appId);
+    if (!from) return null;
+    const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc!._id)).order("desc").take(100);
+    await moveAccount(ctx, acc, from, app, recent);
+    touched.add(from._id);
+    touched.add(app._id);
+    acc = (await ctx.db.get(acc._id))!;
+  }
+  // Mis en pause avant la relecture : le verdict relu se juge comme sur le compte actif d'avant.
+  const pausedBefore = (before === "pause" || before === "lead") && acc.status === "paused" && acc.pausedReason === "offTopic";
+  const action = verdictAction(r, pausedBefore ? { ...acc, status: "active" } : acc, followed, { cites: j.proof.cites, bioNames: bioNamesApp(acc.bio, app) });
+  if (pausedBefore && action.kind !== "pause" && action.kind !== "lead") {
+    await ctx.db.patch(acc._id, { status: "active", pausedReason: undefined, nextReadAt: now, readErrors: 0, ...(r.verdict === "pousse" ? { keptByHand: true } : {}) });
+    touched.add(acc.appId);
+  }
+  if (before === "placement" && action.kind !== "placement") {
+    await ctx.db.patch(acc._id, { placement: undefined });
+    touched.add(acc.appId);
+  }
+  if ((before === "note" || before === "lead") && j.other && !((action.kind === "note" || action.kind === "lead") && productKey(action.product) === productKey(j.other))) {
+    await removeLead(ctx, j.other, acc.handle);
+  }
+  const already = (k: string) => before === k;
+  if (action.kind === "pause" && !(pausedBefore && already("pause"))) {
+    await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
+    touched.add(acc.appId);
+  } else if (action.kind === "placement" && !already("placement")) {
+    await ctx.db.patch(acc._id, { placement: true });
+    touched.add(acc.appId);
+  } else if (action.kind === "move") {
+    const to = apps.find((a) => a._id === action.to);
+    if (to && to._id !== app._id) {
+      const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc._id)).order("desc").take(100);
+      await moveAccount(ctx, acc, app, to, recent);
+      // Relevé tout de suite sous sa nouvelle app : jugé sur ses motifs.
+      await ctx.db.patch(acc._id, { nextReadAt: now });
+      touched.add(app._id);
+      touched.add(to._id);
+    }
+  } else if (action.kind === "note") {
+    // Il pousse les deux : l'autre app est notée, le compte ne bouge pas.
+    await noteLead(ctx, action.product, acc.handle, acc.appId, now);
+  } else if (action.kind === "lead") {
+    if (!(pausedBefore && already("lead"))) {
+      await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
+      touched.add(acc.appId);
+    }
+    await noteLead(ctx, action.product, acc.handle, acc.appId, now);
+  }
+  await ctx.db.patch(j._id, { appliedAt: now, applied: action.kind, reviewed: r.verdict, ...(r.other ? { reviewedOther: r.other } : { reviewedOther: undefined }) });
+  return action.kind;
+}
+
+/** Les verdicts relus donnés, appliqués (ou défaits) un à un. */
+async function applyReviewedCore(ctx: MutationCtx, entries: readonly (readonly [string, Reviewed])[], now: number): Promise<Record<string, number>> {
   const done: Record<string, number> = {};
-  const rows = await ctx.db
-    .query("radarAccountJudgments")
-    .withIndex("by_applied", (q) => q.eq("appliedAt", undefined))
-    .take(APPLY_BATCH * 4);
   const apps = await ctx.db.query("radarApps").collect();
   const touched = new Set<Id<"radarApps">>();
-  let n = 0;
-  for (const j of rows) {
-    if (only && !only(j.handle)) continue;
-    if (n++ >= APPLY_BATCH) break;
-    // Un jugement d'une version d'avant n'agit jamais (v1 : 3 verdicts sur 10 faux) : écarté, le compte sera rejugé.
-    if ((j.v ?? 1) < JUDGE_VERSION) {
-      await ctx.db.patch(j._id, { appliedAt: now, applied: "obsolete" });
-      done.obsolete = (done.obsolete ?? 0) + 1;
-      continue;
-    }
-    const acc = await ctx.db.get(j.accountId);
-    let action: VerdictAction = { kind: "none" };
-    // Jugé sous une autre app que la sienne aujourd'hui (déplacé depuis) : le jugement ne vaut plus.
-    if (acc && acc.appId === j.appId) {
-      const own = apps.find((a) => a._id === acc.appId);
-      action = verdictAction(
-        j,
-        acc,
-        (name) => {
-          const a = followedByName(name, apps);
-          return a ? { id: a._id, active: a.status === "active" } : null;
-        },
-        { cites: j.proof.cites, bioNames: !!own && bioNamesApp(acc.bio, own) },
-      );
-    }
-    if (acc && action.kind === "pause") {
-      await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
-      touched.add(acc.appId);
-    } else if (acc && action.kind === "placement") {
-      await ctx.db.patch(acc._id, { placement: true });
-      touched.add(acc.appId);
-    } else if (acc && action.kind === "move") {
-      const from = apps.find((a) => a._id === acc.appId);
-      const to = apps.find((a) => a._id === action.to);
-      if (from && to && from._id !== to._id) {
-        const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc._id)).order("desc").take(100);
-        await moveAccount(ctx, acc, from, to, recent);
-        // Relevé tout de suite sous sa nouvelle app : jugé sur ses motifs.
-        await ctx.db.patch(acc._id, { nextReadAt: now });
-        touched.add(from._id);
-        touched.add(to._id);
-      }
-    } else if (acc && action.kind === "note") {
-      // Il pousse les deux : l'autre app est notée, le compte ne bouge pas.
-      await noteLead(ctx, action.product, acc.handle, acc.appId, now);
-    } else if (acc && action.kind === "lead") {
-      await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
-      await noteLead(ctx, action.product, acc.handle, acc.appId, now);
-      touched.add(acc.appId);
-    }
-    await ctx.db.patch(j._id, { appliedAt: now, applied: action.kind });
-    done[action.kind] = (done[action.kind] ?? 0) + 1;
+  for (const [handle, r] of entries) {
+    const kind = await applyReviewedOne(ctx, handle, r, apps, now, touched);
+    if (kind) done[kind] = (done[kind] ?? 0) + 1;
   }
   for (const id of touched) await refreshAppNet(ctx, id, now);
   return done;
 }
 
 /**
- * Les apps qui ne sont ni une app, ni un SaaS, ni un jeu mobile, sur un verdict net (radarJudgeMath.outOfScope) :
- * en pause dans le Radar — plus relevées, plus cherchées, plus envoyées à Swarm. Jamais une concurrente d'un projet,
- * ni une app remise en route à la main (`scopeByHand`).
+ * Le périmètre RELU (radarJudgeReview.APP_REVIEW) : une app relue « dehors » (ni app, ni SaaS, ni jeu mobile) passe en
+ * pause dans le Radar — plus relevée, plus cherchée, plus envoyée à Swarm ; jamais une concurrente d'un projet, ni une
+ * app remise en route à la main (`scopeByHand`). Une app mise en pause « périmètre » sans être relue « dehors » (le
+ * jugement de l'IA appliqué seul avant la relecture) est remise en route.
  */
-async function applyPerimeterCore(ctx: MutationCtx, now: number, only?: (slug: string) => boolean): Promise<string[]> {
+async function applyPerimeterCore(ctx: MutationCtx, review: Readonly<Record<string, "dehors" | "dedans">>, now: number, only?: (slug: string) => boolean): Promise<{ paused: string[]; resumed: string[] }> {
   const paused: string[] = [];
-  for (const a of await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect()) {
-    if (only && !only(a.slug)) continue;
-    if (a.mergedInto !== undefined || a.rivalOf.length > 0 || a.scopeByHand || !outOfScope(a.nature, !!a.store)) continue;
-    await ctx.db.patch(a._id, { status: "paused", pausedReason: "perimetre" });
-    await refreshAppNet(ctx, a._id, now);
-    paused.push(a.slug);
+  const resumed: string[] = [];
+  for (const a of await ctx.db.query("radarApps").collect()) {
+    if ((only && !only(a.slug)) || a.mergedInto !== undefined) continue;
+    const out = review[a.slug] === "dehors";
+    if (a.status === "active" && out && a.rivalOf.length === 0 && !a.scopeByHand) {
+      await ctx.db.patch(a._id, { status: "paused", pausedReason: "perimetre" });
+      await refreshAppNet(ctx, a._id, now);
+      paused.push(a.slug);
+    } else if (a.status === "paused" && a.pausedReason === "perimetre" && !out) {
+      await ctx.db.patch(a._id, { status: "active", pausedReason: undefined });
+      await refreshAppNet(ctx, a._id, now);
+      resumed.push(a.slug);
+    }
   }
-  return paused;
+  return { paused, resumed };
 }
 
 /**
- * COUPÉ (15/11/2026, demande du fondateur : « aucune erreur ne doit passer », ~7 % d'actions v3 fausses à la relecture).
- * La tâche n'applique rien tant que `radarSettings.judgeApplyOn` n'est pas allumé ; les verdicts restent rangés.
+ * La tâche (toutes les 30 min) : APPLY_BATCH comptes relus par passage, en parcourant la liste relue ; la liste
+ * parcourue jusqu'au bout, plus rien jusqu'à la version suivante (REVIEW_VERSION). Le jugement seul de l'IA
+ * n'agit jamais (15/11/2026, demande du fondateur : « aucune erreur ne doit passer »).
  */
 export const applyJudgmentsNow = internalMutation({
   args: {},
-  handler: async (ctx): Promise<{ off: true } | { verdicts: Record<string, number>; perimeter: string[] }> => {
-    if ((await ctx.db.query("radarSettings").first())?.judgeApplyOn !== true) return { off: true };
+  handler: async (ctx): Promise<{ verdicts: Record<string, number>; perimeter: { paused: string[]; resumed: string[] }; at: number }> => {
     const now = Date.now();
-    return { perimeter: await applyPerimeterCore(ctx, now), verdicts: await applyVerdictsCore(ctx, now) };
+    const s = await ensureSettings(ctx);
+    const entries = Object.entries(JUDGE_REVIEW).sort(([a], [b]) => (a < b ? -1 : 1));
+    const from = s.reviewV === REVIEW_VERSION ? (s.reviewAt ?? 0) : 0;
+    const slice = entries.slice(from, from + APPLY_BATCH);
+    const verdicts = slice.length ? await applyReviewedCore(ctx, slice, now) : {};
+    await ctx.db.patch(s._id, { reviewV: REVIEW_VERSION, reviewAt: from + slice.length });
+    return { verdicts, perimeter: await applyPerimeterCore(ctx, APP_REVIEW, now), at: from + slice.length };
   },
 });
 
-/** e2e : applique les jugements des comptes et des apps donnés (rien d'autre n'est touché). */
+const reviewedValidator = v.object({
+  handle: v.string(),
+  app: v.string(),
+  verdict: v.union(...ACCOUNT_VERDICTS.map((k) => v.literal(k))),
+  other: v.optional(v.string()),
+});
+
+/** e2e : applique ces verdicts relus et ce périmètre relu (les apps données seulement). */
 export const e2eApplyJudgments = e2eMutation({
-  args: { handles: v.array(v.string()), slugs: v.array(v.string()) },
-  handler: async (ctx, { handles, slugs }) => {
+  args: { review: v.array(reviewedValidator), apps: v.array(v.object({ slug: v.string(), scope: v.union(v.literal("dehors"), v.literal("dedans")) })), slugs: v.array(v.string()) },
+  handler: async (ctx, { review, apps, slugs }) => {
     const now = Date.now();
     return {
-      perimeter: await applyPerimeterCore(ctx, now, (s) => slugs.includes(s)),
-      verdicts: await applyVerdictsCore(ctx, now, (h) => handles.includes(h)),
+      perimeter: await applyPerimeterCore(ctx, Object.fromEntries(apps.map((a) => [a.slug, a.scope])), now, (s) => slugs.includes(s)),
+      verdicts: await applyReviewedCore(ctx, review.map((r) => [r.handle, { app: r.app, verdict: r.verdict, ...(r.other ? { other: r.other } : {}) }] as const), now),
     };
+  },
+});
+
+/** e2e : ce qu'avait fait l'application seule de l'IA (avant la relecture, le 15/11 à 10 h 06), pour la défaire. */
+export const e2eAppliedBefore = e2eMutation({
+  args: {
+    handle: v.optional(v.string()),
+    applied: v.optional(v.union(v.literal("pause"), v.literal("placement"), v.literal("note"), v.literal("lead"))),
+    other: v.optional(v.string()),
+    pausedApp: v.optional(v.string()),
+  },
+  handler: async (ctx, { handle, applied, other, pausedApp }) => {
+    if (pausedApp) {
+      const app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", pausedApp)).first();
+      if (app) await ctx.db.patch(app._id, { status: "paused", pausedReason: "perimetre" });
+    }
+    if (!handle || !applied) return null;
+    const acc = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+    if (!acc) return null;
+    const j = (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", acc._id)).collect())[0];
+    if (!j) return null;
+    const now = Date.now();
+    if (applied === "pause" || applied === "lead") await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
+    if (applied === "placement") await ctx.db.patch(acc._id, { placement: true });
+    if ((applied === "note" || applied === "lead") && other) await noteLead(ctx, other, handle, acc.appId, now);
+    await ctx.db.patch(j._id, { appliedAt: now, applied, ...(other ? { other } : {}) });
+    return null;
   },
 });
 
