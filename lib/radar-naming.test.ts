@@ -162,3 +162,37 @@ describe("Radar — le classement appkittie dans la liste de départ (15/11/2026
       expect(of(caption), caption).toBeUndefined();
   });
 });
+
+describe("Radar — les apps que poussent les mêmes réseaux UGC (15/11/2026)", () => {
+  const of = (caption: string, handle = "x") => findApp(caption, handle, SEED_APPS)?.name;
+  it("les 12 apps sont suivies, chacune trouvée sous la forme qu'emploient ses comptes", () => {
+    for (const [caption, name] of [
+      ["the Noise app literally saved me from another side hustle #moneytok #MyNoiseApp", "Noise"],
+      ["my football picks just needed a Courtside upgrade #trythecourtsidesportsbookapp #courtside", "Courtside"],
+      ["the DealSeek app is making my broke girl dream a reality #trydealseek", "DealSeek"],
+      ["Part 2 #dramabox #revenge #cheatinghusband", "DramaBox"],
+      ["Ainda bem que descobri a tempo #ugctech #canvasugc #rendaextra", "Canvas UGC"],
+      ["my honest Spanish learning tips #LanguageLearning #wordy1", "Wordy"],
+      ["so many deals for veterans on the Military Benefits App #usemilitarybenefitsapp", "Military Benefits App"],
+      ["pcos pal is what helped me stick to it #pcospal", "PCOS Pal"],
+      ["Import them into FamPlate, scale family portions", "FamPlate"],
+      ["reading for hours and updating my shelf #usemargins", "Margins"],
+      ["Download the Heavenly app, daily faith reminders", "Heavenly"],
+      ["the Bible Basher app quiz got me #biblebasher", "Bible Basher"],
+    ] as const)
+      expect(of(caption), caption).toBe(name);
+  });
+  it("un mot ordinaire n'est pas l'app : noise, courtside, margins, wordy, heavenly, bible basher", () => {
+    for (const caption of [
+      "my white noise app for sleep #whitenoiseapp",
+      "the noise apparently came from upstairs",
+      "courtside seats at the lakers game #courtside",
+      "profit margins are thin this year #margins",
+      "sorry this caption is wordy",
+      "what a heavenly appearance in the sky",
+      "he is such a bible basher",
+      "confidence is key #confidence",
+    ])
+      expect(of(caption), caption).toBeUndefined();
+  });
+});
