@@ -266,10 +266,11 @@ describe("budget", () => {
   const d = normalizeBudget(null);
   const usage = (poste: string, credits: number, day = "2026-11-06") => ({ poste, credits, day });
 
-  it("prévoit 632,74 $ au plus par défaut sous un plafond de 650 $ : 150 recherches/jour, courbe, 9 000 relevés de comptes/jour, réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
-    expect(d.capUsd).toBe(650);
-    expect(plannedUsd(d)).toBeCloseTo((150 * 30 + 100 * 3 * 30 + 9_000 * 30 + 40_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
-    expect(plannedUsd(d)).toBeCloseTo(632.74, 2);
+  it("prévoit 745,54 $ au plus par défaut sous un plafond de 900 $ : 150 recherches/jour, courbe, 9 000 relevés payés/jour, 100 000 crédits de réseaux, Instagram, transcriptions, pubs, et 2 $ d'analyse IA", () => {
+    expect(d.capUsd).toBe(900);
+    expect(plannedUsd(d)).toBeCloseTo((150 * 30 + 100 * 3 * 30 + 9_000 * 30 + 100_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT + 2, 6);
+    expect(plannedUsd(d)).toBeCloseTo(745.54, 2);
+    expect(plannedUsd(d)).toBeLessThanOrEqual(d.capUsd);
   });
 
   it("des réglages d'avant la v4 prennent les postes relevés, les postes branchés et le plafond par défaut ; ceux de la v4 sont respectés", () => {
@@ -286,13 +287,13 @@ describe("budget", () => {
     };
     // Les réglages réels de la prod au 06/11/2026 (v1, plafond 60 $).
     const m = normalizeBudget(v1);
-    expect(m.capUsd).toBe(650);
+    expect(m.capUsd).toBe(900);
     // La découverte passe à 150 recherches/jour (v9) : la niche, l'argent et les produits web chaque jour, les autres en rotation.
     expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 150, on: true });
     expect(m.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 100, on: true });
-    // 9 000 relevés/jour et 40 000 crédits de recherche des réseaux par mois depuis la v8 (13/11/2026).
+    // 9 000 relevés payés/jour depuis la v8 ; 100 000 crédits de recherche des réseaux par mois depuis la v10 (15/11/2026).
     expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 9_000, on: true });
-    expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 40_000, on: true });
+    expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 100_000, on: true });
     // Instagram, transcriptions et pubs, éteints tant qu'ils n'étaient pas branchés, s'allument.
     expect(m.postes.find((p) => p.key === "insta")).toEqual({ key: "insta", qty: 300, on: true });
     expect(m.postes.find((p) => p.key === "transcript")).toEqual({ key: "transcript", qty: 50, on: true });
@@ -300,19 +301,28 @@ describe("budget", () => {
     expect(m.cutOrder).toEqual(["search", "transcript", "curve", "insta", "ai", "tiktok", "ads", "network"]);
     // Une v2 (réglée après #454) passe aussi au cran au-dessus.
     const v2 = normalizeBudget({ ...v1, budgetVersion: 2, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
-    expect([v2.capUsd, v2.postes.find((p) => p.key === "network")?.qty]).toEqual([650, 40_000]);
-    // Une v4 garde son plafond ; ses relevés et ses réseaux passent au cran de la v8, comme ceux d'une v7.
+    expect([v2.capUsd, v2.postes.find((p) => p.key === "network")?.qty]).toEqual([900, 100_000]);
+    // Avant la v10, le plafond réglé (650 $ en prod au 15/11/2026) passe à 900 $ ; les réseaux au cran de la v10.
     const v3 = normalizeBudget({ ...v1, capUsd: 150, budgetVersion: 4, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
-    expect(v3.capUsd).toBe(150);
+    expect(v3.capUsd).toBe(900);
     expect(v3.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 9_000, on: true });
-    expect(v3.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 40_000, on: true });
+    expect(v3.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 100_000, on: true });
+    expect(normalizeBudget({ ...v1, capUsd: 650, budgetVersion: 9 }).capUsd).toBe(900);
     const v7 = normalizeBudget({ ...v1, capUsd: 150, budgetVersion: 7, postes: [{ key: "tiktok", qty: 200, on: false }, { key: "insta", qty: 80, on: true }] });
     expect(v7.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 9_000, on: true });
     expect(v7.postes.find((p) => p.key === "insta")).toEqual({ key: "insta", qty: 80, on: true });
-    // Réglés en v8, ils sont respectés.
+    // Réglés en v8 : les relevés sont respectés (la v10 n'y touche pas), les réseaux passent au cran de la v10 ;
+    // réglés en v10, ils sont respectés.
     const v8 = normalizeBudget({ ...v1, budgetVersion: 8, postes: [{ key: "tiktok", qty: 3_000, on: true }, { key: "network", qty: 900, on: false }] });
     expect(v8.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 3_000, on: true });
-    expect(v8.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 900, on: false });
+    expect(v8.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 100_000, on: true });
+    const v10 = normalizeBudget({ ...v1, capUsd: 900, budgetVersion: 10, postes: [{ key: "tiktok", qty: 3_000, on: true }, { key: "network", qty: 900, on: false }] });
+    expect(v10.capUsd).toBe(900);
+    expect(v10.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 3_000, on: true });
+    expect(v10.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 900, on: false });
+    // Un plafond réglé en v10 se garde jusqu'à 2 000 $ ; au-delà (ou illisible), le défaut.
+    expect(normalizeBudget({ capUsd: 1_800, budgetVersion: 10 }).capUsd).toBe(1_800);
+    expect(normalizeBudget({ capUsd: 2_500, budgetVersion: 10 }).capUsd).toBe(900);
   });
 
   it("d'une v4, l'analyse IA (pas encore branchée) prend son défaut ; borne les quantités, complète l'ordre de coupure", () => {
@@ -328,7 +338,7 @@ describe("budget", () => {
       alert80: false,
       budgetVersion: 4,
     });
-    expect(b.capUsd).toBe(650);
+    expect(b.capUsd).toBe(900);
     expect(b.postes.find((p) => p.key === "ai")).toEqual({ key: "ai", qty: 2, on: true });
     expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(true);
     // D'une v4, la découverte prend aussi son défaut (150/jour) ; en v9, une quantité réglée est bornée.
@@ -342,9 +352,9 @@ describe("budget", () => {
     expect(b.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 88, on: false });
     expect(b.cutOrder).toEqual(["curve", "ai", "search", "transcript", "ads", "insta", "network", "tiktok"]);
     expect(b.alert80).toBe(false);
-    // En v5, l'analyse IA réglée est respectée, et le plafond d'une v4 est gardé.
+    // En v6, l'analyse IA réglée est respectée ; le plafond, réglé avant la v10, passe à 900 $.
     const v5 = normalizeBudget({ capUsd: 150, postes: [{ key: "ai", qty: 5, on: false }], cutOrder: [], alert80: true, budgetVersion: 6 });
-    expect([v5.capUsd, v5.postes.find((p) => p.key === "ai")]).toEqual([150, { key: "ai", qty: 5, on: false }]);
+    expect([v5.capUsd, v5.postes.find((p) => p.key === "ai")]).toEqual([900, { key: "ai", qty: 5, on: false }]);
   });
 
   it("l'analyse IA se paie en dollars : comptée dans la dépense et le plafond, bornée par son enveloppe, coupée la première", () => {
@@ -373,11 +383,13 @@ describe("budget", () => {
     const libre = budgetState(d, [], null);
     expect([libre.balanceLeft, libre.reserveReached, libre.balanceStale]).toEqual([null, false, false]);
     expect(allowance(d, libre, "tiktok", 0, 24)).toBe(375);
-    // 7 784 en compte (le 13/11/2026) : la part d'un passage tient, le réseau est borné par le solde moins la réserve.
+    // 7 784 en compte (le 13/11/2026) : la part d'un passage tient (réseau : 3 333/jour) ; avec 2 000 en compte, le
+    // réseau est borné par le solde moins la réserve.
     const s = budgetState(d, [], lu(7_784));
     expect(s.balanceLeft).toBe(7_784 - CREDIT_RESERVE);
     expect(allowance(d, s, "tiktok", 0, 24)).toBe(375);
-    expect(allowance(d, s, "network", 0, 1)).toBe(1_333);
+    expect(allowance(d, s, "network", 0, 1)).toBe(3_333);
+    expect(allowance(d, budgetState(d, [], lu(2_000)), "network", 0, 1)).toBe(2_000 - CREDIT_RESERVE);
     expect(allowance(d, budgetState(d, [], lu(CREDIT_RESERVE + 200)), "network", 0, 1)).toBe(200);
     // Sous la réserve : rien, tous postes confondus (la paie peut partager la clé).
     const bas = budgetState(d, [], lu(CREDIT_RESERVE - 1));
@@ -386,10 +398,10 @@ describe("budget", () => {
     // Le rattrapage (15/11/2026) : une app jamais cherchée puise dans le reste du mois, borné par le solde moins la
     // réserve ; jamais sous la réserve.
     const plein = budgetState(d, [usage("network", 3_839, "2026-11-14")], lu(28_477));
-    expect(allowance(d, plein, "network", 1_333, 1)).toBe(0);
+    expect(allowance(d, plein, "network", 3_333, 1)).toBe(0);
     // Le solde (moins la réserve) borne d'abord ; avec plus en compte, c'est le reste de l'enveloppe du mois.
     expect(catchUpAllowance(d, plein, "network")).toBe(28_477 - CREDIT_RESERVE);
-    expect(catchUpAllowance(d, budgetState(d, [usage("network", 3_839, "2026-11-14")], lu(100_000)), "network")).toBe(40_000 - 3_839);
+    expect(catchUpAllowance(d, budgetState(d, [usage("network", 3_839, "2026-11-14")], lu(1_000_000)), "network")).toBe(100_000 - 3_839);
     expect(catchUpAllowance(d, budgetState(d, [], lu(CREDIT_RESERVE + 200)), "network")).toBe(200);
     expect(catchUpAllowance(d, bas, "network")).toBe(0);
     // La sonde (un appel d'un crédit de la tâche des relevés, hors postes) : sous la réserve, solde lu il y a 50 min

@@ -140,7 +140,7 @@ function BudgetEditor({ data }: { data: BudgetData }) {
         <section aria-labelledby="radar-plafond" className="space-y-3 rounded-xl border border-slate-200 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 id="radar-plafond" className="text-base font-semibold">{tr("plafondMensuel")}</h2>
-            <div role="radiogroup" aria-labelledby="radar-plafond" className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+            <div role="radiogroup" aria-labelledby="radar-plafond" className="flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
               {CAP_CHOICES.map((c) => (
                 <button
                   key={c}

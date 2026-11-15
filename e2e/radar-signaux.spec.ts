@@ -155,24 +155,26 @@ test.describe("Nouveau Radar — Signaux", () => {
       // Pas de clé ScrapeCreators en e2e : la collecte se dit en pause.
       await expect(page.getByRole("status").filter({ hasText: /Collecte en pause/ })).toBeVisible();
       await expect(page.getByTestId("radar-etat")).toHaveText("Collecte en pause : pas de clé ScrapeCreators");
-      // Défaut depuis le 14/11/2026 : recherche 150/jour (8,46 $) + courbe 100 vidéos/jour (16,92 $) + 9 000 relevés
-      // de comptes/jour (507,60 $) + réseaux 40 000 crédits (75,20 $) + Instagram 300/jour (16,92 $) + transcriptions
-      // 50/jour (2,82 $) + pubs (2,82 $) + 2 $ d'analyse IA = 632,74 $ prévus sur 650 $.
+      // Défaut depuis le 15/11/2026 (v10) : recherche 150/jour (8,46 $) + courbe 100 vidéos/jour (16,92 $) + 9 000
+      // relevés payés/jour (507,60 $) + réseaux 100 000 crédits (188,00 $) + Instagram 300/jour (16,92 $) +
+      // transcriptions 50/jour (2,82 $) + pubs (2,82 $) + 2 $ d'analyse IA = 745,54 $ prévus sur 900 $.
       const verdict = page.getByTestId("radar-budget-verdict");
-      await expect(verdict).toContainText("17,26");
+      await expect(page.getByRole("radio", { name: /^900,00\s\$$/ })).toHaveAttribute("aria-checked", "true");
+      await expect(verdict).toContainText("154,46");
 
-      await page.getByRole("radio", { name: /^900,00\s\$$/ }).click();
-      await expect(verdict).toContainText("267,26");
+      // Sous 650 $, le prévu dépasse de 95,54 $.
+      await page.getByRole("radio", { name: /^650,00\s\$$/ }).click();
+      await expect(verdict).toContainText("95,54");
       await page.getByRole("switch", { name: "Couper : Suivre la courbe des vidéos repérées" }).click();
-      // Sans la courbe : 615,82 $ prévus.
-      await expect(verdict).toContainText("284,18");
+      // Sans la courbe : 728,62 $ prévus, 78,62 $ de trop.
+      await expect(verdict).toContainText("78,62");
       await page.getByRole("button", { name: "Enregistrer le budget" }).click();
       await expect(page.getByText("Budget enregistré.")).toBeVisible();
 
       await page.reload();
-      await expect(page.getByRole("radio", { name: /^900,00\s\$$/ })).toHaveAttribute("aria-checked", "true");
+      await expect(page.getByRole("radio", { name: /^650,00\s\$$/ })).toHaveAttribute("aria-checked", "true");
       await expect(page.getByRole("switch", { name: "Rallumer : Suivre la courbe des vidéos repérées" })).toHaveAttribute("aria-checked", "false");
-      await expect(verdict).toContainText("284,18");
+      await expect(verdict).toContainText("78,62");
     } finally {
       await admin.mutation(api.radarSignals.e2eResetRadarBudget, { secret: E2E_SECRET });
     }
@@ -187,9 +189,9 @@ test.describe("Nouveau Radar — Signaux", () => {
       await expect(page.getByRole("switch", { name: "Couper : Relever les comptes suivis" })).toHaveAttribute("aria-checked", "true");
       await expect(page.getByText(/9\s000\s*relevés\/jour/)).toBeVisible();
       await expect(page.getByRole("switch", { name: "Couper : Retrouver le réseau des apps" })).toHaveAttribute("aria-checked", "true");
-      // La courbe suit 100 vidéos/jour, et le plafond passe de 60 à 650 $.
+      // La courbe suit 100 vidéos/jour, et le plafond passe de 60 à 900 $.
       await expect(page.getByText(/100\s*vidéos\/jour/).first()).toBeVisible();
-      await expect(page.getByRole("radio", { name: /^650,00\s\$$/ })).toHaveAttribute("aria-checked", "true");
+      await expect(page.getByRole("radio", { name: /^900,00\s\$$/ })).toHaveAttribute("aria-checked", "true");
       // Instagram, transcriptions et pubs s'allument.
       await expect(page.getByRole("switch", { name: "Couper : Relever les comptes Instagram" })).toHaveAttribute("aria-checked", "true");
       await expect(page.getByRole("switch", { name: "Couper : Transcrire les meilleures vidéos" })).toHaveAttribute("aria-checked", "true");
