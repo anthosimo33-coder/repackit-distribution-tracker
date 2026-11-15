@@ -65,9 +65,13 @@ test.describe("Radar — jugement appliqué", () => {
           posts7d: 1,
           videos: Array.from({ length: 10 }, (_, k) => ({ videoId: vid(2, k), ageH: 60 + k * 10, views: 1_000 * (k + 1), caption: "vlog du jour" })),
         },
-        { handle: h(3), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(3, 2, `${p}cringe`) },
-        { handle: h(4), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(4, 2, `${p}moka`) },
-        { handle: h(5), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(5, 2, `${p}moka`) },
+        // Une seule vidéo cite l'app où ils sont rangés : ils poussent l'autre « à la place ».
+        { handle: h(3), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(3, 1, `${p}cringe`) },
+        { handle: h(4), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(4, 1, `${p}moka`) },
+        { handle: h(5), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(5, 1, `${p}moka`) },
+        // v3 : deux vidéos citent son app ET deux l'autre (il pousse les deux), ou l'IA le dit « pousse » avec une autre app.
+        { handle: h(12), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(12, 2, `${p}moka`) },
+        { handle: h(13), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(13, 2, `${p}moka`) },
         { handle: h(6), appSlug: `${p}a`, fans: 100, posts7d: 1, videos: six(6, 2) },
         { handle: h(7), appSlug: `${p}shop`, fans: 100, posts7d: 1, videos: [{ videoId: vid(7, 1), ageH: 70, views: 500, caption: `haul ${p}shop` }] },
         { handle: h(8), appSlug: `${p}rival`, fans: 100, posts7d: 1, videos: [{ videoId: vid(8, 1), ageH: 70, views: 500, caption: `mon avis ${p}rival` }] },
@@ -84,7 +88,7 @@ test.describe("Radar — jugement appliqué", () => {
       ],
     });
     try {
-      const handles = [1, 2, 3, 4, 5, 6, 9, 10].map(h);
+      const handles = [1, 2, 3, 4, 5, 6, 9, 10, 12, 13].map(h);
       // Un « pousse » v1 : ni il n'agit, ni il ne relie le compte à son app pour Swarm.
       await admin.mutation(api.radarJudge.e2eLegacyJudgment, { secret: E2E_SECRET, handle: h(11), verdict: "pousse" });
       const judged = await admin.mutation(api.radarJudge.e2eJudgeAccounts, {
@@ -99,9 +103,11 @@ test.describe("Radar — jugement appliqué", () => {
           { handle: h(6), verdict: "pousse", why: "pousse bien l'app" },
           { handle: h(9), verdict: "placement", why: "quelques vidéos payées" },
           { handle: h(10), verdict: "sans_rapport", why: "vlogs" },
+          { handle: h(12), verdict: "autre_app", other: `${p}moka`, why: "pousse Moka" },
+          { handle: h(13), verdict: "pousse", other: `${p}moka`, why: "pousse les deux" },
         ],
       });
-      expect(judged.written).toBe(8);
+      expect(judged.written).toBe(10);
 
       // Les apps : celle dont on ne sait rien n'est pas donnée à juger.
       const natures = await admin.mutation(api.radarJudge.e2eJudgeNatures, {
@@ -118,8 +124,11 @@ test.describe("Radar — jugement appliqué", () => {
       // Hors périmètre : en pause ; une concurrente, jamais.
       expect(applied.perimeter).toEqual([`${p}shop`]);
       // h(9) (3 vidéos) n'est pas un placement, h(10) (sa bio nomme l'app) n'est pas mis en pause, le v1 de h(11) n'agit pas.
-      expect(applied.verdicts).toEqual({ pause: 1, placement: 1, move: 1, lead: 2, none: 3, obsolete: 1 });
+      // h(12) et h(13) poussent les deux : l'autre app est notée, eux restent.
+      expect(applied.verdicts).toEqual({ pause: 1, placement: 1, move: 1, lead: 2, note: 2, none: 3, obsolete: 1 });
 
+      // La piste compte les 4 comptes qui la désignent : 2 « à la place » (en pause), 2 qui poussent les deux (actifs).
+      expect(await admin.mutation(api.radarSignals.e2eCandidates, { secret: E2E_SECRET, marker: `${p}moka` })).toEqual([{ key: `ia:${p}moka`, kind: "ia", authorCount: 4 }]);
       // Deux comptes désignent la même app non suivie : le suivi d'office la suit, ils la rejoignent.
       expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [`${p}moka`] })).toMatchObject({ followed: 1, attached: 2 });
 
@@ -140,6 +149,9 @@ test.describe("Radar — jugement appliqué", () => {
       expect(tracked.get(h(9))).toMatchObject({ status: "active", placement: false });
       expect(tracked.get(h(10))).toMatchObject({ status: "active" });
       expect(tracked.get(h(11))).toMatchObject({ status: "paused" });
+      // Moka suivie d'office (4 comptes la désignent) : seuls les 2 mis en pause par la piste la rejoignent.
+      expect(tracked.get(h(12))).toMatchObject({ status: "active", appId: apps.get(`${p}a`)!.id });
+      expect(tracked.get(h(13))).toMatchObject({ status: "active", appId: apps.get(`${p}a`)!.id });
 
       // Relevé, le placement n'est pas mis en pause faute de citer assez l'app.
       const profil = `<html><script>window.__d={"userInfo":${JSON.stringify({ uniqueId: h(2), followerCount: 900_000, signature: "lifestyle", privateAccount: false })},"videoList":${JSON.stringify(

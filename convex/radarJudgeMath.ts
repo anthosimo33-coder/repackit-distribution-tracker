@@ -373,7 +373,20 @@ export function accountAnswer(raw: unknown, batch: readonly { id: string }[]): A
  *    relevé, marqué `placement`, et n'est plus mis en pause faute de citer assez l'app.
  * Un compte gardé à la main (`keptByHand`) ou ajouté à la main n'est jamais touché.
  */
-export type VerdictAction = { kind: "none" } | { kind: "pause" } | { kind: "placement" } | { kind: "move"; to: string } | { kind: "lead"; product: string };
+/**
+ * `note` (v3, 15/11/2026) : le compte pousse son app ET une autre (What Brandon Thinks + Mokascore) — l'autre est notée
+ * parmi les apps repérées (suivie d'office dès 2 comptes), le compte reste où il est, actif.
+ */
+export type VerdictAction =
+  | { kind: "none" }
+  | { kind: "pause" }
+  | { kind: "placement" }
+  | { kind: "move"; to: string }
+  | { kind: "lead"; product: string }
+  | { kind: "note"; product: string };
+
+/** Vidéos qui citent son app à partir desquelles un compte la pousse aussi (règle du 13/11 : 2 vidéos prouvent). */
+export const MULTI_APP_MIN_VIDEOS = 2;
 
 /** Définition du fondateur (14/11/2026) : un placement, c'est un créateur généraliste payé « une ou deux fois ». */
 export const PLACEMENT_MAX_VIDEOS = 2;
@@ -397,9 +410,16 @@ export function verdictAction(
       return ev.bioNames ? { kind: "none" } : { kind: "pause" };
     case "placement":
       return ev.cites <= PLACEMENT_MAX_VIDEOS ? { kind: "placement" } : { kind: "none" };
+    case "pousse": {
+      // Il pousse aussi une autre app : notée si on ne la suit pas encore.
+      const name = (j.other ?? "").trim();
+      return name && !followed(name) ? { kind: "note", product: name } : { kind: "none" };
+    }
     case "autre_app": {
       const name = (j.other ?? "").trim();
-      if (!name || ev.bioNames) return { kind: "none" };
+      if (!name) return { kind: "none" };
+      // Sa bio ou deux de ses vidéos prouvent son app : il pousse les deux, il reste ; l'autre est notée.
+      if (ev.bioNames || ev.cites >= MULTI_APP_MIN_VIDEOS) return followed(name) ? { kind: "none" } : { kind: "note", product: name };
       const app = followed(name);
       if (app?.active) return { kind: "move", to: app.id };
       // Suivie mais en pause (hors périmètre, à la main) : le compte ne pousse pas l'app où il est rangé.

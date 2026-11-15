@@ -564,6 +564,9 @@ async function applyVerdictsCore(ctx: MutationCtx, now: number, only?: (handle: 
         touched.add(from._id);
         touched.add(to._id);
       }
+    } else if (acc && action.kind === "note") {
+      // Il pousse les deux : l'autre app est notée, le compte ne bouge pas.
+      await noteLead(ctx, action.product, acc.handle, acc.appId, now);
     } else if (acc && action.kind === "lead") {
       await ctx.db.patch(acc._id, { status: "paused", pausedReason: "offTopic" });
       await noteLead(ctx, action.product, acc.handle, acc.appId, now);

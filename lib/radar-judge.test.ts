@@ -31,6 +31,7 @@ import {
   shownInSwarm,
   verdictAction,
   PLACEMENT_MAX_VIDEOS,
+  MULTI_APP_MIN_VIDEOS,
   weakProof,
 } from "../convex/radarJudgeMath";
 
@@ -317,11 +318,24 @@ describe("Radar — jugement, phase B : ce que fait chaque verdict (définition 
     // « Official Fluencify ambassador » dans la bio : ni pause, ni départ.
     expect(verdictAction({ verdict: "sans_rapport" }, actif, followed, bio)).toEqual({ kind: "none" });
     expect(verdictAction({ verdict: "autre_app", other: "The Cringe" }, actif, followed, bio)).toEqual({ kind: "none" });
-    expect(verdictAction({ verdict: "autre_app", other: "Mokascore" }, actif, followed, bio)).toEqual({ kind: "none" });
+    // Sa bio prouve son app : il pousse les deux, il reste ; l'autre est notée.
+    expect(verdictAction({ verdict: "autre_app", other: "Mokascore" }, actif, followed, bio)).toEqual({ kind: "note", product: "Mokascore" });
     expect(PLACEMENT_MAX_VIDEOS).toBe(2);
     expect(verdictAction({ verdict: "placement" }, actif, followed, { cites: 2, bioNames: false })).toEqual({ kind: "placement" });
     // #finchpartner sur 3 vidéos : un partenaire récurrent, pas un placement.
     expect(verdictAction({ verdict: "placement" }, actif, followed, { cites: 3, bioNames: false })).toEqual({ kind: "none" });
+  });
+
+  it("v3 : il pousse aussi une autre app (« pousse » + autre, ou 2 vidéos de la sienne) : elle est notée, il reste", () => {
+    expect(MULTI_APP_MIN_VIDEOS).toBe(2);
+    expect(verdictAction({ verdict: "pousse", other: "Mokascore" }, actif, followed, ev)).toEqual({ kind: "note", product: "Mokascore" });
+    expect(verdictAction({ verdict: "pousse", other: "The Cringe" }, actif, followed, ev)).toEqual({ kind: "none" });
+    expect(verdictAction({ verdict: "pousse" }, actif, followed, ev)).toEqual({ kind: "none" });
+    const deux = { cites: 2, bioNames: false };
+    expect(verdictAction({ verdict: "autre_app", other: "Mokascore" }, actif, followed, deux)).toEqual({ kind: "note", product: "Mokascore" });
+    expect(verdictAction({ verdict: "autre_app", other: "The Cringe" }, actif, followed, deux)).toEqual({ kind: "none" });
+    // Une seule vidéo de la sienne : il pousse l'autre à la place.
+    expect(verdictAction({ verdict: "autre_app", other: "The Cringe" }, actif, followed, { cites: 1, bioNames: false })).toEqual({ kind: "move", to: "cringe" });
   });
 
   it("jamais un compte déjà en pause, gardé à la main ou ajouté à la main", () => {

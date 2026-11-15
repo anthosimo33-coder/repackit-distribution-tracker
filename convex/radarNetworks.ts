@@ -1697,7 +1697,8 @@ export async function followCandidateCore(
       // la rejoignent et sont relevés tout de suite, donc jugés sur ses motifs (sans vidéo qui la cite : en pause).
       const acc = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
       const from = acc ? await ctx.db.get(acc.appId) : null;
-      if (acc && from && acc.appId !== app._id) {
+      // Seuls ceux mis en pause par la piste la rejoignent ; un compte qui pousse les deux (`note`, actif) reste où il est.
+      if (acc && from && acc.appId !== app._id && acc.status === "paused") {
         const recent = await ctx.db.query("radarTrackedVideos").withIndex("by_account_published", (q) => q.eq("accountId", acc._id)).order("desc").take(100);
         await moveAccount(ctx, acc, from, app, recent);
         await ctx.db.patch(acc._id, { status: "active", pausedReason: undefined, nextReadAt: now });
