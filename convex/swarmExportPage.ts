@@ -1,6 +1,5 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { JUDGE_VERSION } from "./radarJudgeMath";
 import { MARKET_CURRENCY } from "./radarMarketMath";
 import { MEDIAN_WINDOW, videoCitesApp } from "./radarNetworkMath";
 import { storeUrl } from "./radarStoreMath";
@@ -196,8 +195,9 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
         // s'étiquette), ou parce que l'IA (v2, JUDGE_VERSION) dit qu'il la pousse. Sinon il part « en pause » : pas un
         // créateur pour Swarm, qui ne liste que les comptes actifs, mais ses vidéos gardent leur pseudo et leur lien
         // (#513). Aucune justification ne part.
-        const judged = app ? (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect()).find((j) => (j.v ?? 1) >= JUDGE_VERSION) : undefined;
-        const linked = !app || t.placement === true || judged?.verdict === "pousse" || proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
+        // Le « pousse » RELU et appliqué seulement (radarJudgeReview) : celui de l'IA seule ne relie plus rien (15/11/2026).
+        const reviewed = app ? (await ctx.db.query("radarAccountJudgments").withIndex("by_account", (q) => q.eq("accountId", t._id)).collect()).some((j) => j.appId === app._id && j.reviewed === "pousse") : false;
+        const linked = !app || t.placement === true || reviewed || proofDetail(t.handle, t.bio, texts, app, t.matchedBy).by !== null;
         rows.push(linked ? projectTracked(t) : { ...projectTracked(t), status: "paused" as const });
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };
