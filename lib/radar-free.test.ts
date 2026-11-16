@@ -251,16 +251,17 @@ describe("Radar — relevé gratuit : ce qui attend la voie, ce qui part au paya
     expect(r).toEqual({ pay: [acc("a", 0, 1), acc("b", 1)], reason: "coupure" });
   });
 
-  it("le premier relevé passe aussi par la voie gratuite, les nouveaux comptes d'abord, 300 au plus par passage (15/11/2026)", () => {
+  it("le premier relevé passe aussi par la voie gratuite, APRÈS les comptes déjà suivis, 300 au plus par passage (16/11/2026)", () => {
     const neuf = (name: string) => ({ ...acc(name, 1), first: true });
     const suivi = (name: string, dueMinAgo: number, postHoursAgo?: number) => ({ ...acc(name, dueMinAgo, postHoursAgo), first: false });
+    // Les comptes suivis d'abord (sinon, pas lus à temps, ils partent au payant « retard ») ; les nouveaux ensuite.
     const q = laneQueue([suivi("calme", 300, 72), neuf("neuf-1"), suivi("frais", 5, 18), neuf("neuf-2")], NOW).map((a) => a.name);
-    expect(q).toEqual(["neuf-1", "neuf-2", "frais", "calme"]);
+    expect(q).toEqual(["frais", "calme", "neuf-1", "neuf-2"]);
     expect(FIRST_FREE_PER_PASS).toBe(300);
     const beaucoup = Array.from({ length: 350 }, (_, i) => neuf(`n${i}`));
     const q2 = laneQueue([...beaucoup, suivi("calme", 300, 72)], NOW);
     expect(q2).toHaveLength(301);
-    expect(q2[300].name).toBe("calme");
+    expect(q2[0].name).toBe("calme");
   });
 
   it("un premier relevé raté : payant, ou il attend au palier survie ; pas atteint : il attend, sauf voie fermée", () => {
