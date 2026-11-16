@@ -373,13 +373,16 @@ export function laneOrder<A extends LaneAccount>(accounts: readonly A[], now: nu
  * payant retrouvées, vues identiques (1 écart de plus de 10 % sur 930), son, pays et langue identiques ; les légendes
  * ne diffèrent que par les retours à la ligne, les espaces et la casse — que les motifs ignorent (texte compacté) ;
  * l'ordre des textes à l'écran change parfois (10 sur 172), comme pour tout relevé gratuit.
- * La voie prend d'abord les nouveaux comptes (`FIRST_FREE_PER_PASS` au plus : un essai se juge sur eux), puis les
- * autres dans l'ordre habituel.
+ * La voie prend d'abord les comptes déjà suivis, dans l'ordre habituel, puis les nouveaux (`FIRST_FREE_PER_PASS` au
+ * plus) sur la place qui reste. Le 16/11/2026, les nouveaux passaient en tête : un premier relevé gratuit lit une page
+ * par vidéo (une dizaine), la voie n'en faisait que 28 par passage, et les comptes suivis, pas lus à temps, partaient
+ * au payant « retard » (2 077 crédits de minuit à 9 h). Un nouveau compte pas atteint attend, sans rien payer
+ * (`firstReadMisses`) ; son essai attend son premier relevé (`trialDecision`, comptes en contrôle).
  */
 export const FIRST_FREE_PER_PASS = 300;
 
 export function laneQueue<A extends LaneAccount & { first: boolean }>(due: readonly A[], now: number): A[] {
-  return [...due.filter((a) => a.first).slice(0, FIRST_FREE_PER_PASS), ...laneOrder(due.filter((a) => !a.first), now)];
+  return [...laneOrder(due.filter((a) => !a.first), now), ...due.filter((a) => a.first).slice(0, FIRST_FREE_PER_PASS)];
 }
 
 /**
