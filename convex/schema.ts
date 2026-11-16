@@ -4268,6 +4268,9 @@ export default defineSchema({
     lastFreeAt: v.optional(v.number()),
     lastFreeOk: v.optional(v.number()),
     lastFreeFallback: v.optional(v.number()),
+    // Les comptes ratés au dernier passage, par raison (radarFreeMath.FreeWhy) : profil absent, privé ou vide (erreur
+    // de relevé sans crédit), refusé, page de vidéo illisible, liste trouée (au payant).
+    lastFreeWhy: v.optional(v.record(v.string(), v.number())),
     lastFreeStop: v.optional(v.string()),
     // Comptes que la voie gratuite n'a pas eu le temps de prendre au dernier passage, et qui attendent le suivant
     // (au lieu d'être relevés en payant, cf radarFreeMath.overflowToPay).

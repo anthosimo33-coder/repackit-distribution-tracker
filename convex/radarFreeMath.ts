@@ -418,6 +418,81 @@ export function paced(page: (url: string) => Promise<FreePage>, pause: () => Pro
 export type LaneMiss<A> = { account: A; why: FreeWhy; newest?: NewestKnown };
 
 /**
+ * Un profil qui n'a rien à lire, ni gratuitement ni en payant. Vérifié le 16/11/2026 sur les 25 comptes suivis
+ * restés dus depuis 3 à 42 heures : 22 profils que TikTok ne sert pas — supprimés ou bannis (« 209002 »), ou passés
+ * en PRIVÉ, que l'intégration refuse de la même façon (400) — et 3 profils publics vidés de leurs vidéos. Le relevé
+ * payant n'y lisait rien et facturait son crédit, sans repousser le compte : il restait dû, repayé à chaque passage.
+ */
+export const NOTHING_TO_READ: readonly FreeWhy[] = ["absent", "private", "empty"];
+
+/**
+ * Les comptes ratés par la voie gratuite : ceux qui n'ont rien à lire (`NOTHING_TO_READ`) prennent une erreur de
+ * relevé, sans crédit (un jour d'attente, en pause à la troisième d'affilée, cf radarNetworkMath.MAX_READ_ERRORS) ;
+ * les autres — profil refusé, page de vidéo illisible, liste trouée — passent au payant, qui lit ce que le gratuit
+ * n'a pas pu lire.
+ */
+export function splitMisses<A>(failed: readonly LaneMiss<A>[]): { unreadable: A[]; paid: LaneMiss<A>[] } {
+  const unreadable: A[] = [];
+  const paid: LaneMiss<A>[] = [];
+  for (const m of failed) {
+    if (NOTHING_TO_READ.includes(m.why)) unreadable.push(m.account);
+    else paid.push(m);
+  }
+  return { unreadable, paid };
+}
+
+/** Combien de comptes la voie a ratés, par raison (rangé à chaque passage : la raison d'un repli se lit). */
+export function missCounts(failed: readonly { why: FreeWhy }[]): Partial<Record<FreeWhy, number>> {
+  const out: Partial<Record<FreeWhy, number>> = {};
+  for (const m of failed) out[m.why] = (out[m.why] ?? 0) + 1;
+  return out;
+}
+
+/** Une page du relevé payant (ScrapeCreators), sa dépense déjà comptée. */
+export type PaidPage = { ok: true; videos: SignalInput[]; next: string | null } | { ok: false; noCredits: boolean };
+
+/**
+ * Le relevé payant d'un compte : une page ; une liste trouée (`gap`), page après page — GAP_PAGES au plus, tant que
+ * `more()` le permet — jusqu'à retrouver sa vidéo, ou passer sa date sans la voir. Rend les vidéos lues, sans
+ * doublon, et ce que le compte en garde :
+ *  read : des vidéos à ranger · stop : plus de crédits (ce qui est lu reste à ranger) ·
+ *  error : rien à ranger — première page refusée, ou servie SANS vidéo. Ce second cas (profil supprimé, privé,
+ *  vidé : ScrapeCreators répond sans erreur, et facture) ne laissait aucune trace : le compte restait dû et repartait
+ *  en payant à chaque passage (16/11/2026). C'est une erreur de relevé, comme un refus.
+ */
+export async function paidRead(
+  page: (cursor?: string) => Promise<PaidPage>,
+  more: () => boolean,
+  gap?: NewestKnown,
+): Promise<{ outcome: "read" | "error" | "stop"; videos: SignalInput[]; reached: { done: boolean; found: boolean } }> {
+  const seen = new Set<string>();
+  const videos: SignalInput[] = [];
+  let reached = { done: false, found: false };
+  let cursor: string | undefined;
+  for (let i = 0; i < (gap ? GAP_PAGES : 1); i++) {
+    if (i > 0 && !more()) break;
+    const r = await page(cursor);
+    if (!r.ok) {
+      if (r.noCredits) return { outcome: "stop", videos, reached };
+      // Une page suivante qui échoue : ce qui est déjà lu est rangé.
+      if (i === 0) return { outcome: "error", videos, reached };
+      break;
+    }
+    if (i === 0 && r.videos.length === 0) return { outcome: "error", videos, reached };
+    for (const v of r.videos) {
+      if (seen.has(v.videoId)) continue;
+      seen.add(v.videoId);
+      videos.push(v);
+    }
+    if (!gap) break;
+    reached = gapReached(videos, gap);
+    if (reached.done || !r.next) break;
+    cursor = r.next;
+  }
+  return { outcome: "read", videos, reached };
+}
+
+/**
  * Déroule la voie gratuite : chaque compte est relevé à son tour tant qu'elle est ouverte (`alive` : le temps
  * imparti) et que le coupe-circuit n'a pas sauté. Rend l'état du passage, les comptes dont le relevé gratuit n'a pas
  * abouti (`failed`, au relevé payant) et ceux qu'elle n'a pas eu le temps de prendre (`notReached`, cf `overflowToPay`).

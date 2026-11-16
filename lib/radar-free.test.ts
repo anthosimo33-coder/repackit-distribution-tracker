@@ -20,9 +20,12 @@ import {
   laneOrder,
   laneQueue,
   listGap,
+  missCounts,
   overflowToPay,
   paced,
+  paidRead,
   runFreeLane,
+  splitMisses,
   parseFreeProfile,
   parseFreeVideo,
   retrying,
@@ -35,7 +38,9 @@ import {
   trialPlan,
   type FreePage,
   type KnownVideo,
+  type PaidPage,
 } from "../convex/radarFreeMath";
+import type { SignalInput } from "../convex/radarSignalsMath";
 import { profileNextCursor } from "../convex/scrapeCreatorsApi";
 
 /**
@@ -482,6 +487,75 @@ describe("Radar — relevé gratuit : la voie gratuite d'un passage (13/11/2026)
     expect(await freeRead("lea.revise", { page, known: async () => [], newest: async () => ({ videoId: V_HIER, publishedAt: videoIdTime(V_HIER) }) }, NOW)).toMatchObject({ ok: true, pages: 3 });
     // Une liste trouée n'est pas un refus de TikTok : le coupe-circuit ne compte pas.
     expect(freeNote(freeStart(), "gap")).toMatchObject({ on: true, fallback: 1, streak: 0 });
+  });
+});
+
+describe("Radar — un compte qui n'a rien à lire n'est plus repayé à chaque passage (16/11/2026)", () => {
+  // Le 16/11, 25 comptes suivis restaient dus depuis 3 à 42 heures : 22 profils refusés (supprimés, bannis ou passés
+  // en privé), 3 vidés. Chaque passage les payait (« repli »), ScrapeCreators n'y lisait rien, et rien ne les repoussait.
+  type Miss = { account: string; why: "absent" | "suspect" | "private" | "empty" | "detail" | "gap" };
+  const misses: Miss[] = [
+    { account: "supprime", why: "absent" },
+    { account: "refuse", why: "suspect" },
+    { account: "prive", why: "private" },
+    { account: "vide", why: "empty" },
+    { account: "illisible", why: "detail" },
+    { account: "troue", why: "gap" },
+    { account: "banni", why: "absent" },
+  ];
+
+  it("un profil absent, privé ou vide : une erreur de relevé, sans crédit ; le reste passe au payant", () => {
+    const r = splitMisses(misses);
+    expect(r.unreadable).toEqual(["supprime", "prive", "vide", "banni"]);
+    expect(r.paid.map((m) => m.account)).toEqual(["refuse", "illisible", "troue"]);
+    expect(missCounts(misses)).toEqual({ absent: 2, suspect: 1, private: 1, empty: 1, detail: 1, gap: 1 });
+    expect(missCounts([])).toEqual({});
+  });
+
+  const sig = (videoId: string) => ({ videoId, publishedAt: videoIdTime(videoId) }) as SignalInput;
+  const pages = (...served: PaidPage[]) => {
+    const asked: (string | undefined)[] = [];
+    return {
+      asked,
+      page: async (cursor?: string): Promise<PaidPage> => {
+        asked.push(cursor);
+        return served[asked.length - 1] ?? { ok: false, noCredits: false };
+      },
+    };
+  };
+
+  it("relevé payant servi SANS vidéo (profil supprimé, privé, vidé) : une erreur de relevé, pas un relevé sans suite", async () => {
+    const t = pages({ ok: true, videos: [], next: null });
+    expect(await paidRead(t.page, () => true)).toEqual({ outcome: "error", videos: [], reached: { done: false, found: false } });
+    expect(t.asked).toEqual([undefined]);
+    // Une liste trouée dont la première page revient vide : de même, sans page de plus.
+    const g = pages({ ok: true, videos: [], next: "c1" });
+    expect((await paidRead(g.page, () => true, { videoId: V_SEMAINE, publishedAt: videoIdTime(V_SEMAINE) })).outcome).toBe("error");
+    expect(g.asked).toEqual([undefined]);
+  });
+
+  it("refus à la première page : erreur ; plus de crédits : arrêt ; des vidéos : rangées", async () => {
+    expect((await paidRead(pages({ ok: false, noCredits: false }).page, () => true)).outcome).toBe("error");
+    expect((await paidRead(pages({ ok: false, noCredits: true }).page, () => true)).outcome).toBe("stop");
+    const t = pages({ ok: true, videos: [sig(V_NEUVE), sig(V_HIER), sig(V_NEUVE)], next: "c1" });
+    const r = await paidRead(t.page, () => true);
+    expect(r.outcome).toBe("read");
+    expect(r.videos.map((v) => v.videoId)).toEqual([V_NEUVE, V_HIER]);
+    // Sans trou, une seule page.
+    expect(t.asked).toEqual([undefined]);
+  });
+
+  it("liste trouée : page après page jusqu'à la vidéo ; une page suivante refusée garde ce qui est lu ; `more` borne", async () => {
+    const cible = { videoId: V_SEMAINE, publishedAt: videoIdTime(V_SEMAINE) };
+    const t = pages({ ok: true, videos: [sig(V_NEUVE)], next: "c1" }, { ok: true, videos: [sig(V_HIER), sig(V_SEMAINE)], next: "c2" });
+    expect(await paidRead(t.page, () => true, cible)).toMatchObject({ outcome: "read", reached: { done: true, found: true } });
+    expect(t.asked).toEqual([undefined, "c1"]);
+    const k = pages({ ok: true, videos: [sig(V_NEUVE)], next: "c1" }, { ok: false, noCredits: false });
+    const kept = await paidRead(k.page, () => true, cible);
+    expect([kept.outcome, kept.videos.map((v) => v.videoId)]).toEqual(["read", [V_NEUVE]]);
+    const m = pages({ ok: true, videos: [sig(V_NEUVE)], next: "c1" }, { ok: true, videos: [sig(V_HIER)], next: "c2" });
+    expect((await paidRead(m.page, () => false, cible)).videos).toHaveLength(1);
+    expect(m.asked).toEqual([undefined]);
   });
 });
 
