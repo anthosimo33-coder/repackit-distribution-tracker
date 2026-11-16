@@ -1682,7 +1682,7 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
   // Un motif contenu dans celui d'une app suivie en ferait un doublon (« vocaa » dans « vocaai »).
   const followed = opts.followed ?? (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
   for (const p of strong) {
-    const taken = shadowingApp(p, followed);
+    const taken = shadowingApp(p, followed, opts.not);
     if (taken) throw err(ERR.RADAR_APP_PATTERN_TAKEN, `Le motif « ${p} » est déjà dans ceux de « ${taken.name} ».`, { pattern: p, name: taken.name });
   }
   const searches = opts.searches?.length

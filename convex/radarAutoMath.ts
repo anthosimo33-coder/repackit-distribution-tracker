@@ -115,6 +115,56 @@ export function listFallback(name: string): { patterns: string[]; not: string[];
   return { patterns: [`${core}app`], not: APP_WORD_TAILS.map((t) => `${n} ${t}`), searches: [`${n} app`, `#${core}app`] };
 }
 
+/**
+ * Les tournures à retirer pour qu'une app d'une liste ne cite pas une app suivie dont un motif CONTIENT le sien. Le
+ * 16/11/2026, 7 apps de la liste restaient proposées, « motif déjà pris » : « shelfapp » est dans « bookshelfapp »
+ * (Bookshelf), « riseapp » dans « weriseapp » (WeRise), « speakapp » dans « speakappai » (SpeakApp AI). Retirer le
+ * nom de l'autre app (« bookshelf », « we rise » et « werise ») et ses motifs avant de chercher les sépare. `null` :
+ * on ne peut pas — même motif, ou tournure qui contient le nôtre (la retirer l'effacerait aussi).
+ */
+export function shadowNot(patterns: readonly string[], apps: readonly { name: string; strong: readonly string[] }[]): string[] | null {
+  const out: string[] = [];
+  for (const raw of patterns) {
+    const p = raw.replace(/^[@#]/, "");
+    for (const a of apps) {
+      const hits = a.strong.map((s) => s.replace(/^[@#]/, "")).filter((s) => s.includes(p));
+      if (!hits.length) continue;
+      const phrases = [a.name.toLowerCase().replace(/\s+/g, " ").trim(), productKey(a.name), ...hits].filter((x) => x.length >= 3);
+      if (hits.includes(p) || phrases.some((x) => productKey(x).length > 0 && p.includes(productKey(x)))) return null;
+      out.push(...phrases);
+    }
+  }
+  return out.filter((x, i, a) => a.indexOf(x) === i);
+}
+
+// ─── Une app suivie élargie à son nom (16/11/2026) ───────────────────────────
+
+/**
+ * Le nom collé qu'on peut ajouter aux motifs d'une app suivie, ou `null`. Comparé le 16/11/2026 à FarmSpot, des apps
+ * entrées à la main sous « nomapp » seul passaient à côté de leurs réseaux : les comptes de HelloTalk écrivent
+ * « #hellotalkmundo » ou « #amigosdehellotalk » (10 vidéos sur 10), ceux de Wattpad « #wattpad » — jamais
+ * « hellotalkapp » ni « wattpadapp ». Seulement une app ajoutée à la main (celles de départ ont des motifs choisis un
+ * par un, dans le code), d'au moins 4 lettres, que ses motifs ne couvrent pas déjà, et dont le nom n'est dans le motif
+ * d'aucune autre app. L'IA dit ensuite si ce nom est distinctif (`AUTO_SYSTEM`) : courant, rien ne change.
+ */
+export function broadenCore(
+  app: { name: string; source: string; strong: readonly string[] },
+  others: readonly { strong: readonly string[] }[],
+): string | null {
+  if (app.source !== "manual") return null;
+  const core = productKey(app.name);
+  if (core.length < LIST_MIN_CORE) return null;
+  // Un motif contenu dans le nom (« pixverse » pour PixVerse Lite) trouve déjà tout ce que le nom trouverait.
+  if (app.strong.some((s) => core.includes(s.replace(/^[@#]/, "")))) return null;
+  if (others.some((a) => a.strong.some((s) => s.replace(/^[@#]/, "").includes(core)))) return null;
+  return core;
+}
+
+/** Ses motifs et ses recherches une fois élargie : son nom collé en plus ; son nom, son hashtag et « nom app » en tête. */
+export function broadenedRule(app: { name: string; strong: readonly string[]; searches: readonly string[] }, core: string): { strong: string[]; searches: string[] } {
+  return { strong: [...app.strong, core], searches: [...listSearches(app.name), ...app.searches].filter((x, i, a) => a.indexOf(x) === i) };
+}
+
 // ─── Le tri des mentions et des sites (15/11/2026) ───────────────────────────
 
 /**

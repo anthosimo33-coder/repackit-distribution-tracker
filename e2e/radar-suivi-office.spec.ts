@@ -343,4 +343,70 @@ test.describe("Radar — suivi d'office des apps trouvées", () => {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
+
+  test("rattraper FarmSpot : une app suivie s'élargit à son nom, une app de la liste se sépare du motif d'une autre, une app écartée à tort revient, les apps suivies privées par le plafond repartent (16/11/2026)", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const p = `e2elg${ts}`;
+    const P = `E2elg${ts}`;
+    try {
+      // Apps suivies, ajoutées à la main : « talk » sous « nomapp » seul (distinctif), « mot » aussi (courant pour l'IA),
+      // « deja » déjà sous son nom ; « shelfappbook » porte un motif qui contient celui de l'app de la liste « shelf ».
+      await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+        secret: E2E_SECRET,
+        apps: [
+          { slug: `${p}talk`, name: `${P}talk`, rivalOf: [], strong: [`${p}talkapp`] },
+          { slug: `${p}mot`, name: `${P}mot`, rivalOf: [], strong: [`${p}motapp`] },
+          { slug: `${p}deja`, name: `${P}deja`, rivalOf: [], strong: [`${p}deja`] },
+          { slug: `${p}shelfappbook`, name: `${P}shelfappbook`, rivalOf: [], strong: [`${p}shelfappbook`] },
+        ],
+        accounts: [],
+      });
+      const slugs = [`${p}talk`, `${p}mot`, `${p}deja`, `${p}absente`];
+      expect(await admin.mutation(api.radarAuto.e2eBroaden, { secret: E2E_SECRET, slugs, common: [`${p}mot`], dryRun: true })).toEqual([{ name: `${P}talk`, motif: `${p}talk` }]);
+      expect((await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}talk` }))?.strong).toEqual([`${p}talkapp`]);
+      expect(await admin.mutation(api.radarAuto.e2eBroaden, { secret: E2E_SECRET, slugs, common: [`${p}mot`], dryRun: false })).toEqual([{ name: `${P}talk`, motif: `${p}talk` }]);
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}talk` })).toMatchObject({
+        strong: [`${p}talkapp`, `${p}talk`],
+        searches: [`${p}talk`, `#${p}talk`, `${p}talk app`, `${p}talkapp`],
+      });
+      expect((await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}mot` }))?.strong).toEqual([`${p}motapp`]);
+      // Élargie, elle ne l'est plus deux fois.
+      expect(await admin.mutation(api.radarAuto.e2eBroaden, { secret: E2E_SECRET, slugs, common: [], dryRun: true })).toEqual([{ name: `${P}mot`, motif: `${p}mot` }]);
+
+      // La liste : « shelf » (nom courant → « nomapp ») est dans le motif de « shelfappbook » ; « clip », écartée à tort.
+      const items = [{ name: `${P}shelf` }, { name: `${P}clip` }];
+      expect(await admin.mutation(api.radarAuto.e2eImportList, { secret: E2E_SECRET, source: "e2e", items })).toEqual({ added: 2, existing: 0, skipped: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eIgnoreList, { secret: E2E_SECRET, names: [`${P}clip`], note: "0 vue sur 30 jours" })).toEqual({ ignored: 1, settled: 0, unknown: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [`liste:${p}`], common: [`${p}shelf`] })).toEqual({ followed: 1, kept: 0, attached: 0 });
+      expect(await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}shelf` })).toMatchObject({
+        strong: [`${p}shelfapp`],
+        not: expect.arrayContaining([`${p}shelfappbook`]),
+        trial: true,
+      });
+      expect(await admin.mutation(api.radarAuto.e2eReopenList, { secret: E2E_SECRET, names: [`${P}clip`, `${P}shelf`, `${P}inconnue`], dryRun: true })).toEqual({
+        reopened: [`${P}clip`],
+        untouched: [`${P}shelf`, `${P}inconnue`],
+      });
+      expect((await admin.mutation(api.radarAuto.e2eReopenList, { secret: E2E_SECRET, names: [`${P}clip`], dryRun: false })).reopened).toEqual([`${P}clip`]);
+      expect(await admin.mutation(api.radarAuto.e2eAutoFollow, { secret: E2E_SECRET, markers: [`liste:${p}`] })).toEqual({ followed: 1, kept: 0, attached: 0 });
+      expect((await admin.mutation(api.radarAuto.e2eAppRules, { secret: E2E_SECRET, slug: `${p}clip` }))?.strong).toEqual([`${p}clip`]);
+
+      // Le plafond : « mot », suivie, cherchée dans l'intervalle sans rien rattacher, repart ; « deja », 3 comptes, non ;
+      // « talk », cherchée avant l'intervalle, non.
+      const now = Date.now();
+      await admin.mutation(api.radarAuto.e2eSetSearchResult, { secret: E2E_SECRET, slug: `${p}mot`, searchedAgoMs: 5 * 60_000, attached: 0, full: 0 });
+      await admin.mutation(api.radarAuto.e2eSetSearchResult, { secret: E2E_SECRET, slug: `${p}deja`, searchedAgoMs: 5 * 60_000, attached: 3, full: 0 });
+      await admin.mutation(api.radarAuto.e2eSetSearchResult, { secret: E2E_SECRET, slug: `${p}talk`, searchedAgoMs: 60 * 60_000, attached: 0, full: 0 });
+      await admin.mutation(api.radarAuto.e2eSetSearchResult, { secret: E2E_SECRET, slug: `${p}shelfappbook`, searchedAgoMs: 5 * 60_000, attached: 12, full: 0 });
+      const window = { since: now - 10 * 60_000, until: now, prefix: p };
+      expect(await admin.mutation(api.radarAuto.e2eRelaunchBlockedTrials, { secret: E2E_SECRET, ...window, dryRun: true })).toEqual({ relaunched: 0, names: [] });
+      expect(await admin.mutation(api.radarAuto.e2eRelaunchBlockedTrials, { secret: E2E_SECRET, ...window, followed: true, dryRun: true })).toEqual({ relaunched: 0, names: [`${P}mot`] });
+      expect(await admin.mutation(api.radarAuto.e2eRelaunchBlockedTrials, { secret: E2E_SECRET, ...window, followed: true, dryRun: false })).toEqual({ relaunched: 1, names: [`${P}mot`] });
+      expect(await admin.mutation(api.radarAuto.e2eRelaunchBlockedTrials, { secret: E2E_SECRET, ...window, followed: true, dryRun: true })).toEqual({ relaunched: 0, names: [] });
+      expect(await admin.mutation(api.radarAuto.e2eTrialState, { secret: E2E_SECRET, slug: `${p}mot` })).toEqual({ trial: false, status: "active", pausedReason: null });
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
 });

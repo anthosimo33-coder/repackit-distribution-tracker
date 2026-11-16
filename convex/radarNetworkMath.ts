@@ -1022,8 +1022,12 @@ export function patternsOfCandidate(c: Pick<Candidate, "kind" | "label">): strin
  * « whatbrandonthink » dans « whatbrandonthinks » — les deux doublons du
  * 09/11/2026. L'inverse est permis : « wrizzapp » contient « rizzapp » et
  * c'est une autre app.
+ * `not` : les tournures que la nouvelle app retire avant de chercher. Un motif
+ * qui n'y survit pas ne la fait plus citer (16/11/2026 : Shelf retire
+ * « bookshelf », et « bookshelfapp » de Bookshelf ne cite plus Shelf).
  */
-export function shadowingApp<T extends Pick<AppRule, "strong">>(pattern: string, apps: readonly T[]): T | undefined {
+export function shadowingApp<T extends Pick<AppRule, "strong">>(pattern: string, apps: readonly T[], not?: readonly string[]): T | undefined {
   const p = pattern.replace(/^[@#]/, "");
-  return apps.find((a) => a.strong.some((s) => s.replace(/^[@#]/, "").includes(p)));
+  const cites = (s: string) => s.includes(p) && (!not?.length || citesNormalized(normalize(s), { strong: [p], not }));
+  return apps.find((a) => a.strong.some((s) => cites(s.replace(/^[@#]/, ""))));
 }

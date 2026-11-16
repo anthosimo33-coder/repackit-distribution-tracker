@@ -6,6 +6,8 @@ import {
   autoAnswer,
   autoPlan,
   autoPrompt,
+  broadenCore,
+  broadenedRule,
   listFallback,
   listKey,
   listPatterns,
@@ -21,9 +23,10 @@ import {
   TRIAL_MAX_WAIT_MS,
   TRIAL_SETTLE_MS,
   searchBlockedByCap,
+  shadowNot,
   trialDecision,
 } from "../convex/radarAutoMath";
-import { citesApp } from "../convex/radarNetworkMath";
+import { citesApp, shadowingApp } from "../convex/radarNetworkMath";
 import { AUTO_MIN_CREATORS, brandFamily, isShopGenre, storeAutoFollow, type CreatorWhy } from "../convex/radarStoreMath";
 
 /**
@@ -304,5 +307,66 @@ describe("Radar — les apps d'une liste importée (15/11/2026)", () => {
     expect(citesApp("so simple", "x", simple)).toBe(false);
     // Un nom qui finit déjà par « app » : rien de plus sûr, il reste proposé.
     expect(listFallback("Recime App")).toBeNull();
+  });
+});
+
+describe("Radar — une app de la liste prise dans le motif d'une app suivie (16/11/2026)", () => {
+  // Les 7 apps restées « motif déjà pris » le 16/11 : Shelf (« shelfapp » dans « bookshelfapp »), RISE (« riseapp » dans
+  // « weriseapp »), Speak (« speakapp » dans « speakappai »)…
+  const bookshelf = { name: "Bookshelf", strong: ["bookshelfapp"] };
+  const werise = { name: "WeRise", strong: ["weriseapp"] };
+  const speakai = { name: "SpeakApp AI", strong: ["speakappai"] };
+
+  it("elle retire le nom et les motifs de l'autre avant de chercher : chacune ne cite plus que la sienne", () => {
+    const shelfNot = shadowNot(["shelfapp"], [bookshelf, werise])!;
+    expect(shelfNot).toEqual(["bookshelf", "bookshelfapp"]);
+    const shelf = { strong: ["shelfapp"], not: shelfNot };
+    expect(citesApp("on se retrouve tous sur shelf app ce soir #shelfapp", "x", shelf)).toBe(true);
+    expect(citesApp("my reading log #bookshelfapp", "x", shelf)).toBe(false);
+    expect(citesApp("bookshelf app review", "x", shelf)).toBe(false);
+    // L'app suivie ne cite toujours pas la nouvelle : rien ne change pour elle.
+    expect(citesApp("on se retrouve tous sur shelf app ce soir #shelfapp", "x", bookshelf)).toBe(false);
+    expect(shadowNot(["riseapp"], [werise])).toEqual(["werise", "weriseapp"]);
+    expect(citesApp("rise app changed my sleep", "x", { strong: ["riseapp"], not: ["werise", "weriseapp"] })).toBe(true);
+    expect(citesApp("join us on werise app", "x", { strong: ["riseapp"], not: ["werise", "weriseapp"] })).toBe(false);
+    expect(shadowNot(["speakapp"], [speakai])).toEqual(["speakapp ai", "speakappai"]);
+    // Aucun motif pris : rien à retirer.
+    expect(shadowNot(["shelfapp"], [werise])).toEqual([]);
+  });
+
+  it("le contrôle de motif pris tient compte de ces tournures ; on ne sépare ni un même motif, ni un nom qui contient le nôtre", () => {
+    expect(shadowingApp("shelfapp", [bookshelf])).toBe(bookshelf);
+    expect(shadowingApp("shelfapp", [bookshelf], ["bookshelf", "bookshelfapp"])).toBeUndefined();
+    expect(shadowNot(["bookshelfapp"], [bookshelf])).toBeNull();
+    // Une app suivie nommée « Rise » : retirer « rise » effacerait aussi « riseapp ».
+    expect(shadowNot(["riseapp"], [{ name: "Rise", strong: ["riseappofficial"] }])).toBeNull();
+  });
+});
+
+describe("Radar — une app suivie élargie à son nom (16/11/2026)", () => {
+  const app = (name: string, strong: string[], source = "manual") => ({ name, strong, source, searches: [...strong, ...strong.map((s) => `#${s}`)] });
+
+  it("une app ajoutée à la main sous « nomapp » seul gagne son nom collé ; ses comptes l'écrivent sans « app »", () => {
+    const hellotalk = app("HelloTalk", ["hellotalkapp"]);
+    expect(broadenCore(hellotalk, [])).toBe("hellotalk");
+    const rule = broadenedRule(hellotalk, "hellotalk");
+    expect(rule).toEqual({ strong: ["hellotalkapp", "hellotalk"], searches: ["hellotalk", "#hellotalk", "hellotalk app", "hellotalkapp", "#hellotalkapp"] });
+    // Les légendes relevées le 16/11 chez ses comptes (10 vidéos sur 10) : invisibles avant, citées après.
+    for (const caption of ["chinese girl #languagepartner #hellotalkfriend", "tiene prioridades #amigosdehellotalk #hellotalkmundo"]) {
+      expect(citesApp(caption, "x", hellotalk)).toBe(false);
+      expect(citesApp(caption, "x", rule)).toBe(true);
+    }
+  });
+
+  it("pas une app de départ, pas sous 4 lettres, pas une app que ses motifs couvrent, pas un nom pris dans le motif d'une autre", () => {
+    expect(broadenCore(app("Cantina", ["cantinaai", "cantinaapp"], "seed"), [])).toBeNull();
+    expect(broadenCore(app("Aya", ["ayaapp"]), [])).toBeNull();
+    expect(broadenCore(app("Wattpad", ["wattpad"]), [])).toBeNull();
+    expect(broadenCore(app("PixVerse Lite", ["pixverse"]), [])).toBeNull();
+    expect(broadenCore(app("Purrrr", ["@purrrr", "#purrrr"]), [])).toBeNull();
+    // « rise » est dans « weriseapp » : élargie, Rise citerait WeRise.
+    expect(broadenCore(app("Rise", ["riseapp"]), [{ strong: ["weriseapp"] }])).toBeNull();
+    expect(broadenCore(app("Rise", ["riseapp"]), [{ strong: ["sunriseclub"] }])).toBeNull();
+    expect(broadenCore(app("Daimon", ["daimonapp"]), [{ strong: ["weriseapp"] }])).toBe("daimon");
   });
 });
