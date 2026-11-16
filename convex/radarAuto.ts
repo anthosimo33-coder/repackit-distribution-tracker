@@ -32,6 +32,9 @@ import {
   listKey,
   listPatterns,
   listSearches,
+  broadenCore,
+  broadenedRule,
+  shadowNot,
   shortenedPattern,
   trialDecision,
   TRIAGE_BATCH,
@@ -163,14 +166,17 @@ async function autoFollowCore(ctx: MutationCtx, now: number, verdicts: ReadonlyM
       kept++;
       continue;
     }
+    // Une app d'une liste dont le motif est dans celui d'une app suivie (« shelfapp » dans « bookshelfapp ») : elle
+    // retire le nom et les motifs de l'autre avant de chercher (cf radarAutoMath.shadowNot) ; sinon, à la main.
+    const unshadow = c.kind === "liste" ? (shadowNot(fallback ? fallback.patterns : plan.patterns, apps) ?? []) : [];
     try {
       // Une mention ou un site trié : le nom du produit dit par l'IA, ses motifs marqués (@, #), ses propres recherches.
       const r = c.triage
         ? await followCandidateCore(ctx, c, c.triage.name, [], plan.patterns, now, true, { ...shared, marks: true, searches: triageSearches(c, c.triage.name) })
         : fallback
-          ? await followCandidateCore(ctx, c, c.label, [], fallback.patterns, now, true, { ...shared, searches: fallback.searches, not: fallback.not })
+          ? await followCandidateCore(ctx, c, c.label, [], fallback.patterns, now, true, { ...shared, searches: fallback.searches, not: [...fallback.not, ...unshadow] })
           : c.kind === "liste"
-            ? await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true, { ...shared, searches: listSearches(c.label) })
+            ? await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true, { ...shared, searches: listSearches(c.label), ...(unshadow.length ? { not: unshadow } : {}) })
             : await followCandidateCore(ctx, c, c.label, [], plan.patterns, now, true, shared);
       // La nouvelle app compte pour les suivantes du passage (motif déjà pris, déjà suivie).
       const created = await ctx.db.get(r.appId);
@@ -532,24 +538,75 @@ export const settleTrials = internalMutation({
  * Une fois (15/11/2026) : les apps à l'essai cherchées depuis `since` sans rien rattacher — le plafond (13 000 comptes
  * d'apps non concurrentes) était plein depuis 22 h 25, mais ces recherches ne le notaient pas encore (`full`) —
  * repartent de zéro. `dryRun` : rien n'est écrit, la liste est rendue.
+ * Le 16/11/2026, le plafond était en fait plein depuis 20 h 09 (relevé le 16/11 à 00 h 39, cf #525) : 87 apps cherchées
+ * dans l'intervalle n'avaient rien rattaché, dont 68 apps SUIVIES (Tripbff, Lingopanda, Wyndy…) que cette reprise ne
+ * regardait pas. `until` borne l'intervalle ; `followed` y ajoute les apps suivies, dont la recherche complète repart
+ * (sans toucher à leur statut).
  */
-async function relaunchBlockedCore(ctx: MutationCtx, since: number, dryRun: boolean, only?: (slug: string) => boolean) {
+async function relaunchBlockedCore(
+  ctx: MutationCtx,
+  o: { since: number; until?: number; followed?: boolean; dryRun: boolean },
+  only?: (slug: string) => boolean,
+) {
   const now = Date.now();
   const hit = (await ctx.db.query("radarApps").collect()).filter(
-    (a) => a.trialSince !== undefined && a.status === "active" && (a.networkSearchedAt ?? 0) >= since && (a.networkSearch?.attached ?? 0) === 0 && (!only || only(a.slug)),
+    (a) =>
+      (a.trialSince !== undefined || (o.followed === true && a.rivalOf.length === 0)) &&
+      a.status === "active" &&
+      a.mergedInto === undefined &&
+      (a.networkSearchedAt ?? 0) >= o.since &&
+      (o.until === undefined || (a.networkSearchedAt ?? 0) <= o.until) &&
+      (a.networkSearch?.attached ?? 0) === 0 &&
+      (!only || only(a.slug)),
   );
-  if (!dryRun) for (const a of hit) await relaunchTrial(ctx, a, now);
-  return { relaunched: dryRun ? 0 : hit.length, names: hit.map((a) => a.name) };
+  if (!o.dryRun) {
+    for (const a of hit) {
+      if (a.trialSince !== undefined) await relaunchTrial(ctx, a, now);
+      else await ctx.db.patch(a._id, { networkSearchedAt: undefined, deepSearchedAt: undefined });
+    }
+  }
+  return { relaunched: o.dryRun ? 0 : hit.length, names: hit.map((a) => a.name) };
 }
 
 export const relaunchBlockedTrials = internalMutation({
-  args: { since: v.number(), dryRun: v.boolean() },
-  handler: (ctx, { since, dryRun }) => relaunchBlockedCore(ctx, since, dryRun),
+  args: { since: v.number(), until: v.optional(v.number()), followed: v.optional(v.boolean()), dryRun: v.boolean() },
+  handler: (ctx, o) => relaunchBlockedCore(ctx, o),
 });
 
 export const e2eRelaunchBlockedTrials = e2eMutation({
-  args: { since: v.number(), dryRun: v.boolean(), prefix: v.string() },
-  handler: (ctx, { since, dryRun, prefix }) => relaunchBlockedCore(ctx, since, dryRun, (slug) => slug.startsWith(prefix)),
+  args: { since: v.number(), until: v.optional(v.number()), followed: v.optional(v.boolean()), dryRun: v.boolean(), prefix: v.string() },
+  handler: (ctx, { prefix, ...o }) => relaunchBlockedCore(ctx, o, (slug) => slug.startsWith(prefix)),
+});
+
+/**
+ * Remet en jeu des apps d'une liste (par leur nom) : écartées à tort, ou laissées « motif déjà pris » avant que
+ * `shadowNot` sache les séparer. Le 16/11/2026, Clipa était écartée « 0 vue chez FarmSpot » — c'était « Clipa- », un
+ * homonyme ; la vraie avait 18 comptes. Elles redeviennent proposées, jamais regardées : le suivi d'office les reprend.
+ */
+async function reopenListCore(ctx: MutationCtx, names: readonly string[], dryRun: boolean) {
+  if (names.length > LIST_IMPORT_MAX) throw new ConvexError({ code: "LIST_TOO_LONG", message: `${LIST_IMPORT_MAX} apps au plus par appel.` });
+  const out = { reopened: [] as string[], untouched: [] as string[] };
+  for (const name of names) {
+    const key = listKey(name);
+    const c = key ? await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", key)).first() : null;
+    if (!c || c.kind !== "liste" || c.status === "followed" || (c.status === "new" && c.autoAt === undefined)) {
+      out.untouched.push(name);
+      continue;
+    }
+    if (!dryRun) await ctx.db.patch(c._id, { status: "new", autoAt: undefined, autoNote: undefined });
+    out.reopened.push(c.label);
+  }
+  return out;
+}
+
+export const reopenListCandidates = internalMutation({
+  args: { names: v.array(v.string()), dryRun: v.boolean() },
+  handler: (ctx, { names, dryRun }) => reopenListCore(ctx, names, dryRun),
+});
+
+export const e2eReopenList = e2eMutation({
+  args: { names: v.array(v.string()), dryRun: v.boolean() },
+  handler: (ctx, { names, dryRun }) => reopenListCore(ctx, names, dryRun),
 });
 
 /** e2e : pose la dernière recherche d'une app (il y a `searchedAgoMs`, `attached` rattachés, `full` refusés par le plafond). */
@@ -661,7 +718,109 @@ export const repairAutoPatterns = internalMutation({
   },
 });
 
+// ─── Une app suivie élargie à son nom (16/11/2026) ───────────────────────────
+
+/** Ce qu'on demanderait à l'IA pour élargir ces apps (par slug) : celles que `broadenCore` retient, avec leur nom collé. */
+async function broadenBatch(ctx: QueryCtx, slugs: readonly string[]): Promise<AutoToJudge[]> {
+  const apps = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
+  const out: AutoToJudge[] = [];
+  for (const slug of new Set(slugs)) {
+    const a = apps.find((x) => x.slug === slug);
+    if (!a || a.status !== "active") continue;
+    const core = broadenCore(a, apps.filter((x) => x._id !== a._id));
+    if (core) out.push({ id: a._id, name: a.name, what: "app promoted by TikTok creators", patterns: [core] });
+  }
+  return out;
+}
+
+export const broadenToJudge = internalQuery({
+  args: { slugs: v.array(v.string()) },
+  handler: (ctx, { slugs }) => broadenBatch(ctx, slugs),
+});
+
+/**
+ * Élargit les apps que l'IA a dites distinctives : leur nom collé rejoint leurs motifs, leurs recherches gagnent leur
+ * nom, leur hashtag et « nom app », et leur recherche COMPLÈTE repart (au palier du solde : quand un pack le permet).
+ * Revérifié à l'écriture (une app changée entre-temps n'est pas touchée). Ses comptes déjà suivis restent.
+ */
+async function applyBroadenCore(ctx: MutationCtx, ids: readonly string[], dryRun: boolean): Promise<{ name: string; motif: string }[]> {
+  const apps = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
+  const out: { name: string; motif: string }[] = [];
+  for (const id of new Set(ids)) {
+    const a = apps.find((x) => x._id === id);
+    if (!a || a.status !== "active") continue;
+    const core = broadenCore(a, apps.filter((x) => x._id !== a._id));
+    if (!core) continue;
+    const rule = broadenedRule(a, core);
+    if (!dryRun) await ctx.db.patch(a._id, { strong: rule.strong, searches: rule.searches, networkSearchedAt: undefined, deepSearchedAt: undefined });
+    out.push({ name: a.name, motif: core });
+  }
+  return out;
+}
+
+export const applyBroaden = internalMutation({
+  args: { ids: v.array(v.string()), dryRun: v.boolean() },
+  handler: (ctx, { ids, dryRun }) => applyBroadenCore(ctx, ids, dryRun),
+});
+
+/**
+ * À lancer sur la prod, une fois, avec les apps à élargir (`convex-prod.sh run radarAuto:broadenAppNames '{"slugs":
+ * [...],"dryRun":true}'`). L'IA (Claude Haiku, le juge du suivi d'office) dit chaque nom distinctif ou courant ; seuls
+ * les distinctifs changent. Rend ce qui a été (ou serait) élargi, et ce qui reste tel quel.
+ */
+export const broadenAppNames = internalAction({
+  args: { slugs: v.array(v.string()), dryRun: v.boolean() },
+  handler: async (ctx, { slugs, dryRun }): Promise<{ skipped: "no-key" } | { broadened: { name: string; motif: string }[]; common: string[]; unjudged: string[]; usd: number }> => {
+    if (!process.env.ANTHROPIC_API_KEY) return { skipped: "no-key" };
+    const now = Date.now();
+    const batch: AutoToJudge[] = await ctx.runQuery(internal.radarAuto.broadenToJudge, { slugs });
+    const verdicts: AutoVerdict[] = [];
+    let usd = 0;
+    let errors = 0;
+    for (let i = 0; i < batch.length; i += TRIAGE_BATCH) {
+      const part = batch.slice(i, i + TRIAGE_BATCH);
+      try {
+        const response = await new Anthropic().messages.create({
+          model: FAMILY_MODEL,
+          max_tokens: 3_000,
+          system: AUTO_SYSTEM,
+          output_config: { effort: "low", format: { type: "json_schema", schema: AUTO_SCHEMA } },
+          messages: [{ role: "user", content: autoPrompt(part) }],
+        });
+        usd += haikuCostUsd(response.usage);
+        if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") errors++;
+        else verdicts.push(...autoAnswer(JSON.parse(response.content.find((b) => b.type === "text")?.text ?? ""), part));
+      } catch {
+        errors++;
+      }
+    }
+    if (batch.length) await ctx.runMutation(internal.radarSignals.recordRun, { poste: "ai", credits: 0, calls: Math.ceil(batch.length / TRIAGE_BATCH), errors, now, usd });
+    const name = (id: string) => batch.find((b) => b.id === id)?.name ?? id;
+    const broadened: { name: string; motif: string }[] = await ctx.runMutation(internal.radarAuto.applyBroaden, {
+      ids: verdicts.filter((x) => !x.common).map((x) => x.id),
+      dryRun,
+    });
+    return {
+      broadened,
+      common: verdicts.filter((x) => x.common).map((x) => name(x.id)),
+      unjudged: batch.filter((b) => !verdicts.some((x) => x.id === b.id)).map((b) => b.name),
+      usd,
+    };
+  },
+});
+
 // ─── e2e ─────────────────────────────────────────────────────────────────────
+
+/** e2e : l'élargissement sans IA — `common` : les slugs qu'elle aurait dits courants ; les autres, distinctifs. */
+export const e2eBroaden = e2eMutation({
+  args: { slugs: v.array(v.string()), common: v.array(v.string()), dryRun: v.boolean() },
+  handler: async (ctx, { slugs, common, dryRun }) => {
+    const batch = await broadenBatch(ctx, slugs);
+    const apps = await Promise.all(batch.map((b) => ctx.db.get(b.id as Id<"radarApps">)));
+    const distinctive = batch.filter((_, i) => !common.includes(apps[i]?.slug ?? "")).map((b) => b.id);
+    return applyBroadenCore(ctx, distinctive, dryRun);
+  },
+});
 
 /**
  * e2e : un passage du suivi d'office sur les apps repérées dont la clé contient un de ces marqueurs (la tâche ne
