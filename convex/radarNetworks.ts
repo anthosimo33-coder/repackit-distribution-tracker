@@ -81,6 +81,7 @@ import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase
 import { RETENTION_DAYS, allowance, budgetState, catchUpAllowance, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot, tierDefers } from "./radarSignalsMath";
 import {
   FREE_LANE_MAX_MS,
+  PASS_MAX_MS,
   FREE_READS_PER_RUN,
   FREE_RETRY_MS,
   freeRead,
@@ -136,7 +137,7 @@ const NETWORK_MAX_MS = 8 * 60_000;
 const ACCOUNT_RUNS_PER_DAY = 24;
 /** Relevés menés de front, et durée au plus d'un passage (une tâche est coupée à 10 minutes). */
 const ACCOUNT_READ_POOL = 8;
-const ACCOUNT_READ_MAX_MS = 8 * 60_000;
+const ACCOUNT_READ_MAX_MS = PASS_MAX_MS;
 /** Apps dont le résumé de réseau est refait par appel (chaque heure, de proche en proche). */
 const APP_NET_BATCH = 15;
 

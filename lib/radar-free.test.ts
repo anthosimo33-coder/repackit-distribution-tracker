@@ -8,6 +8,7 @@ import {
   LANE_FRESH_POST_MS,
   LANE_WAIT_FRESH_MS,
   LANE_WAIT_MS,
+  PASS_MAX_MS,
   freeNote,
   freePlan,
   freeProfileUrl,
@@ -439,8 +440,13 @@ describe("Radar — relevé gratuit : la voie gratuite d'un passage (13/11/2026)
   const ok: Out = { ok: true };
   const refus: Out = { ok: false, why: "suspect", reason: "HTTP 403" };
 
+  it("7 minutes de voie (16/11/2026), une minute au moins pour le payant de ce qu'elle rate, avant le passage suivant", () => {
+    expect(FREE_LANE_MAX_MS).toBe(7 * 60_000);
+    expect(PASS_MAX_MS - FREE_LANE_MAX_MS).toBeGreaterThanOrEqual(60_000);
+    expect(PASS_MAX_MS).toBeLessThan(10 * 60_000);
+  });
+
   it("un compte après l'autre ; ce que le gratuit ne relève pas part au payant, avec son motif", async () => {
-    expect(FREE_LANE_MAX_MS).toBe(5 * 60_000);
     const t = lane({ a: ok, b: { ok: false, why: "private" }, c: ok, d: { ok: false, why: "detail" }, e: refus, f: ok });
     const r = await t.run;
     expect(t.read).toEqual(["a", "b", "c", "d", "e", "f"]);

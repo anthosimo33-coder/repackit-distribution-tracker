@@ -343,8 +343,18 @@ export function freeNote(state: FreeState, outcome: "ok" | FreeWhy, reason?: str
  * Un compte dont le relevé gratuit n'aboutit pas (refus, page qui manque, liste trouée) part au relevé payant. Ceux
  * qu'elle n'a pas eu le temps de prendre attendent le passage suivant (toutes les 10 minutes), sauf s'ils sont en
  * retard ou que la voie s'est fermée : cf `overflowToPay`.
+ * 7 minutes depuis le 16/11/2026 (5 avant) : un premier relevé lit une page par vidéo (une dizaine), la voie ne
+ * prenait que 5 à 8 nouveaux comptes par passage après les comptes suivis, et 285 attendaient jusqu'à 12 heures —
+ * pendant que la voie restait à l'arrêt la moitié de chaque créneau de 10 minutes. Même rythme de pages, plus longtemps.
+ * Il reste une minute au relevé payant de ce qu'elle a raté (`PASS_MAX_MS`).
  */
-export const FREE_LANE_MAX_MS = 5 * 60_000;
+export const FREE_LANE_MAX_MS = 7 * 60_000;
+
+/**
+ * Plus aucun relevé payant ne part après ce délai depuis le début du passage (une tâche est coupée à 10 minutes, la
+ * suivante part 10 minutes après la précédente).
+ */
+export const PASS_MAX_MS = 8 * 60_000;
 
 /** Ce que la voie gratuite sait d'un compte dû pour le ranger et décider s'il peut attendre. */
 export type LaneAccount = { dueAt: number; lastPostAt?: number };
