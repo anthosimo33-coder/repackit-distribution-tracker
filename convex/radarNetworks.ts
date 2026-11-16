@@ -78,24 +78,27 @@ import { LANG_BY_HAND, OFF_TOPIC_BY_HAND } from "./radarSeedAccounts";
 import { screenLang } from "./radarTextLang";
 import { isEarlyHit, isTextOnShot } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
-import { RETENTION_DAYS, allowance, budgetState, catchUpAllowance, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot, tierDefers, type SignalInput } from "./radarSignalsMath";
+import { RETENTION_DAYS, allowance, budgetState, catchUpAllowance, cleanText, keepSignal, needsBalanceProbe, ratioOf, addSnapshot, tierDefers } from "./radarSignalsMath";
 import {
   FREE_LANE_MAX_MS,
+  PASS_MAX_MS,
   FREE_READS_PER_RUN,
   FREE_RETRY_MS,
-  GAP_PAGES,
   freeRead,
-  gapReached,
   firstReadMisses,
   laneQueue,
+  missCounts,
   overflowToPay,
   paced,
+  paidRead,
   retrying,
   runFreeLane,
+  splitMisses,
   trialPick,
   type FreePage,
   type KnownVideo,
   type NewestKnown,
+  type PaidPage,
   type PaidReason,
 } from "./radarFreeMath";
 import { asTrialVideo } from "./radarFirstReadTrial";
@@ -134,7 +137,7 @@ const NETWORK_MAX_MS = 8 * 60_000;
 const ACCOUNT_RUNS_PER_DAY = 24;
 /** Relevés menés de front, et durée au plus d'un passage (une tâche est coupée à 10 minutes). */
 const ACCOUNT_READ_POOL = 8;
-const ACCOUNT_READ_MAX_MS = 8 * 60_000;
+const ACCOUNT_READ_MAX_MS = PASS_MAX_MS;
 /** Apps dont le résumé de réseau est refait par appel (chaque heure, de proche en proche). */
 const APP_NET_BATCH = 15;
 
@@ -231,8 +234,16 @@ export const markGapChecked = internalMutation({
 /** Ce qu'un passage a relevé gratuitement, et ce qu'il a dû relever en payant. */
 export const noteFreeRun = internalMutation({
   // waiting : les comptes que la voie n'a pas eu le temps de prendre et qui attendent le passage suivant.
-  args: { ok: v.number(), fallback: v.number(), stopped: v.union(v.string(), v.null()), waiting: v.optional(v.number()), now: v.number() },
-  handler: async (ctx, { ok, fallback, stopped, waiting, now }) => {
+  // why : les comptes ratés, par raison (radarFreeMath.missCounts).
+  args: {
+    ok: v.number(),
+    fallback: v.number(),
+    why: v.optional(v.record(v.string(), v.number())),
+    stopped: v.union(v.string(), v.null()),
+    waiting: v.optional(v.number()),
+    now: v.number(),
+  },
+  handler: async (ctx, { ok, fallback, why, stopped, waiting, now }) => {
     const s = await ensureSettings(ctx);
     await ctx.db.patch(s._id, {
       freeReads: (s.freeReads ?? 0) + ok,
@@ -240,6 +251,7 @@ export const noteFreeRun = internalMutation({
       lastFreeAt: now,
       lastFreeOk: ok,
       lastFreeFallback: fallback,
+      lastFreeWhy: why ?? {},
       lastFreeStop: stopped ?? undefined,
       lastFreeWaiting: waiting ?? 0,
     });
@@ -1025,14 +1037,24 @@ export const alertEarly = internalAction({
   },
 });
 
-/** Relevé en échec : 3 de suite (compte supprimé, privé, renommé) et le compte passe en pause. */
+/** Relevé en échec : un jour d'attente ; 3 de suite (compte supprimé, privé, renommé) et le compte passe en pause. */
+async function readError(ctx: MutationCtx, accountId: Id<"radarTracked">, now: number): Promise<void> {
+  const acc = await ctx.db.get(accountId);
+  if (!acc) return;
+  const errors = acc.readErrors + 1;
+  await ctx.db.patch(accountId, { readErrors: errors, nextReadAt: now + DAY, ...(errors >= MAX_READ_ERRORS ? { status: "paused" as const } : {}) });
+}
+
 export const markReadError = internalMutation({
   args: { accountId: v.id("radarTracked"), now: v.number() },
-  handler: async (ctx, { accountId, now }): Promise<void> => {
-    const acc = await ctx.db.get(accountId);
-    if (!acc) return;
-    const errors = acc.readErrors + 1;
-    await ctx.db.patch(accountId, { readErrors: errors, nextReadAt: now + DAY, ...(errors >= MAX_READ_ERRORS ? { status: "paused" as const } : {}) });
+  handler: async (ctx, { accountId, now }): Promise<void> => readError(ctx, accountId, now),
+});
+
+/** Les comptes d'un passage dont le profil n'a rien à lire (radarFreeMath.splitMisses) : une erreur de relevé chacun. */
+export const markReadErrors = internalMutation({
+  args: { ids: v.array(v.id("radarTracked")), now: v.number() },
+  handler: async (ctx, { ids, now }): Promise<void> => {
+    for (const id of ids) await readError(ctx, id, now);
   },
 });
 
@@ -1309,39 +1331,27 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
    */
   const readPaid = async (acc: DueAccount, limit: number, reason: PaidReason, gap?: NewestKnown): Promise<"stop" | void> => {
     if (paidCalls >= limit) return;
-    const seen = new Set<string>();
-    const all: SignalInput[] = [];
-    let cursor: string | undefined;
-    let reached: { done: boolean; found: boolean } = { done: false, found: false };
     try {
-      for (let page = 0; page < (gap ? GAP_PAGES : 1); page++) {
-        if (page > 0 && paidCalls >= limit) break;
-        paidCalls++;
-        const r = await scProfileVideosPage(acc.handle, cursor);
-        usage.spent.credits += r.credits;
-        usage.spent.calls++;
-        usage.because(reason, r.credits);
-        usage.seen(r.creditsRemaining);
-        if (!r.ok) {
+      const { outcome, videos: all, reached } = await paidRead(
+        async (cursor): Promise<PaidPage> => {
+          paidCalls++;
+          const r = await scProfileVideosPage(acc.handle, cursor);
+          usage.spent.credits += r.credits;
+          usage.spent.calls++;
+          usage.because(reason, r.credits);
+          usage.seen(r.creditsRemaining);
+          if (r.ok) return { ok: true, videos: r.value.videos, next: r.value.next };
           usage.spent.errors++;
           lastError = r.error;
-          if (r.noCredits) return "stop";
-          // Une page suivante qui échoue : ce qui est déjà lu est rangé ; la première : erreur de relevé, comme avant.
-          if (page === 0) await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
-          break;
-        }
-        for (const v of r.value.videos) {
-          if (seen.has(v.videoId)) continue;
-          seen.add(v.videoId);
-          all.push(v);
-        }
-        if (!gap) break;
-        reached = gapReached(all, gap);
-        if (reached.done || !r.value.next) break;
-        cursor = r.value.next;
-      }
-      // Rien de lu (erreur à la première page, déjà notée) : rien à ranger.
+          return { ok: false, noCredits: r.noCredits };
+        },
+        () => paidCalls < limit,
+        gap,
+      );
+      // Première page refusée ou vide : une erreur de relevé (un jour d'attente, en pause à la troisième).
+      if (outcome === "error") await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
       if (all.length) await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: all, now });
+      if (outcome === "stop") return "stop";
       // Un premier relevé sur 4 est aussi relevé gratuitement à côté, pour mesurer (convex/radarFirstReadTrial).
       if (reason === "premier" && all.length && trialPick(acc.handle)) {
         await ctx.runMutation(internal.radarFirstReadTrial.noteFirstReadTrial, { accountId: acc.id, handle: acc.handle, videos: all.map(asTrialVideo), now });
@@ -1385,10 +1395,13 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
       ),
     ]);
     const free = lane.state;
+    // Un profil supprimé, privé ou vidé n'a rien à lire, en payant non plus : une erreur de relevé, sans crédit.
+    const misses = splitMisses(lane.failed);
+    if (misses.unreadable.length) await ctx.runMutation(internal.radarNetworks.markReadErrors, { ids: misses.unreadable.map((a) => a.id), now });
     // Un premier relevé que la page gratuite n'a pas pu lire : en payant (ou il attend, palier « survie ») ; pas atteint,
     // il attend le passage suivant, sauf voie fermée (cf radarFreeMath.firstReadMisses).
     const firstMiss = firstReadMisses(
-      lane.failed.filter((m) => m.account.first).map((m) => m.account),
+      misses.paid.filter((m) => m.account.first).map((m) => m.account),
       lane.notReached.filter((a) => a.first),
       free.on,
       waitFirst,
@@ -1397,7 +1410,7 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
     await paid(firstMiss.pay, "premier");
     // Ce que le gratuit n'a pas relevé : en payant (une liste trouée, page après page jusqu'à sa dernière vidéo connue).
     await pooled(
-      lane.failed.filter((m) => !m.account.first),
+      misses.paid.filter((m) => !m.account.first),
       ACCOUNT_READ_POOL,
       (m) => readPaid(m.account, n, m.why === "gap" ? "trou" : "repli", m.why === "gap" ? m.newest : undefined),
       () => Date.now() - now < ACCOUNT_READ_MAX_MS,
@@ -1418,6 +1431,7 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
     await ctx.runMutation(internal.radarNetworks.noteFreeRun, {
       ok: free.ok,
       fallback: free.fallback,
+      why: missCounts(lane.failed),
       stopped: free.stopped,
       waiting: lane.notReached.length - over.pay.length,
       now: Date.now(),
