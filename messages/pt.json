@@ -263,6 +263,12 @@
       "body": "Esta página não existe.",
       "backDashboard": "Voltar ao painel"
     },
+    "error": {
+      "title": "Esta tela não pôde ser carregada",
+      "body": "O carregamento falhou. Tente de novo em instantes.",
+      "retry": "Tentar de novo",
+      "reference": "Se continuar, envie este código para a equipe:"
+    },
     "tools": {
       "title": "Ferramentas",
       "empty": "Nenhuma ferramenta disponível para este projeto.",

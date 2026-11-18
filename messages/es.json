@@ -263,6 +263,12 @@
       "body": "Esta página no existe.",
       "backDashboard": "Volver al panel"
     },
+    "error": {
+      "title": "Esta pantalla no se pudo cargar",
+      "body": "La carga falló. Inténtalo de nuevo en un momento.",
+      "retry": "Reintentar",
+      "reference": "Si sigue pasando, envía este código al equipo:"
+    },
     "tools": {
       "title": "Herramientas",
       "empty": "No hay herramientas disponibles para este proyecto.",

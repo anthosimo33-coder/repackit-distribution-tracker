@@ -65,6 +65,7 @@ const ENTRIES = [
   "app/(app)/reset-password/[token]/page.tsx",
   // Portail partenaire
   "app/(app)/app/layout.tsx",
+  "app/(app)/app/error.tsx",
   "app/(app)/app/page.tsx",
   "app/(app)/app/gains/page.tsx",
   "app/(app)/app/moi/page.tsx",
