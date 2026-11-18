@@ -263,6 +263,12 @@
       "body": "Cette page n'existe pas.",
       "backDashboard": "Retour au Dashboard"
     },
+    "error": {
+      "title": "Cet écran n'a pas pu s'afficher",
+      "body": "Le chargement a échoué. Réessaie dans un instant.",
+      "retry": "Réessayer",
+      "reference": "Si ça continue, envoie ce code à l'équipe :"
+    },
     "tools": {
       "title": "Outils",
       "empty": "Aucun outil disponible pour ce projet.",

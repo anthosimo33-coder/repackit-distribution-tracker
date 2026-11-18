@@ -263,6 +263,12 @@
       "body": "This page doesn't exist.",
       "backDashboard": "Back to the dashboard"
     },
+    "error": {
+      "title": "This screen couldn't load",
+      "body": "Loading failed. Try again in a moment.",
+      "retry": "Try again",
+      "reference": "If it keeps happening, send this code to the team:"
+    },
     "tools": {
       "title": "Tools",
       "empty": "No tools available for this project.",
