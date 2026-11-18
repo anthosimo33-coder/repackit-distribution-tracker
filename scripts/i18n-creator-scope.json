@@ -204,6 +204,7 @@
     "lib/snytch-drive.ts",
     "lib/talent-brief.ts",
     "lib/thumbnail.ts",
+    "lib/url-saisie.ts",
     "lib/use-convex-error.ts",
     "lib/use-intl-locale.ts",
     "lib/use-label.ts",

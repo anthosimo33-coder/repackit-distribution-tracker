@@ -56,6 +56,11 @@ test.describe("Portail créateur — /app/comptes", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await dialog.getByLabel("Handle *", { exact: true }).fill(handle);
+    // L'URL telle qu'une créatrice la tape, SANS https:// (Kelly, 18/11/2026) :
+    // un champ type="url" la refusait et bloquait l'envoi sans rien dire.
+    await dialog
+      .getByLabel("URL du compte", { exact: true })
+      .fill(`www.tiktok.com/${handle}`);
     await dialog.getByRole("button", { name: "Déclarer", exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: 8000 });
 
@@ -66,6 +71,8 @@ test.describe("Portail créateur — /app/comptes", () => {
     const comptes = await convex.query(api.comptes.listComptes, {});
     const compte = comptes.find((c) => c.handle === handle);
     expect(compte).toBeTruthy();
+    // Enregistrée complète : le schéma est ajouté à la déclaration.
+    expect(compte!.url).toBe(`https://www.tiktok.com/${handle}`);
     await convex.mutation(api.comptes.updateWarmupProtocol, {
       id: compte!._id,
       keywords: [`kw-alpha-${ts}`, `kw-beta-${ts}`],

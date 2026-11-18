@@ -25,6 +25,7 @@ import {
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { useConvexError } from "@/lib/use-convex-error";
+import { urlSaisie } from "@/lib/url-saisie";
 import { useTranslations } from "next-intl";
 import {
   PLATEFORMES,
@@ -79,7 +80,7 @@ export function DeclareCompteDialog({
         projectId,
         plateforme,
         handle: handle.trim(),
-        url: url.trim() || undefined,
+        url: urlSaisie(url),
       });
       toast.success(td("declared"));
       reset();
@@ -144,9 +145,16 @@ export function DeclareCompteDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="declare-url">{td("url")}</Label>
+            {/* Pas de type="url" : il refuse `www.tiktok.com/@…` sans schéma et
+                bloque l'envoi (cf lib/url-saisie). inputMode garde le clavier
+                d'adresse sur mobile. */}
             <Input
               id="declare-url"
-              type="url"
+              type="text"
+              inputMode="url"
+              // i18n-exempt: valeurs d'attributs HTML (clavier mobile), jamais affichées.
+              autoCapitalize="none" autoCorrect="off"
+              spellCheck={false}
               placeholder="https://…"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
