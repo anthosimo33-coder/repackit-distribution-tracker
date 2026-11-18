@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
@@ -9,7 +9,9 @@ import {
   useMyPayments,
   useMyProgression,
 } from "@/components/portal/creator-data";
+import type { Id } from "@/convex/_generated/dataModel";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
+import { SansBlocSiEchec } from "@/components/portal/SansBlocSiEchec";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedNumber } from "@/components/portal/AnimatedNumber";
 import { buildProgression } from "@/lib/progression";
@@ -30,6 +32,10 @@ import { useTranslations } from "next-intl";
  *
  * Masquée à l'observateur sans le droit « Paiements » (ses queries ne partent
  * pas : un squelette tournerait pour rien).
+ *
+ * Le palier est lu À PART (`AvecProgression`, sous `SansBlocSiEchec`) : une
+ * progression en échec retire le palier, comme pour une créatrice sans grille,
+ * et laisse le montant et la date. Lue ici, elle effaçait tout l'accueil.
  */
 export function CycleGainsCard({
   variant = "full",
@@ -48,7 +54,6 @@ export function CycleGainsCard({
   const base = usePortalBase();
   const argent = useArgentObservable();
   const payments = useMyPayments(current.projectId);
-  const raw = useMyProgression(current.projectId);
   const [now] = useState(() => Date.now());
 
   if (!argent) return null;
@@ -60,10 +65,18 @@ export function CycleGainsCard({
   const payoutTs = cycle?.cycleEnd ?? null;
   const days =
     payoutTs !== null ? Math.max(0, Math.ceil((payoutTs - now) / 86_400_000)) : null;
-  const p = raw ? buildProgression(raw) : null;
-  const reward = p?.nextReward ?? null;
 
   if (variant === "compact") {
+    const echeance =
+      payoutTs !== null && days !== null ? (
+        <p className="min-w-0 flex-1 truncate text-right text-xs text-slate-500">
+          {due > 0
+            ? t("dashboard.earnings.paidIn", { days, date: formatMoneyDate(payoutTs, loc) })
+            : t("dashboard.earnings.nextPayout", { date: formatMoneyDate(payoutTs, loc) })}
+        </p>
+      ) : (
+        <p className="min-w-0 flex-1 truncate text-right text-xs text-slate-500" />
+      );
     return (
       <Link
         href={portalHref(base, "/gains")}
@@ -81,30 +94,35 @@ export function CycleGainsCard({
             className="block text-xl font-bold tracking-tight tabular-nums text-slate-900"
           />
         </div>
-        {p && reward ? (
-          <div className="min-w-0 flex-1 space-y-1.5" data-testid="next-tier-card">
-            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-primary"
-                style={{ width: `${Math.round(p.progressToNext * 100)}%` }}
-              />
-            </div>
-            <p className="truncate text-xs text-slate-500">
-              {t("progression.nextTier")} ·{" "}
-              {reward.kind === "cash"
-                ? `+${formatMoney(reward.amount, current.payCurrency, loc)}`
-                : (reward.label ?? tLabel("progression.reward"))}
-            </p>
-          </div>
-        ) : (
-          <p className="min-w-0 flex-1 truncate text-right text-xs text-slate-500">
-            {payoutTs !== null && days !== null
-              ? due > 0
-                ? t("dashboard.earnings.paidIn", { days, date: formatMoneyDate(payoutTs, loc) })
-                : t("dashboard.earnings.nextPayout", { date: formatMoneyDate(payoutTs, loc) })
-              : null}
-          </p>
-        )}
+        <SansBlocSiEchec
+          // i18n-exempt: étiquette de journal (console.error), jamais affichée.
+          nom="CycleGainsCard"
+          repli={echeance}
+        >
+          <AvecProgression projectId={current.projectId}>
+            {(p) => {
+              const reward = p?.nextReward ?? null;
+              return p && reward ? (
+                <div className="min-w-0 flex-1 space-y-1.5" data-testid="next-tier-card">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${Math.round(p.progressToNext * 100)}%` }}
+                    />
+                  </div>
+                  <p className="truncate text-xs text-slate-500">
+                    {t("progression.nextTier")} ·{" "}
+                    {reward.kind === "cash"
+                      ? `+${formatMoney(reward.amount, current.payCurrency, loc)}`
+                      : (reward.label ?? tLabel("progression.reward"))}
+                  </p>
+                </div>
+              ) : (
+                echeance
+              );
+            }}
+          </AvecProgression>
+        </SansBlocSiEchec>
         <ChevronRightIcon className="size-4 shrink-0 text-slate-300" />
       </Link>
     );
@@ -137,35 +155,45 @@ export function CycleGainsCard({
         </p>
       )}
 
-      {p && reward && (
-        <div className="space-y-1.5" data-testid="next-tier-card">
-          <div className="flex items-baseline justify-between gap-2 text-xs">
-            <span className="font-medium text-slate-600">
-              {t("progression.nextTier")} ·{" "}
-              {reward.kind === "cash"
-                ? `+${formatMoney(reward.amount, current.payCurrency, loc)}`
-                : (reward.label ?? tLabel("progression.reward"))}
-            </span>
-            {p.nextThreshold !== null && (
-              <span className="tabular-nums text-slate-500">
-                {formatViews(p.cumulViews, loc)} / {formatViews(p.nextThreshold, loc)}
-              </span>
-            )}
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${Math.round(p.progressToNext * 100)}%` }}
-            />
-          </div>
-          <p className="text-xs text-slate-500">
-            {t("progression.viewsToGo", {
-              count: p.remainingViews,
-              views: formatViews(p.remainingViews, loc),
-            })}
-          </p>
-        </div>
-      )}
+      <SansBlocSiEchec
+        // i18n-exempt: étiquette de journal (console.error), jamais affichée.
+        nom="CycleGainsCard"
+      >
+        <AvecProgression projectId={current.projectId}>
+          {(p) => {
+            const reward = p?.nextReward ?? null;
+            return p && reward ? (
+              <div className="space-y-1.5" data-testid="next-tier-card">
+                <div className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className="font-medium text-slate-600">
+                    {t("progression.nextTier")} ·{" "}
+                    {reward.kind === "cash"
+                      ? `+${formatMoney(reward.amount, current.payCurrency, loc)}`
+                      : (reward.label ?? tLabel("progression.reward"))}
+                  </span>
+                  {p.nextThreshold !== null && (
+                    <span className="tabular-nums text-slate-500">
+                      {formatViews(p.cumulViews, loc)} / {formatViews(p.nextThreshold, loc)}
+                    </span>
+                  )}
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-primary"
+                    style={{ width: `${Math.round(p.progressToNext * 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  {t("progression.viewsToGo", {
+                    count: p.remainingViews,
+                    views: formatViews(p.remainingViews, loc),
+                  })}
+                </p>
+              </div>
+            ) : null;
+          }}
+        </AvecProgression>
+      </SansBlocSiEchec>
 
       <Link
         href={portalHref(base, "/gains")}
@@ -176,4 +204,16 @@ export function CycleGainsCard({
       </Link>
     </section>
   );
+}
+
+/** Le palier, lu à part : la query qui peut échouer n'est appelée qu'ici. */
+function AvecProgression({
+  projectId,
+  children,
+}: {
+  projectId: Id<"projects">;
+  children: (p: ReturnType<typeof buildProgression> | null) => ReactNode;
+}) {
+  const raw = useMyProgression(projectId);
+  return <>{children(raw ? buildProgression(raw) : null)}</>;
 }
