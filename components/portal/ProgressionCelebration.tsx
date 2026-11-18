@@ -13,6 +13,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
 import { Confetti } from "@/components/portal/Confetti";
+import { SansBlocSiEchec } from "@/components/portal/SansBlocSiEchec";
 import { haptic } from "@/lib/haptics";
 
 /**
@@ -32,7 +33,28 @@ type Celebration = {
   seuilVues: number;
 };
 
+/**
+ * L'overlay est monté sur TOUS les écrans de l'espace créatrice : une
+ * progression en échec ne doit lui coûter que lui-même (cf SansBlocSiEchec). La
+ * célébration reste alors en attente (rien n'est marqué vu) et revient à la
+ * prochaine ouverture.
+ */
 export function ProgressionCelebration({
+  projectId,
+}: {
+  projectId: Id<"projects">;
+}) {
+  return (
+    <SansBlocSiEchec
+      // i18n-exempt: étiquette de journal (console.error), jamais affichée.
+      nom="ProgressionCelebration"
+    >
+      <CelebrationOverlay projectId={projectId} />
+    </SansBlocSiEchec>
+  );
+}
+
+function CelebrationOverlay({
   projectId,
 }: {
   projectId: Id<"projects">;

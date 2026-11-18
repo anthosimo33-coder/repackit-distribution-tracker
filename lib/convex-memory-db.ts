@@ -73,6 +73,16 @@ export interface MemoryDb {
   /** Documents lus depuis la création (ou le dernier `resetReads`). */
   reads(): number;
   resetReads(): void;
+  /**
+   * Allers-retours vers la base depuis la création (ou le dernier `resetAllers`) :
+   * la longueur de la chaîne d'attente, pas le nombre de lectures. Des lectures
+   * lancées ensemble (`Promise.all`) partent au même aller ; une lecture lancée
+   * après en avoir attendu une autre en coûte un de plus. C'est ce qui fait la
+   * durée d'une query en production — 1 733 documents lus un par un ont pris
+   * 13 à 15,8 s le 18/11/2026, pour 0,18 s de calcul.
+   */
+  allers(): number;
+  resetAllers(): void;
 }
 
 /**
@@ -93,6 +103,30 @@ export function memoryDb(
       );
     }
   };
+
+  // Une lecture attend la base, comme en production : elle n'est servie qu'à
+  // l'aller suivant, quand tout ce qui pouvait partir dans le même élan
+  // (microtâches comprises) est parti avec elle.
+  let allers = 0;
+  let enVol: (() => void)[] = [];
+  const aller = <T>(servir: () => T): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      enVol.push(() => {
+        try {
+          resolve(servir());
+        } catch (e) {
+          reject(e);
+        }
+      });
+      if (enVol.length === 1) {
+        setImmediate(() => {
+          const lot = enVol;
+          enVol = [];
+          allers += 1;
+          for (const servirUne of lot) servirUne();
+        });
+      }
+    });
 
   const parId = new Map<string, MemoryDoc>();
   for (const docs of Object.values(tables)) for (const d of docs) parId.set(d._id, d);
@@ -198,21 +232,25 @@ export function memoryDb(
         filtres.push(filtreConvex(f));
         return q;
       },
-      async collect() {
-        const r = lignes();
-        lus(r.length);
-        return r.filter(garde);
+      collect() {
+        return aller(() => {
+          const r = lignes();
+          lus(r.length);
+          return r.filter(garde);
+        });
       },
-      async take(n: number) {
-        const out: MemoryDoc[] = [];
-        let vus = 0;
-        for (const d of lignes()) {
-          if (out.length >= n) break;
-          vus += 1;
-          if (garde(d)) out.push(d);
-        }
-        lus(vus);
-        return out;
+      take(n: number) {
+        return aller(() => {
+          const out: MemoryDoc[] = [];
+          let vus = 0;
+          for (const d of lignes()) {
+            if (out.length >= n) break;
+            vus += 1;
+            if (garde(d)) out.push(d);
+          }
+          lus(vus);
+          return out;
+        });
       },
       async first() {
         return (await q.take(1))[0] ?? null;
@@ -233,10 +271,12 @@ export function memoryDb(
   };
 
   const db = {
-    async get(id: string) {
-      const d = parId.get(id) ?? null;
-      if (d) lus(1);
-      return d;
+    get(id: string) {
+      return aller(() => {
+        const d = parId.get(id) ?? null;
+        if (d) lus(1);
+        return d;
+      });
     },
     query,
   };
@@ -246,6 +286,10 @@ export function memoryDb(
     reads: () => reads,
     resetReads: () => {
       reads = 0;
+    },
+    allers: () => allers,
+    resetAllers: () => {
+      allers = 0;
     },
   };
 }

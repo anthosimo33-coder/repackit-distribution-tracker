@@ -874,14 +874,32 @@ export async function creatorCumulViews(
       a.pricingSnapshot !== undefined &&
       (a.status === "published" || a.status === "paid"),
   );
+  // Les vidéos d'un lot sont lues ENSEMBLE (cf CUMUL_VUES_LOT). La somme ne
+  // dépend pas de l'ordre : des vues entières, additionnées exactement.
+  const now = Date.now();
   let cumul = 0;
-  for (const a of assignments) {
-    cumul += (
-      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache)
-    ).bonusTierViews;
+  for (let i = 0; i < assignments.length; i += CUMUL_VUES_LOT) {
+    const lot = await Promise.all(
+      assignments
+        .slice(i, i + CUMUL_VUES_LOT)
+        .map((a) => assignmentViewsAndMetrics(ctx, a, now, viewsCache)),
+    );
+    for (const v of lot) cumul += v.bonusTierViews;
   }
   return cumul;
 }
+
+/**
+ * Vidéos lues EN MÊME TEMPS par `creatorCumulViews` (18/11/2026). Une par une,
+ * la créatrice aux 569 publications enchaînait ~1 100 lectures l'une après
+ * l'autre (une publication, puis son relevé de fin de fenêtre) : 13 à 15,8 s de
+ * query, et `getMyProgression` tombait vers 15,5 s (« too many system
+ * operations ») — or l'overlay de célébration la lit sur TOUS les écrans de
+ * l'espace créatrice. Par lots, l'attente suit le nombre de lots, plus le nombre
+ * de vidéos. Borné : une vidéo = jusqu'à trois publications et autant de relevés,
+ * donc un lot reste à quelques centaines de lectures en vol.
+ */
+const CUMUL_VUES_LOT = 100;
 
 /**
  * Grille de bonus EFFECTIVE d'un créateur : sa grille PERSO (bonusPricingId) si
