@@ -805,5 +805,36 @@
       "FX_TARGET_UNKNOWN": "Can't be removed: pick the revenue currency first.",
       "FX_RATE_ON_TARGET": "Can't be removed: {currency} is the revenue currency."
     }
+  },
+  "VentesParJour": {
+    "periode": "{du} to {au} (yesterday, last complete day)",
+    "periodeAttente": "Up to yesterday, last complete day",
+    "periodeGroupe": "Period",
+    "jours": "{n} d",
+    "echec": "The daily breakdown could not be computed",
+    "nonConfigure": "No Whop revenue is linked to this project.",
+    "nouvellesVentes": "New sales",
+    "autresPaiements": "Other payments",
+    "vuesGagnees": "Views gained",
+    "grapheVentesNet": "New sales per day (net, first payment)",
+    "grapheVentesNombre": "New sales per day (count)",
+    "grapheVues": "Views gained per day",
+    "milliers": "{n}k",
+    "cliquer": "Click a day to see the posts that drove the views.",
+    "ventesDuJour": "{count, plural, one {# new sale} other {# new sales}}",
+    "autresDuJour": "other payments {montant}",
+    "vuesDuJour": "{vues} views gained",
+    "bulleAutres": "Other payments {montant}",
+    "aucuneVue": "No views gained that day.",
+    "colPost": "Post driving the views",
+    "colFormat": "Format",
+    "colPublie": "Posted",
+    "colVues": "Views that day",
+    "colPart": "Share",
+    "postSupprime": "deleted post",
+    "part": "{pct}%",
+    "avertissement": "A Whop sale doesn't say where the buyer came from. These posts are the ones driving the views that day, not the ones that “made” the sale: a sales spike carried by a single post is a good hint, nothing more. New sale = first collected payment of a subscription (one-time purchases included); renewals are in other payments. Views = all views gained, like the Tracker curve (warm-up posts excluded).",
+    "estimeDuJour": "Including {n} estimated views ({pct}%): posts left more than 30 h without a reading, their views spread pro rata over the hours.",
+    "estimeDuPost": "incl. {n} estimated"
   }
 }

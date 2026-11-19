@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useProjectQuerySafe } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
+import { VentesParJourPanel } from "@/components/VentesParJourPanel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -90,6 +91,9 @@ export function ProfitabilityCard() {
   // pas « warmup » : un post retiré de la paie à la main en fait partie, et un post
   // warmup explicitement payé n'en fait PAS partie (cf lib/profitability ViewsSplit).
   const [includeUnpaid, setIncludeUnpaid] = useState(false);
+  // Le détail : le tableau par mois (défaut), ou les ventes jour par jour à
+  // côté des posts qui faisaient les vues — calculé seulement quand on l'ouvre.
+  const [detail, setDetail] = useState<"mois" | "jour">("mois");
 
   const erreur = revenueQ.error ?? lot1Q.error ?? lot2Q.error;
   if (erreur !== null) {
@@ -227,7 +231,31 @@ export function ProfitabilityCard() {
           qu&apos;une fois cadenassés tous les deux.
         </p>
 
-        {data.months.length > 0 && (
+        <div
+          role="group"
+          aria-label="Détail"
+          className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5"
+        >
+          {(["mois", "jour"] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              aria-pressed={detail === d}
+              onClick={() => setDetail(d)}
+              className={
+                detail === d
+                  ? "rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-900 shadow-sm"
+                  : "rounded-full px-3 py-1 text-xs text-slate-500 hover:text-slate-700"
+              }
+            >
+              {d === "mois" ? "Par mois" : "Par jour"}
+            </button>
+          ))}
+        </div>
+
+        {detail === "jour" && <VentesParJourPanel />}
+
+        {detail === "mois" && data.months.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
