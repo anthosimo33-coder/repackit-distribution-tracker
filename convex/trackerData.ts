@@ -15,6 +15,7 @@ import {
   parisDayKey,
   parisMidnightUtc,
   type PublicationDepart,
+  type SnapshotPoint,
 } from "./viewsDaily";
 import { savesAvailability } from "./decisionThresholds";
 import { collectAvailability } from "./collectAvailability";
@@ -726,13 +727,16 @@ const LECTURE_AVANT_MS = 7 * 86_400_000;
  * e2e/mcp-vues.spec.ts : 0 vue au lieu de 2 000 sur la période précédente).
  */
 const LECTURE_APRES_MS = 7 * 86_400_000;
-/**
- * Une période plus longue ferait lire trop de relevés en une query : la lecture
- * porte sur TOUS les relevés du projet dans la fenêtre, 7 jours avant et après
- * compris (~440 relevés par jour sur Snytch en septembre 2026 : 31 + 14 jours ≈
- * 20 000 lectures). Un mois entier tient ; au-delà, l'outil demande de découper.
- */
+/** Un mois entier par appel ; au-delà, l'outil demande de découper. */
 export const VUES_PERIODE_MAX_JOURS = 31;
+/**
+ * Relevés lus par query. La lecture d'une période est PAGINÉE : en une seule
+ * query, 15 jours de Snytch (13 831 documents, posts et relevés) dépassaient la
+ * seconde de calcul d'une query Convex en production (19/11/2026), et un mois
+ * de septembre (~440 relevés par jour) aurait aussi dépassé 32 000 documents
+ * lus. Une page de 4 000 relevés reste loin des deux limites.
+ */
+export const VUES_RELEVES_PAR_PAGE = 4_000;
 
 const JOUR_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -746,10 +750,10 @@ export function minuitParisDe(jour: string): number | null {
   return parisDayKey(t) === jour ? t : null;
 }
 
-export type VuesGagneesArgs = {
-  /** Premier et dernier jour INCLUS, jours de Paris « AAAA-MM-JJ ». */
-  du: string;
-  au: string;
+/** Répartition demandée à l'outil `vues`. */
+export type VuesPar = "createatrice" | "compte" | "pays" | "plateforme";
+
+export type VuesFiltres = {
   /** Sous-chaîne du nom de la créatrice (accents et casse ignorés). */
   createatrice?: string;
   /** Sous-chaîne du handle du compte. */
@@ -760,35 +764,38 @@ export type VuesGagneesArgs = {
   warmup?: WarmupFilter;
 };
 
-type Repartition = { cle: string; libelle: string; vues: number }[];
+/** Un post que l'outil `vues` suit, et la ligne de répartition où il compte. */
+export type PostVues = {
+  publicationId: string;
+  datePubli: number;
+  /** Ligne de la répartition demandée : clé de regroupement et libellé. */
+  cle: string;
+  libelle: string;
+};
 
-/**
- * VUES GAGNÉES pendant une période, par TOUS les posts du projet — quelle que
- * soit leur date de publication. C'est la courbe du Tracker (même répartition,
- * mêmes départs, mêmes filtres de dimension et de warmup) lue sur ces jours-là.
- *
- * ⚠️ Différence VOULUE avec le filtre « Du / Au » du Tracker : celui-ci retient
- * les posts PUBLIÉS dans la fenêtre (une cohorte). « Combien de vues Kelly a
- * faites cette semaine » compte aussi celles de ses vidéos plus anciennes.
- *
- * Arrondi : chaque jour est un entier arrondi au plus fort reste sur la série
- * lue (période + 7 jours avant) ; un jour peut donc différer d'une vue du point
- * de la courbe du Tracker, qui arrondit sur une autre série. Les totaux, eux,
- * sont ceux des jours.
- */
-export async function vuesGagneesCore(
-  ctx: QueryCtx & { projectId: Id<"projects"> },
-  args: VuesGagneesArgs,
-) {
-  const debut = minuitParisDe(args.du);
-  const dernier = minuitParisDe(args.au);
+/** Les bornes d'une période « AAAA-MM-JJ » inclusives, et la fenêtre de relevés à lire pour elle. */
+export function fenetreVues(du: string, au: string) {
+  const debut = minuitParisDe(du);
+  const dernier = minuitParisDe(au);
   if (debut === null || dernier === null) {
     throw new Error("Dates attendues au format AAAA-MM-JJ.");
   }
-  const [ya, ma, da] = args.au.split("-").map(Number);
+  const [ya, ma, da] = au.split("-").map(Number);
   const fin = parisMidnightUtc(ya, ma, da + 1); // exclu
-  const lecture = debut - LECTURE_AVANT_MS;
+  return { fin, de: debut - LECTURE_AVANT_MS, a: fin + LECTURE_APRES_MS };
+}
 
+/**
+ * Les posts du projet que l'outil `vues` suit — mêmes règles que la courbe du
+ * Tracker (posts publiés, lien posé, filtre de chauffe) et les filtres de
+ * l'appel — avec leur ligne dans la répartition demandée. Aucun relevé ici :
+ * ils sont lus par pages (`relevesVuesPage`), le calcul se fait hors query
+ * (`calculerVuesGagnees`).
+ */
+export async function postsVuesCore(
+  ctx: QueryCtx & { projectId: Id<"projects"> },
+  args: VuesFiltres & { par: VuesPar },
+): Promise<PostVues[]> {
   const plier = (s: string) =>
     s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
   const refs = await buildPublicationAssignmentMap(ctx);
@@ -799,13 +806,30 @@ export async function vuesGagneesCore(
   const marcheDe = await buildPublicationMarketMap(ctx, pubs);
   const composeDe = await buildMarketLabelMap(ctx);
 
-  const gardees = new Map<string, Doc<"publications">>();
+  const filtres: FilterArgs = {
+    warmup: args.warmup,
+    ...(args.plateforme ? { plateformes: [args.plateforme] } : {}),
+  };
+  const ligne = (p: Doc<"publications">): [string, string] => {
+    switch (args.par) {
+      case "createatrice": {
+        const nom = refs.get(p._id as string)?.creatorName ?? "(sans créatrice)";
+        return [`c:${nom}`, nom];
+      }
+      case "compte":
+        return [`${p.plateforme}|${p.compte}`, `${p.compte} (${p.plateforme})`];
+      case "pays": {
+        const pays = marcheDe.get(p._id as string) ?? "";
+        const compose = pays === "" ? undefined : composeDe.get(pays);
+        return [compose?.key ?? (pays || "-"), compose?.label ?? (pays || "sans pays")];
+      }
+      case "plateforme":
+        return [p.plateforme ?? "?", p.plateforme ?? "?"];
+    }
+  };
+
+  const out: PostVues[] = [];
   for (const p of pubs) {
-    if (p.datePubli >= fin) continue; // pas encore publiée pendant la période
-    const filtres: FilterArgs = {
-      warmup: args.warmup,
-      ...(args.plateforme ? { plateformes: [args.plateforme] } : {}),
-    };
     if (!publishedAndMatches(p, filtres, (id) => refs.get(id))) continue;
     const ref = refs.get(p._id as string);
     if (args.createatrice && !plier(ref?.creatorName ?? "").includes(plier(args.createatrice))) {
@@ -815,55 +839,102 @@ export async function vuesGagneesCore(
     if (args.pays && (marcheDe.get(p._id as string) ?? "") !== args.pays.trim().toUpperCase()) {
       continue;
     }
-    gardees.set(p._id as string, p);
+    const [cle, libelle] = ligne(p);
+    out.push({ publicationId: p._id as string, datePubli: p.datePubli, cle, libelle });
   }
+  return out;
+}
 
-  const snaps = await ctx.db
+/** Une page des relevés du projet capturés dans `[de, a[`, réduits à ce que le calcul lit. */
+export async function relevesVuesPage(
+  ctx: QueryCtx & { projectId: Id<"projects"> },
+  args: { de: number; a: number; cursor: string | null },
+): Promise<PageReleves> {
+  const page = await ctx.db
     .query("metricSnapshots")
     .withIndex("by_project_capturedAt", (ix) =>
-      ix
-        .eq("projectId", ctx.projectId)
-        .gte("capturedAt", lecture)
-        .lt("capturedAt", fin + LECTURE_APRES_MS),
+      ix.eq("projectId", ctx.projectId).gte("capturedAt", args.de).lt("capturedAt", args.a),
     )
-    .collect();
-  const points = ajouterDepartsDePublication(
-    snaps
-      .filter((s) => gardees.has(s.publicationId as string))
-      .map((s) => ({
-        publicationId: s.publicationId as string,
-        capturedAt: s.capturedAt,
-        vues: s.vues,
-      })),
-    [...gardees.values()].map((p) => ({
-      publicationId: p._id as string,
-      publishedAt: p.datePubli,
+    .paginate({ cursor: args.cursor, numItems: VUES_RELEVES_PAR_PAGE });
+  return {
+    points: page.page.map((s) => ({
+      publicationId: s.publicationId as string,
+      capturedAt: s.capturedAt,
+      vues: s.vues,
     })),
-    lecture,
+    continueCursor: page.continueCursor,
+    isDone: page.isDone,
+  };
+}
+
+export type PageReleves = { points: SnapshotPoint[]; continueCursor: string; isDone: boolean };
+
+/**
+ * Tous les relevés d'une fenêtre, page après page (une query par page), réduits
+ * aux posts `suivis` au fil de l'eau.
+ */
+export async function relevesVuesParPages(
+  lirePage: (cursor: string | null) => Promise<PageReleves>,
+  suivis: ReadonlySet<string>,
+): Promise<SnapshotPoint[]> {
+  const out: SnapshotPoint[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const page = await lirePage(cursor);
+    for (const pt of page.points) if (suivis.has(pt.publicationId)) out.push(pt);
+    if (page.isDone) return out;
+    cursor = page.continueCursor;
+  }
+}
+
+/**
+ * VUES GAGNÉES pendant une période, par TOUS les posts suivis — quelle que soit
+ * leur date de publication. C'est la courbe du Tracker (même répartition,
+ * mêmes départs, mêmes filtres de dimension et de warmup) lue sur ces jours-là.
+ *
+ * ⚠️ Différence VOULUE avec le filtre « Du / Au » du Tracker : celui-ci retient
+ * les posts PUBLIÉS dans la fenêtre (une cohorte). « Combien de vues Kelly a
+ * faites cette semaine » compte aussi celles de ses vidéos plus anciennes.
+ *
+ * `releves` peut couvrir plus large que `fenetreVues(du, au)` (l'outil lit une
+ * seule fois la période et sa période de comparaison) : seuls ceux de la
+ * fenêtre comptent, le résultat est celui d'une lecture de cette fenêtre seule.
+ *
+ * Arrondi : chaque jour est un entier arrondi au plus fort reste sur la série
+ * lue (période + 7 jours avant) ; un jour peut donc différer d'une vue du point
+ * de la courbe du Tracker, qui arrondit sur une autre série. Les totaux, eux,
+ * sont ceux des jours.
+ */
+export function calculerVuesGagnees(
+  posts: readonly PostVues[],
+  releves: readonly SnapshotPoint[],
+  periode: { du: string; au: string },
+) {
+  const { fin, de, a } = fenetreVues(periode.du, periode.au);
+  const gardes = new Map<string, PostVues>();
+  for (const p of posts) {
+    if (p.datePubli < fin) gardes.set(p.publicationId, p); // publiée pendant ou avant la période
+  }
+  const points = ajouterDepartsDePublication(
+    releves.filter((s) => s.capturedAt >= de && s.capturedAt < a && gardes.has(s.publicationId)),
+    [...gardes.values()].map((p) => ({ publicationId: p.publicationId, publishedAt: p.datePubli })),
+    de,
   );
 
-  const dansLaPeriode = (jour: string) => jour >= args.du && jour <= args.au;
-  const libelles = new Map<string, string>();
-  const ventiler = (groupe: (p: Doc<"publications">) => [string, string]): Repartition => {
-    const parGroupe = new Map<string, number>();
-    const serie = computeDailyViewDeltasBy(points, (id) => {
-      const p = gardees.get(id);
-      if (!p) return "";
-      const [cle, libelle] = groupe(p);
-      libelles.set(cle, libelle);
-      return cle;
-    });
-    for (const j of serie) {
-      if (!dansLaPeriode(j.date)) continue;
-      for (const part of j.parts) {
-        parGroupe.set(part.group, (parGroupe.get(part.group) ?? 0) + part.value);
-      }
+  const dansLaPeriode = (jour: string) => jour >= periode.du && jour <= periode.au;
+  const parLigne = new Map<string, number>();
+  const serie = computeDailyViewDeltasBy(points, (id) => gardes.get(id)?.cle ?? "");
+  for (const j of serie) {
+    if (!dansLaPeriode(j.date)) continue;
+    for (const part of j.parts) {
+      parLigne.set(part.group, (parLigne.get(part.group) ?? 0) + part.value);
     }
-    return [...parGroupe.entries()]
-      .map(([cle, vues]) => ({ cle, libelle: libelles.get(cle) ?? cle, vues }))
-      .filter((r) => r.vues > 0)
-      .sort((a, b) => b.vues - a.vues);
-  };
+  }
+  const libelles = new Map([...gardes.values()].map((p) => [p.cle, p.libelle]));
+  const repartition = [...parLigne.entries()]
+    .map(([cle, vues]) => ({ cle, libelle: libelles.get(cle) ?? cle, vues }))
+    .filter((r) => r.vues > 0)
+    .sort((x, y) => y.vues - x.vues);
 
   const parJour = computeDailyViewDeltasWithEstimate(points)
     .filter((j) => dansLaPeriode(j.date))
@@ -874,21 +945,11 @@ export async function vuesGagneesCore(
       vuesEstimees: j.estimatedValue,
     }));
   return {
-    du: args.du,
-    au: args.au,
+    du: periode.du,
+    au: periode.au,
     total: parJour.reduce((s, j) => s + j.vues, 0),
-    postsRetenus: gardees.size,
+    postsRetenus: gardes.size,
     parJour,
-    parCreatrice: ventiler((p) => {
-      const nom = refs.get(p._id as string)?.creatorName ?? "(sans créatrice)";
-      return [`c:${nom}`, nom];
-    }),
-    parCompte: ventiler((p) => [`${p.plateforme}|${p.compte}`, `${p.compte} (${p.plateforme})`]),
-    parPays: ventiler((p) => {
-      const pays = marcheDe.get(p._id as string) ?? "";
-      const compose = pays === "" ? undefined : composeDe.get(pays);
-      return [compose?.key ?? (pays || "-"), compose?.label ?? (pays || "sans pays")];
-    }),
-    parPlateforme: ventiler((p) => [p.plateforme ?? "?", p.plateforme ?? "?"]),
+    repartition,
   };
 }

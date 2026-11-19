@@ -49,10 +49,15 @@ import {
   parisYesterdayKey,
 } from "./viewsDaily";
 import {
+  calculerVuesGagnees,
+  fenetreVues,
   listTrackerPostsCore,
   minuitParisDe,
+  postsVuesCore,
+  relevesVuesPage,
+  relevesVuesParPages,
   VUES_PERIODE_MAX_JOURS,
-  vuesGagneesCore,
+  type VuesPar,
 } from "./trackerData";
 import {
   aggregateByBrick,
@@ -692,11 +697,20 @@ export const lireVideosTendance = mcpPermissionQuery("radar.use")({
   handler: async (ctx, args) => listTrendVideosCore(ctx, args),
 });
 
-/** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
-export const lireVues = mcpPermissionQuery("content.analytics")({
+/**
+ * Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc.
+ * Deux lectures : les posts suivis, puis les relevés PAR PAGES ; le calcul se
+ * fait dans l'action (`calculerVuesGagnees`). En une seule query, 15 jours de
+ * Snytch dépassaient la seconde de calcul d'une query (prod, 19/11/2026).
+ */
+export const lireVuesPosts = mcpPermissionQuery("content.analytics")({
   args: {
-    du: v.string(),
-    au: v.string(),
+    par: v.union(
+      v.literal("createatrice"),
+      v.literal("compte"),
+      v.literal("pays"),
+      v.literal("plateforme"),
+    ),
     createatrice: v.optional(v.string()),
     compte: v.optional(v.string()),
     pays: v.optional(v.string()),
@@ -707,7 +721,12 @@ export const lireVues = mcpPermissionQuery("content.analytics")({
       v.union(v.literal("exclude"), v.literal("all"), v.literal("only")),
     ),
   },
-  handler: async (ctx, args) => vuesGagneesCore(ctx, args),
+  handler: async (ctx, args) => postsVuesCore(ctx, args),
+});
+
+export const lireVuesReleves = mcpPermissionQuery("content.analytics")({
+  args: { de: v.number(), a: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => relevesVuesPage(ctx, args),
 });
 
 /**
@@ -4263,23 +4282,30 @@ export function jarviaServer(
             : {}),
           warmup,
         };
-        const lecture = (d: string, a: string) =>
-          lire(() => ctx.runQuery(internal.mcpTools.lireVues, { ...ids, du: d, au: a, ...filtres }));
-        const r = await lecture(du, au);
-        const par = (args.par as string | undefined) ?? "createatrice";
-        const lignes = {
-          createatrice: r.parCreatrice,
-          compte: r.parCompte,
-          pays: r.parPays,
-          plateforme: r.parPlateforme,
-        }[par as "createatrice" | "compte" | "pays" | "plateforme"];
+        const par = (args.par as VuesPar | undefined) ?? "createatrice";
+        const posts = await lire(() =>
+          ctx.runQuery(internal.mcpTools.lireVuesPosts, { ...ids, ...filtres, par }),
+        );
+        // La période précédente se lit dans la même passe : sa fenêtre de relevés
+        // touche celle de la période (7 jours de marge de part et d'autre).
+        const auAvant = jourDecale(du, -1);
+        const duAvant = jourDecale(du, -jours);
+        const fenetre = fenetreVues(du, au);
+        const de = args.comparer === true ? fenetreVues(duAvant, auAvant).de : fenetre.de;
+        const releves = await relevesVuesParPages(
+          (cursor) =>
+            lire(() =>
+              ctx.runQuery(internal.mcpTools.lireVuesReleves, { ...ids, de, a: fenetre.a, cursor }),
+            ),
+          new Set(posts.map((p) => p.publicationId)),
+        );
+        const r = calculerVuesGagnees(posts, releves, { du, au });
+        const lignes = r.repartition;
         const pct = (x: number, total: number) =>
           total > 0 ? Math.round((1000 * x) / total) / 10 : null;
         let comparaison: Record<string, unknown> | undefined;
         if (args.comparer === true) {
-          const auAvant = jourDecale(du, -1);
-          const duAvant = jourDecale(du, -jours);
-          const avant = await lecture(duAvant, auAvant);
+          const avant = calculerVuesGagnees(posts, releves, { du: duAvant, au: auAvant });
           comparaison = {
             du: duAvant,
             au: auAvant,

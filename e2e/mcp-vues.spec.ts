@@ -194,4 +194,135 @@ test.describe("Outil MCP vues", () => {
     });
     expect(Math.abs(serbie.total - 29_540)).toBeLessThanOrEqual(1);
   });
+
+  /**
+   * UN MOIS de relevés, au volume de la prod. Le 19/11/2026, l'outil répondait
+   * « Erreur interne » dès 15 jours sur Snytch : il lisait toute la fenêtre de
+   * relevés en UNE query, et la query dépassait sa seconde de calcul. Ici,
+   * 31 posts relevés toutes les heures sur la fenêtre lue (la période, 7 jours
+   * avant, 7 jours après) : 33 449 relevés, plus que les 32 000 documents
+   * qu'une query Convex peut lire. L'outil doit répondre, et juste.
+   *
+   * Projet À PART (`e2e-vues-volume`) : ces relevés ne doivent jamais entrer
+   * dans une lecture du projet e2e partagé.
+   */
+  test("un mois entier au volume de la prod : l'outil répond, au chiffre près", async ({ page }) => {
+    test.setTimeout(300_000);
+    const ts = Date.now();
+    const { projectId } = await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+      secret: E2E_SECRET,
+      slug: "e2e-vues-volume",
+      name: "E2E vues volume",
+    });
+    // Le backend local plafonne l'écriture à 4 Mio par seconde : semer ou
+    // effacer des dizaines de milliers de relevés le touche. On attend et on
+    // reprend, plutôt que de ralentir chaque appel.
+    async function sansDebordement<T>(f: () => Promise<T>): Promise<T> {
+      for (let essai = 1; ; essai++) {
+        try {
+          return await f();
+        } catch (e) {
+          if (essai >= 20 || !String(e).includes("TooManyWrites")) throw e;
+          await new Promise((ok) => setTimeout(ok, 1_000));
+        }
+      }
+    }
+    const effacer = async () => {
+      for (;;) {
+        const { reste } = await sansDebordement(() =>
+          admin.mutation(api.apifySync.e2eEffacerRelevesDuProjet, { secret: E2E_SECRET, projectId }),
+        );
+        if (!reste) return;
+      }
+    };
+    await effacer(); // une exécution précédente interrompue
+
+    try {
+      const compte = `@e2emcpvuesvol${ts}`;
+      await admin.mutation(api.comptes.createCompte, {
+        projectId,
+        handle: compte,
+        plateforme: "TikTok",
+        notes: "[E2E_TEST] mcp-vues volume",
+        targetCountry: "FR",
+      });
+      const icpId = (await admin.mutation(api.icps.createIcp, {
+        projectId,
+        nom: `[E2E_TEST] MCP vues volume ${ts}`,
+      })) as Id<"icps">;
+
+      // Publiés le 10/02/2025, bien avant la fenêtre lue : pas de « départ », le
+      // premier relevé lu (0 vue) est la référence de chaque post.
+      const POSTS = 31;
+      const debutReleves = utcAt(2025, 2, 21, 23); // 22/02 00:00 Paris = début de la fenêtre lue
+      const HEURE = 3_600_000;
+      const RELEVES = 1079; // jusqu'au 07/04 22:00 UTC exclu : 45 jours de Paris moins l'heure d'été
+      for (let i = 0; i < POSTS; i++) {
+        const carouselId = await admin.query(api.publications.getNextCarouselId, { projectId });
+        const { ids } = await admin.mutation(api.publications.createPublication, {
+          projectId,
+          carouselId,
+          hookId: null,
+          hookText: `[E2E] MCP vues volume ${i} ${ts}`,
+          mecanique: "Erreur",
+          niveau: "Broad-A",
+          mediaType: "short",
+          script: "script e2e",
+          angleTonal: "Psycho",
+          langue: "FR",
+          icpId,
+          plateformes: ["TikTok"],
+          compte,
+          datePubli: utcAt(2025, 2, 10, 12),
+          notes: "[E2E_TEST] mcp-vues volume",
+        });
+        const id = ids[0] as Id<"publications">;
+        await admin.mutation(api.publications.updateMetrics, {
+          projectId,
+          id,
+          postUrl: `https://www.tiktok.com/@e2e/video/7${i}${ts}`,
+        });
+        await sansDebordement(() =>
+          admin.mutation(api.apifySync.e2eSemerReleves, {
+            secret: E2E_SECRET,
+            publicationId: id,
+            debut: debutReleves,
+            pasMs: HEURE,
+            n: RELEVES,
+            vuesParPas: 10,
+          }),
+        );
+      }
+
+      await page.goto(adminPath("/comptes"));
+      await page.getByRole("button", { name: "Connecter Claude" }).click();
+      await page.getByLabel("Nom de la clé").fill(`E2E vues volume ${ts}`);
+      await page.getByRole("button", { name: "Créer une clé" }).click();
+      const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
+      const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!
+        .match(/jarvia (\S+\/mcp) /)![1];
+
+      const r = await vues(url, token, {
+        projet: "e2e-vues-volume",
+        du: "2025-03-01",
+        au: "2025-03-31",
+        par: "plateforme",
+        comparer: true,
+      });
+      expect(r.periode).toEqual({ du: "2025-03-01", au: "2025-03-31", jours: 31 });
+      // 10 vues par heure et par post : 743 heures en mars à Paris (l'heure
+      // d'été du 30 en retire une) × 10 × 31 posts.
+      expect(r.total).toBe(743 * 10 * POSTS);
+      expect(r.parJour).toHaveLength(31);
+      expect(r.parJour.find((j) => j.jour === "2025-03-30")!.vues).toBe(23 * 10 * POSTS);
+      expect(r.parJour.find((j) => j.jour === "2025-03-31")!.vues).toBe(24 * 10 * POSTS);
+      expect(r.estimation.vuesEstimees).toBe(0); // relevés horaires : rien d'estimé
+      expect(r.repartition.lignes).toEqual([{ nom: "TikTok", vues: 743 * 10 * POSTS, partPct: 100 }]);
+      // La période précédente (29/01 → 28/02) ne voit que ses 7 derniers jours
+      // de relevés — ceux de SA fenêtre, pas ceux lus pour mars.
+      expect(r.comparaison).toMatchObject({ du: "2025-01-29", au: "2025-02-28", total: 168 * 10 * POSTS });
+    } finally {
+      await effacer();
+    }
+  });
 });
