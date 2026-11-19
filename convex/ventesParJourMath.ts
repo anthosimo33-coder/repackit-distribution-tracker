@@ -10,7 +10,11 @@
  */
 import { whopCollectedAmount, type WhopPaymentLike } from "./whopRevenue";
 import { netInReference } from "./marketMoney";
-import { computeDailyViewDeltasBy, type SnapshotPoint } from "./viewsDaily";
+import {
+  computeDailyViewDeltasBy,
+  computeDailyViewDeltasWithEstimate,
+  type SnapshotPoint,
+} from "./viewsDaily";
 
 /** Un paiement Whop tel que la table le porte — ce qu'il faut pour le dater et le classer. */
 export type PaiementDuJour = WhopPaymentLike & {
@@ -100,10 +104,15 @@ export type PostsDuJour = {
   jour: string;
   /** Vues gagnées ce jour-là par tous les posts suivis (courbe du Tracker). */
   vues: number;
-  /** Une part des vues vient d'un écart de plus de 30 h entre deux relevés. */
-  estime: boolean;
+  /**
+   * La part de ces vues qui est ESTIMÉE : venue d'un écart de plus de 30 h entre
+   * deux relevés d'un post, répartie au prorata des heures. Un MONTANT, pas un
+   * drapeau : sur Snytch, un seul post resté sans relevé levait le drapeau
+   * chaque jour de novembre 2026, ce qui ne disait plus rien.
+   */
+  vuesEstimees: number;
   /** Les posts qui ont fait le plus de vues ce jour-là, décroissant. */
-  posts: { publicationId: string; vues: number }[];
+  posts: { publicationId: string; vues: number; vuesEstimees: number }[];
 };
 
 /**
@@ -111,6 +120,11 @@ export type PostsDuJour = {
  * courbe « Vues gagnées par jour » du Tracker (`computeDailyViewDeltasBy`,
  * groupe = la publication) : le total d'un jour retombe sur le point du Tracker,
  * et la somme des posts d'un jour sur son total.
+ *
+ * Chaque post cité dit aussi combien de ses vues du jour sont estimées : un post
+ * resté une semaine sans relevé étale son saut au prorata, et se lirait sinon
+ * comme un post qui fait la même chose chaque jour (vu sur Snytch : 4 852 vues
+ * par jour du 12 au 17/11/2026, pour un seul écart).
  *
  * `points` : les relevés des posts suivis, départs de publication compris (cf
  * `ajouterDepartsDePublication`), lus quelques jours AVANT le premier jour —
@@ -124,15 +138,41 @@ export function postsParJour(
   const serie = new Map(
     computeDailyViewDeltasBy(points, (id) => id).map((j) => [j.date, j]),
   );
+  const estimeDuJour = new Map(
+    computeDailyViewDeltasWithEstimate(points).map((j) => [j.date, j.estimatedValue]),
+  );
+  const pointsDuPost = new Map<string, SnapshotPoint[]>();
+  for (const p of points) {
+    const arr = pointsDuPost.get(p.publicationId);
+    if (arr) arr.push(p);
+    else pointsDuPost.set(p.publicationId, [p]);
+  }
+  /** post → (jour → vues estimées), calculé pour les seuls posts cités. */
+  const estimeDuPost = new Map<string, Map<string, number>>();
+  const estimeDe = (publicationId: string, jour: string): number => {
+    let m = estimeDuPost.get(publicationId);
+    if (m === undefined) {
+      m = new Map(
+        computeDailyViewDeltasWithEstimate(pointsDuPost.get(publicationId) ?? []).map(
+          (j) => [j.date, j.estimatedValue],
+        ),
+      );
+      estimeDuPost.set(publicationId, m);
+    }
+    return m.get(jour) ?? 0;
+  };
   return jours.map((jour) => {
     const j = serie.get(jour);
+    const vues = j?.value ?? 0;
     return {
       jour,
-      vues: j?.value ?? 0,
-      estime: j?.estimated ?? false,
-      posts: (j?.parts ?? [])
-        .slice(0, combien)
-        .map((p) => ({ publicationId: p.group, vues: p.value })),
+      vues,
+      vuesEstimees: Math.min(vues, estimeDuJour.get(jour) ?? 0),
+      posts: (j?.parts ?? []).slice(0, combien).map((p) => ({
+        publicationId: p.group,
+        vues: p.value,
+        vuesEstimees: Math.min(p.value, estimeDe(p.group, jour)),
+      })),
     };
   });
 }

@@ -207,7 +207,7 @@ export const getVentesEtPostsParJour = authedAction({
       jours: ventes.jours.map((v, i) => ({
         ...v,
         vues: vues[i].vues,
-        estime: vues[i].estime,
+        vuesEstimees: vues[i].vuesEstimees,
         posts: vues[i].posts,
       })),
       posts,

@@ -174,7 +174,7 @@ describe("posts qui faisaient les vues, par jour", () => {
     const attendu = Math.round(
       ((111_407 - 16_424) * 23.5) / 24 + ((126_011 - 111_407) * 0.5) / 24,
     );
-    expect(pic.posts[0]).toEqual({ publicationId: "pub_hit", vues: attendu });
+    expect(pic.posts[0]).toEqual({ publicationId: "pub_hit", vues: attendu, vuesEstimees: 0 });
     for (let i = 1; i < pic.posts.length; i++) {
       expect(pic.posts[i].vues).toBeLessThanOrEqual(pic.posts[i - 1].vues);
     }
@@ -193,18 +193,35 @@ describe("posts qui faisaient les vues, par jour", () => {
   it("un jour sans vue est un jour à zéro, pas un jour absent", () => {
     const r = postsParJour([releve("pub_x", "2026-11-09", 100), releve("pub_x", "2026-11-10", 900)], JOURS, 5);
     expect(r.map((j) => j.jour)).toEqual(JOURS);
-    expect(r[2]).toEqual({ jour: "2026-11-11", vues: 0, estime: false, posts: [] });
+    expect(r[2]).toEqual({ jour: "2026-11-11", vues: 0, vuesEstimees: 0, posts: [] });
   });
 
-  it("deux relevés espacés de plus de 30 h : les vues sont réparties au prorata, et le jour est dit estimé", () => {
+  it("un post sans relevé pendant 3 jours : ses vues sont réparties au prorata, et le jour comme le post disent COMBIEN est estimé", () => {
     const r = postsParJour(
-      [releve("pub_y", "2026-11-08", 0), releve("pub_y", "2026-11-11", 7_200)],
+      [
+        releve("pub_y", "2026-11-08", 0),
+        releve("pub_y", "2026-11-11", 7_200),
+        // Un post relevé chaque soir, à côté : ses vues sont mesurées.
+        releve("pub_m", "2026-11-08", 100),
+        releve("pub_m", "2026-11-09", 3_100),
+        releve("pub_m", "2026-11-10", 4_100),
+        releve("pub_m", "2026-11-11", 4_600),
+      ],
       JOURS,
       5,
     );
-    expect(r.every((j) => j.estime)).toBe(true);
+    for (const j of r) {
+      const y = j.posts.find((p) => p.publicationId === "pub_y")!;
+      const m = j.posts.find((p) => p.publicationId === "pub_m")!;
+      expect(y.vuesEstimees).toBe(y.vues);
+      expect(m.vuesEstimees).toBe(0);
+      // Le jour : la part du post estimé, pas tout le jour.
+      expect(j.vuesEstimees).toBeGreaterThan(0);
+      expect(j.vuesEstimees).toBeLessThan(j.vues);
+    }
     // 72 h d'écart, dont la dernière demi-heure du 8 (hors période).
-    expect(r.reduce((s, j) => s + j.vues, 0)).toBe(Math.round((7_200 * 71.5) / 72));
+    const totalY = r.reduce((s, j) => s + j.posts.find((p) => p.publicationId === "pub_y")!.vues, 0);
+    expect(Math.abs(totalY - (7_200 * 71.5) / 72)).toBeLessThanOrEqual(1);
   });
 
   it("le départ d'une vidéo compte : les vues d'avant son premier relevé tombent dans un jour", () => {
@@ -215,6 +232,6 @@ describe("posts qui faisaient les vues, par jour", () => {
       aParis("2026-11-01", 0),
     );
     const r = postsParJour(points, JOURS, 5);
-    expect(r[1].posts).toEqual([{ publicationId: "pub_z", vues: 18_412 }]);
+    expect(r[1].posts).toEqual([{ publicationId: "pub_z", vues: 18_412, vuesEstimees: 0 }]);
   });
 });

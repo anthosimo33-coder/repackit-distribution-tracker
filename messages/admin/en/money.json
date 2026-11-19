@@ -833,7 +833,8 @@
     "colPart": "Share",
     "postSupprime": "deleted post",
     "part": "{pct}%",
-    "estime": "Part of this day's views is estimated: readings more than 30 h apart, spread pro rata over the hours.",
-    "avertissement": "A Whop sale doesn't say where the buyer came from. These posts are the ones driving the views that day, not the ones that “made” the sale: a sales spike carried by a single post is a good hint, nothing more. New sale = first collected payment of a subscription (one-time purchases included); renewals are in other payments. Views = all views gained, like the Tracker curve (warm-up posts excluded)."
+    "avertissement": "A Whop sale doesn't say where the buyer came from. These posts are the ones driving the views that day, not the ones that “made” the sale: a sales spike carried by a single post is a good hint, nothing more. New sale = first collected payment of a subscription (one-time purchases included); renewals are in other payments. Views = all views gained, like the Tracker curve (warm-up posts excluded).",
+    "estimeDuJour": "Including {n} estimated views ({pct}%): posts left more than 30 h without a reading, their views spread pro rata over the hours.",
+    "estimeDuPost": "incl. {n} estimated"
   }
 }

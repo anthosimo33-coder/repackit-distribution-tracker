@@ -384,8 +384,10 @@ export function VentesParJourPanel() {
                     <thead>
                       <tr className="border-b border-slate-200 text-left text-slate-500">
                         <th className="py-1.5 pr-3 font-medium">{t("colPost")}</th>
-                        <th className="px-3 py-1.5 font-medium">{t("colFormat")}</th>
-                        <th className="px-3 py-1.5 text-right font-medium">{t("colPublie")}</th>
+                        <th className="hidden px-3 py-1.5 font-medium sm:table-cell">{t("colFormat")}</th>
+                        <th className="hidden px-3 py-1.5 text-right font-medium sm:table-cell">
+                          {t("colPublie")}
+                        </th>
                         <th className="px-3 py-1.5 text-right font-medium">{t("colVues")}</th>
                         <th className="py-1.5 pl-3 text-right font-medium">{t("colPart")}</th>
                       </tr>
@@ -414,17 +416,28 @@ export function VentesParJourPanel() {
                                   {f ? `${f.compte} · ${f.plateforme}` : t("postSupprime")}
                                 </span>
                               )}
+                              {/* Sur téléphone, le format passe sous le compte : sa colonne est masquée. */}
+                              {f?.format && (
+                                <div className="text-[11px] text-slate-400 sm:hidden">{f.format}</div>
+                              )}
                             </td>
-                            <td className="px-3 py-2 align-top text-slate-600">{f?.format ?? "—"}</td>
-                            <td className="px-3 py-2 text-right align-top tabular-nums text-slate-500">
+                            <td className="hidden px-3 py-2 align-top text-slate-600 sm:table-cell">
+                              {f?.format ?? "—"}
+                            </td>
+                            <td className="hidden px-3 py-2 text-right align-top tabular-nums text-slate-500 sm:table-cell">
                               {f ? publieLe(f.publieLe, loc) : "—"}
                             </td>
                             <td className="px-3 py-2 text-right align-top tabular-nums text-slate-900">
                               {formatNumber(p.vues, loc)}
+                              {p.vuesEstimees > 0 && (
+                                <div className="text-[11px] text-slate-400">
+                                  {t("estimeDuPost", { n: formatNumber(p.vuesEstimees, loc) })}
+                                </div>
+                              )}
                             </td>
                             <td className="py-2 pl-3 align-top">
                               <div className="flex items-center justify-end gap-2">
-                                <div className="h-1.5 w-12 overflow-hidden rounded-full bg-slate-100">
+                                <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-slate-100 sm:block">
                                   <div
                                     className="h-full rounded-full"
                                     style={{ width: `${part}%`, background: VENTES.on }}
@@ -442,7 +455,14 @@ export function VentesParJourPanel() {
                   </table>
                 </div>
               )}
-              {jour.estime && <p className="text-[11px] text-slate-500">{t("estime")}</p>}
+              {jour.vuesEstimees > 0 && (
+                <p className="text-[11px] text-slate-500">
+                  {t("estimeDuJour", {
+                    n: formatNumber(jour.vuesEstimees, loc),
+                    pct: jour.vues > 0 ? Math.round((jour.vuesEstimees / jour.vues) * 100) : 0,
+                  })}
+                </p>
+              )}
             </div>
           )}
 
