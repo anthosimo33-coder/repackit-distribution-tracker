@@ -252,6 +252,24 @@ export function memoryDb(
           return out;
         });
       },
+      /**
+       * Pagination Convex : le curseur est une position dans l'ordre de l'index.
+       * Une page lit `numItems` documents (le `.filter` trie, il ne réduit pas
+       * la lecture) ; `isDone` dès que la plage est épuisée.
+       */
+      paginate(opts: { cursor: string | null; numItems: number }) {
+        return aller(() => {
+          const tout = lignes();
+          const debut = opts.cursor === null ? 0 : Number(opts.cursor);
+          const fin = Math.min(tout.length, debut + opts.numItems);
+          lus(fin - debut);
+          return {
+            page: tout.slice(debut, fin).filter(garde),
+            continueCursor: String(fin),
+            isDone: fin >= tout.length,
+          };
+        });
+      },
       async first() {
         return (await q.take(1))[0] ?? null;
       },

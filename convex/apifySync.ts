@@ -1074,3 +1074,50 @@ export const e2eRecordApifySnapshot = e2eMutation({
     args,
   ): Promise<SnapshotWrite> => upsertApifySnapshot(ctx, args),
 });
+
+/**
+ * E2E — VOLUME de relevés, pour l'outil MCP `vues` (e2e/mcp-vues.spec.ts) : un
+ * relevé toutes les `pasMs` à partir de `debut`, gagnant `vuesParPas` à chaque
+ * fois (0 au premier). Insertion brute : ni dédoublonnage par jour ni garde
+ * d'auteur — c'est le NOMBRE de relevés lus que le test met à l'épreuve.
+ */
+export const e2eSemerReleves = e2eMutation({
+  args: {
+    publicationId: v.id("publications"),
+    debut: v.number(),
+    pasMs: v.number(),
+    n: v.number(),
+    vuesParPas: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const pub = await ctx.db.get(args.publicationId);
+    if (!pub) throw new Error("Publication introuvable");
+    for (let k = 0; k < args.n; k++) {
+      const capturedAt = args.debut + k * args.pasMs;
+      await ctx.db.insert("metricSnapshots", {
+        projectId: pub.projectId,
+        publicationId: pub._id,
+        capturedAt,
+        daysSincePublication: Math.floor((capturedAt - pub.datePubli) / DAY_MS),
+        vues: k * args.vuesParPas,
+        likes: 0,
+        createdAt: capturedAt,
+        source: "tiktok",
+      });
+    }
+    return { inseres: args.n };
+  },
+});
+
+/** E2E — efface les relevés d'un projet, par lots ; `reste` tant qu'il en reste. */
+export const e2eEffacerRelevesDuProjet = e2eMutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const lot = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_project_capturedAt", (q) => q.eq("projectId", projectId))
+      .take(2_000);
+    for (const s of lot) await ctx.db.delete(s._id);
+    return { effaces: lot.length, reste: lot.length === 2_000 };
+  },
+});
