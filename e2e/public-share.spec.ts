@@ -10,6 +10,13 @@ import { config } from "dotenv";
 
 config({ path: ".env.local" });
 
+/**
+ * Numéro de vidéo propre au processus : la clé d'un post TikTok est son ID, pas
+ * le @ du lien (convex/postDuplicateGuard). Deux créatrices ou deux missions
+ * avec le même id seraient la MÊME vidéo — et la seconde serait refusée.
+ */
+let videoSeq = 0;
+
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(convexUrl);
@@ -30,6 +37,10 @@ test.describe("Partage public du Tracker", () => {
   test("lien marque anonymisé, lien créatrice verrouillé, révocation", async ({ page, browser }) => {
     test.setTimeout(180_000);
     const ts = Date.now();
+    // Un id PAR post : deux créatrices ne publient pas la même vidéo (la clé
+    // d'un post TikTok est son id, cf convex/postDuplicateGuard).
+    const videoId = (n: number) => `74${ts}${n}`;
+    videoSeq = 0;
 
     const fid = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Share ${ts}`,
@@ -74,7 +85,7 @@ test.describe("Partage public du Tracker", () => {
         urls: [
           {
             platform: "TikTok",
-            url: `https://www.tiktok.com/@${handle}/video/74${ts}`,
+            url: `https://www.tiktok.com/@${handle}/video/${videoId(++videoSeq)}`,
           },
         ],
       });
@@ -137,7 +148,7 @@ test.describe("Partage public du Tracker", () => {
     expect(pub.blocks).not.toContain("quadrant");
     // Vidéo lisible sur la page : l'id seul, l'URL (qui porte le handle) non.
     expect(pub.view.posts?.map((p) => p.video?.id).sort()).toEqual(
-      [`74${ts}`, `74${ts}`].sort(),
+      [videoId(1), videoId(2)].sort(),
     );
     expect(pub.view.posts?.every((p) => p.url === null)).toBe(true);
     expect(pub.view.kpi).not.toHaveProperty("likes");
@@ -163,7 +174,11 @@ test.describe("Partage public du Tracker", () => {
     // Le lecteur intégré : l'id de la vidéo, le nom du son masqué, pas de handle.
     await vpage.getByRole("button", { name: "Voir la vidéo" }).first().click();
     const player = vpage.getByTestId("share-video-player");
-    await expect(player).toHaveAttribute("src", new RegExp(`/player/v1/74${ts}\\?.*music_info=0`));
+    // Le premier post ouvert est l'une des deux vidéos (un id chacune).
+    await expect(player).toHaveAttribute(
+      "src",
+      new RegExp(`/player/v1/(?:${videoId(1)}|${videoId(2)})\\?.*music_info=0`),
+    );
     await expect(player).not.toHaveAttribute("src", /snytch_fr/);
     await vpage.getByRole("button", { name: "Fermer la vidéo" }).click();
     await expect(player).toHaveCount(0);
