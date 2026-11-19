@@ -27,8 +27,13 @@ import { filterByCreatorScope } from "./creatorScope";
 import { resolveCreatorKind } from "./roles";
 import { setSkipVideoReviewCore } from "./creators";
 import { ERR, err } from "./errorCodes";
-import { ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
-import type { Id } from "./_generated/dataModel";
+import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import { duplicateGroups } from "./postDuplicateGuard";
+import { markDuplicate } from "./postDuplicates";
+import { isTikTokShortlink, resolveTikTokShortlink } from "./modelVideoEmbeds";
+import { newOwnerLookupCache, publicationOwnerAssignment, type OwnerLookupCache } from "./pricing";
 import {
   AJOUTE,
   ARG_PROJET,
@@ -38,6 +43,7 @@ import {
   etatsApres,
   etatsCrees,
   journaliser,
+  type Etat,
   photographier,
   RefusEcriture,
   resultatEcriture,
@@ -51,12 +57,15 @@ import { designationDepuis, designationValidator, publicationParLien, trouverMis
 import { confirmPublicationAsAdminCore, reviewVideoApproveCore, reviewVideoRejectCore } from "./assignments";
 import { setPublicationWarmupCore } from "./publications";
 import { representativePostedAt } from "./calendarStatus";
-import { detectPostUrlPlatform } from "./postUrlShape";
+import { detectPostUrlPlatform, isVideoKey, postKeyOf } from "./postUrlShape";
 import { isRemunerated } from "./remunerate";
 import { parisDayStart } from "./managerCpm";
 import { parisDayKey } from "./comptaMath";
 import type { Plateforme } from "./platforms";
 import { deplacerPostsCore, MAX_POSTS_PAR_APPEL, missionsDesPosts, paires, refusDeplacement } from "./postsDeplacement";
+
+/** Liens marqués par appel de `marquer_doublons` : borne du journal (relevés effacés gardés en entier). */
+const MAX_DOUBLONS_PAR_APPEL = 10;
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
@@ -137,6 +146,26 @@ export const OUTILS_ECRITURE_PUBLICATIONS: readonly McpTool[] = [
         },
       },
       required: ["compte", "nouveau_compte"],
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
+  {
+    name: "marquer_doublons",
+    title: "Marquer les liens de post en double",
+    description:
+      "MODIFIE les publications : un même post (même vidéo) rattaché à plusieurs missions ne doit compter qu'une fois. SANS `liens` : liste les liens en double du projet — la publication qui garde les vues et celles à marquer — SANS RIEN ÉCRIRE. AVEC `liens` (10 au plus, tout ou rien) : pour chaque lien, la publication la plus ancienne garde les vues (en TikTok, celle du compte qui possède la vidéo) ; les autres passent « lien à corriger » : leurs relevés sont effacés (copies de ceux de la gardée), le relevé les saute, elles sortent du Tracker et des analytics, et ne paient plus — ni fixe, ni CPM, ni palier. Un cycle DÉJÀ PAYÉ garde son montant. Ne se défait pas : une mission marquée se répare dans Assignments › la mission › « Corriger le lien ». Aucun email.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        liens: {
+          type: "array",
+          description: "Liens en double à marquer, tels que l'aperçu les donne. Absent = aperçu seul, rien n'est écrit.",
+          items: { type: "string" },
+          maxItems: MAX_DOUBLONS_PAR_APPEL,
+        },
+      },
       additionalProperties: false,
     },
     annotations: ECRIT,
@@ -386,6 +415,108 @@ export const ecrireWarmup = mcpWriteMutation("tracker.manage", "publications")({
   },
 });
 
+/** Une publication telle que l'aperçu et le journal la nomment. */
+async function decrirePublication(
+  ctx: { db: MutationCtx["db"] },
+  p: Doc<"publications">,
+  cache: OwnerLookupCache,
+): Promise<string> {
+  const m = await publicationOwnerAssignment(ctx as MutationCtx, p, cache);
+  const creator = m ? ((await ctx.db.get(m.creatorId))?.name ?? m.creatorNameSnapshot ?? "?") : "sans mission";
+  const campagne = m?.scriptCombo
+    ? ((await ctx.db.get(m.scriptCombo.campaignId))?.name ?? "campagne ?")
+    : m?.formatId
+      ? ((await ctx.db.get(m.formatId))?.name ?? "format ?")
+      : "—";
+  const vues = p.vuesLatest !== undefined ? `${p.vuesLatest} vues` : "pas de vues";
+  return `${creator} · ${campagne} · ${p.compte} (${p.plateforme}) du ${jourTexte(parisDayKey(p.datePubli))} · ${vues}`;
+}
+
+export const ecrireDoublons = mcpWriteMutation("tracker.manage", "publications")({
+  args: { liens: v.array(v.string()) },
+  handler: async (
+    ctx,
+    a,
+  ): Promise<{
+    summary: string;
+    apercu: { lien: string; garde: string; aMarquer: string[] }[] | null;
+  }> => {
+    // Tout le projet, lu sur le lien ACTUEL : la clé stockée peut manquer (posts
+    // d'avant la clé) — cf duplicateGroups.
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const groupes = duplicateGroups(pubs);
+    const cache = newOwnerLookupCache();
+    const aMarquerDe = (g: (typeof groupes)[number]) => g.extras.filter((e) => e.duplicateOf === undefined);
+
+    if (a.liens.length === 0) {
+      const apercu: { lien: string; garde: string; aMarquer: string[] }[] = [];
+      for (const g of groupes) {
+        const aMarquer = aMarquerDe(g);
+        if (aMarquer.length === 0) continue;
+        apercu.push({
+          lien: g.keeper.postUrl as string,
+          garde: await decrirePublication(ctx, g.keeper, cache),
+          aMarquer: await Promise.all(aMarquer.map((p) => decrirePublication(ctx, p, cache))),
+        });
+      }
+      const n = apercu.reduce((s, x) => s + x.aMarquer.length, 0);
+      return {
+        summary:
+          apercu.length === 0
+            ? "Aucun lien en double à marquer."
+            : `${apercu.length} lien(s) en double, ${n} publication(s) à marquer — rien n'a été écrit.`,
+        apercu,
+      };
+    }
+
+    // Tout est vérifié AVANT la première écriture : un lien refusé n'en laisse
+    // aucun à moitié marqué.
+    const choisis = a.liens.map((lien) => {
+      const key = postKeyOf(lien);
+      if (key === null) throw err(ERR.MCP_DESIGNATION, `« ${lien} » n'est pas un lien de post.`);
+      const g = groupes.find((x) => x.key === key);
+      if (!g) {
+        throw err(ERR.MCP_DESIGNATION, `Le lien « ${lien} » n'est rattaché qu'à une publication : rien à marquer.`);
+      }
+      return { lien, g };
+    });
+
+    const now = Date.now();
+    const faits: string[] = [];
+    for (const { lien, g } of choisis) {
+      const aMarquer = aMarquerDe(g);
+      if (aMarquer.length === 0) {
+        faits.push(`${lien} : déjà marqué`);
+        continue;
+      }
+      const garde = await decrirePublication(ctx, g.keeper, cache);
+      const noms = await Promise.all(aMarquer.map((p) => decrirePublication(ctx, p, cache)));
+      const photos = await photographier(ctx, "publications", aMarquer.map((p) => p._id));
+      // Les relevés effacés sont gardés EN ENTIER au journal : de quoi les
+      // reconstruire si le mauvais doublon avait été marqué.
+      const effaces: Etat[] = [];
+      for (const p of aMarquer) {
+        const { snapshots, earlyReadings } = await markDuplicate(ctx, p, g.keeper._id, now);
+        for (const s of snapshots) effaces.push({ table: "metricSnapshots", id: s._id, avant: JSON.stringify(s), apres: null });
+        for (const r of earlyReadings) effaces.push({ table: "earlyReadings", id: r._id, avant: JSON.stringify(r), apres: null });
+      }
+      const summary = `${lien} : garde ${garde} ; marqué(s) « lien à corriger » : ${noms.join(" | ")}`;
+      await journaliser(ctx, {
+        tool: "marquer_doublons",
+        summary,
+        section: "tracker",
+        path: "dashboard",
+        etats: [...(await etatsApres(ctx, photos)), ...effaces],
+      });
+      faits.push(summary);
+    }
+    return { summary: faits.join("\n"), apercu: null };
+  },
+});
+
 export const ecrireDeplacementPosts = mcpWriteMutation("accounts.manage", "publications")({
   args: { compte: v.string(), nouveauCompte: v.string(), plateforme: v.optional(v.string()), liens: v.array(v.string()) },
   handler: async (ctx, a) => {
@@ -485,6 +616,8 @@ const OU_DEFAIRE: Record<string, string> = {
     "Une publication confirmée ne se dé-publie pas : un mauvais lien se corrige dans Assignments › la mission › « Corriger le lien ».",
   marquer_warmup: "Rappelle marquer_warmup avec l'état inverse, ou Tracker › le post › Warmup.",
   deplacer_posts: "`defaire`, ou rappelle deplacer_posts dans l'autre sens.",
+  marquer_doublons:
+    "Ne se défait pas : une mission marquée se répare dans Assignments › la mission › « Corriger le lien » (le lien du post de SA vidéo), ce qui relance le relevé et la paie.",
   publier_sans_validation: "`defaire`, ou rappelle publier_sans_validation avec l'état inverse, ou la fiche de la créatrice › Publier sans validation.",
   valider_video: "Une validation ne se reprend pas : la créatrice a reçu l'email et peut publier.",
   refuser_video: "Un refus ne se reprend pas : la créatrice a reçu le motif et renverra une vidéo, à valider à son retour.",
@@ -507,7 +640,17 @@ async function appelerEcriturePublications(
         ? j
         : undefined;
     if (jour === undefined) throw new ToolError("« jour » : le jour PRÉVU de la mission, AAAA-MM-JJ, ou « sans date ».");
-    const liens = textesArg(args, "liens");
+    // Liens courts TikTok résolus AVANT l'écriture, comme à l'écran : la garde
+    // « déjà rattaché à une autre mission » ne reconnaît la vidéo que sur l'URL
+    // canonique (cf convex/postDuplicateGuard). Échec → le lien tel quel.
+    const liens = await Promise.all(
+      textesArg(args, "liens").map(async (l) => {
+        if (!isTikTokShortlink(l)) return l;
+        const resolu = await resolveTikTokShortlink(l);
+        // Seule une URL qui porte l'id de la vidéo remplace le lien collé.
+        return resolu !== null && isVideoKey(postKeyOf(resolu)) ? resolu : l;
+      }),
+    );
     if (liens.length === 0) throw new ToolError("« liens » : le lien du post publié.");
     const publieLe = texteArg(args, "publie_le");
     if (publieLe !== "") {
@@ -581,6 +724,31 @@ async function appelerEcriturePublications(
         : {}),
     });
   }
+  if (name === "marquer_doublons") {
+    const liens = textesArg(args, "liens");
+    if (liens.length > MAX_DOUBLONS_PAR_APPEL) {
+      throw new ToolError(`« liens » : ${MAX_DOUBLONS_PAR_APPEL} au plus par appel.`);
+    }
+    const r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesPublications.ecrireDoublons, { ...cible, liens }),
+    );
+    if (r.apercu !== null) {
+      // Aperçu : rien n'a été écrit, donc rien au journal.
+      return textResult(
+        JSON.stringify(
+          {
+            projet,
+            apercu: r.summary,
+            liens: r.apercu,
+            suite: "Pour marquer : rappelle marquer_doublons avec « liens » (10 au plus par appel), après accord.",
+          },
+          null,
+          2,
+        ),
+      );
+    }
+    return resultatEcriture(projet, r.summary.split("\n"), OU_DEFAIRE[name]);
+  }
   if (name === "deplacer_posts") {
     const compte = texteArg(args, "compte");
     if (compte === "") throw new ToolError("« compte » : le @ qui porte les posts aujourd'hui (outil `comptes`).");
@@ -613,6 +781,7 @@ export const DOMAINE_PUBLICATIONS: DomaineEcriture = {
     confirmer_publication: "review.manage",
     marquer_warmup: "tracker.manage",
     deplacer_posts: "accounts.manage",
+    marquer_doublons: "tracker.manage",
     publier_sans_validation: "review.manage",
   },
   appeler: appelerEcriturePublications,

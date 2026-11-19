@@ -29,6 +29,7 @@ import {
   type PostDatePlatform,
   type PostDateRead,
 } from "@/convex/postUrlDate";
+import { usePostLinkResolver } from "@/lib/use-post-link-resolver";
 import type { Plateforme } from "@/convex/platforms";
 
 /**
@@ -126,6 +127,7 @@ export function ClipPublishForm({
   const tc = useTranslations("clip");
   const { projectId } = useClipperProject();
   const publier = useMutation(api.assignments.confirmClipPublication);
+  const resolveLinks = usePostLinkResolver();
   const quota = useQuery(api.clipQuota.myQuotaWindow, { projectId });
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [jour, setJour] = useState<string | null>(null);
@@ -235,7 +237,7 @@ export function ClipPublishForm({
       await publier({
         projectId,
         id: clipId,
-        urls: payload,
+        urls: await resolveLinks.urls(payload),
         ...(publishedAt !== undefined ? { publishedAt } : {}),
       });
       toast.success(tc("published"));

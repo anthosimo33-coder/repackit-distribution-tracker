@@ -103,7 +103,10 @@ test.describe("Tracker — Marquer Short comme posté + édition métriques", ()
     await expect(markDialog).toBeVisible();
     await markDialog
       .getByLabel("Lien de publication")
-      .fill("https://www.youtube.com/shorts/abc123e2e");
+      // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+      // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+      // refusé au run suivant, ou au retry de la CI.
+      .fill(`https://www.youtube.com/shorts/e2e${Date.now().toString(36)}`);
     await markDialog
       .getByRole("button", { name: /^confirmer$/i })
       .click();

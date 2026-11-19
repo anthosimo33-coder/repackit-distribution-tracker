@@ -37,6 +37,7 @@ import { useConvexError } from "@/lib/use-convex-error";
 import { isRecognizedPostUrl } from "@/lib/post-url-recognized";
 import { publishUrlIssue, type PostUrlPlatform } from "@/convex/postUrlShape";
 import { useTranslations } from "next-intl";
+import { usePostLinkResolver } from "@/lib/use-post-link-resolver";
 import type { Plateforme } from "@/convex/platforms";
 
 /**
@@ -104,6 +105,7 @@ export function AssignmentActions({
   const start = useMutation(api.assignments.startAssignment);
   const submitVideo = useMutation(api.assignments.submitVideo);
   const confirmPublication = useMutation(api.assignments.confirmPublication);
+  const resolveLinks = usePostLinkResolver();
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -235,10 +237,14 @@ export function AssignmentActions({
       await confirmPublication({
         projectId,
         id: assignment._id,
-        urls: targets.map((t) => ({
-          platform: t.platform,
-          url: (urls[t.platform] ?? "").trim(),
-        })),
+        // Liens courts TikTok résolus AVANT l'envoi : la garde « déjà rattaché
+        // à une autre mission » ne reconnaît la vidéo que sur l'URL canonique.
+        urls: await resolveLinks.urls(
+          targets.map((t) => ({
+            platform: t.platform,
+            url: (urls[t.platform] ?? "").trim(),
+          })),
+        ),
       });
       // Le moment de fierté de la mission : il se CÉLÈBRE (confettis, vibration,
       // gain par vidéo) au lieu d'un toast qui passe inaperçu.

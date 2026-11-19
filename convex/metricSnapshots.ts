@@ -236,6 +236,15 @@ export const createSnapshot = permissionMutation("tracker.manage")({
     if (args.capturedAt < pub.datePubli) {
       throw err(ERR.SNAPSHOT_BEFORE_PUBLICATION, "Date de capture antérieure à la date de publication.");
     }
+    // Lien en double (cf convex/postDuplicates) : la vidéo se mesure sur la
+    // publication qui la garde. Une saisie ici la compterait deux fois.
+    if (pub.duplicateOf !== undefined) {
+      throw err(
+        ERR.POST_URL_ALREADY_LINKED,
+        `Ce lien ${pub.plateforme} est déjà celui d'une autre mission : ses vues se saisissent sur la publication qui le garde.`,
+        { platform: pub.plateforme },
+      );
+    }
 
     const daysSincePublication = Math.floor(
       (args.capturedAt - pub.datePubli) / DAY_MS,

@@ -7,7 +7,7 @@
 
 import type { ChargeCategory, ComptaBucket, TransferUsage } from "./comptaMath";
 import { PLATEFORMES, type Plateforme } from "./platforms";
-import { tiktokVideoIdFromUrl } from "./postUrlDate";
+import { postKeyOf } from "./postUrlShape";
 import { formatPostWindow, isValidPostWindow, POST_WINDOW_PRESETS, type PostWindow } from "./postWindow";
 
 /** Sans accents, sans casse, espaces réduits : « Paiement Créatrices » = « paiement creatrices ». */
@@ -191,26 +191,6 @@ export function roleBriqueDepuis(x: unknown): "hook" | "flux" | "cta" | null {
  * `www.` ni `/` final. `null` = pas un lien.
  */
 export function cleDeLienPost(url: string): string | null {
-  const brut = url.trim();
-  const tiktok = tiktokVideoIdFromUrl(brut);
-  if (tiktok) return `tiktok:${tiktok}`;
-  let u: URL;
-  try {
-    u = new URL(brut);
-  } catch {
-    return null;
-  }
-  const hote = u.hostname.toLowerCase().replace(/^(www|m)\./, "");
-  if (hote === "instagram.com") {
-    const m = /^\/(?:[^/]+\/)?(?:reels?|p|tv)\/([A-Za-z0-9_-]+)/.exec(u.pathname);
-    if (m) return `instagram:${m[1]}`;
-  }
-  if (hote === "youtube.com" || hote === "youtu.be") {
-    const id =
-      hote === "youtu.be"
-        ? u.pathname.slice(1).split("/")[0]
-        : (/^\/shorts\/([A-Za-z0-9_-]+)/.exec(u.pathname)?.[1] ?? u.searchParams.get("v"));
-    if (id) return `youtube:${id}`;
-  }
-  return `${hote}${u.pathname.replace(/\/+$/, "")}`.toLowerCase();
+  // Une seule définition : celle de la garde de saisie et du drapeau doublon.
+  return postKeyOf(url);
 }

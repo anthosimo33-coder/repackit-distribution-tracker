@@ -57,7 +57,10 @@ test.describe("SnapshotAgeSelector", () => {
     const pubId = ids[0];
     await convex.mutation(api.publications.updateMetrics, {
       id: pubId,
-      postUrl: "https://www.tiktok.com/@test_e2e_snapage/video/1",
+      // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+      // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+      // refusé au run suivant, ou au retry de la CI.
+      postUrl: `https://www.tiktok.com/@test_e2e_snapage/video/4${Date.now()}`,
     });
     // 3 snapshots à J+1 / J+7 / J+30 avec des vues distinctes (< 1000 pour
     // éviter les séparateurs de milliers dans l'assertion texte).

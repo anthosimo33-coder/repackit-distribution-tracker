@@ -67,7 +67,14 @@ test.describe("Playbook", () => {
         notes: "[E2E_TEST] playbook",
       });
       const id = ids[0] as Id<"publications">;
-      await admin.mutation(api.publications.updateMetrics, { id, postUrl: lien });
+      // La même vidéo sur un 2e compte est désormais REFUSÉE à la saisie
+      // (convex/postDuplicateGuard). Ce montage reproduit un doublon d'AVANT la
+      // garde — ceux que le Playbook doit encore savoir lire : lien posé brut.
+      if (lien === lienB) {
+        await admin.mutation(api.postDuplicates.e2eLegacyPostUrl, { secret: E2E_SECRET, publicationId: id, url: lien });
+      } else {
+        await admin.mutation(api.publications.updateMetrics, { id, postUrl: lien });
+      }
       await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
         secret: E2E_SECRET,
         publicationId: id,

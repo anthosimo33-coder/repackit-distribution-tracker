@@ -67,7 +67,10 @@ test.describe("Tracker édition métriques", () => {
 
     await page
       .getByLabel(/lien de publication/i)
-      .fill("https://www.tiktok.com/@test_e2e_metrics/video/123");
+      // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+      // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+      // refusé au run suivant, ou au retry de la CI.
+      .fill(`https://www.tiktok.com/@test_e2e_metrics/video/8${Date.now()}`);
     await page.getByRole("button", { name: /^enregistrer$/i }).click();
 
     // Wait for the draft dialog to close before re-opening the dropdown.

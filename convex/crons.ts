@@ -325,4 +325,17 @@ crons.interval(
   {},
 );
 
+// CLÉ DE POST des publications qui n'en ont pas — toutes les heures, minute 17.
+// Sans clé, une publication échappe à la garde « lien déjà rattaché à une autre
+// mission » (convex/postDuplicateGuard). Toutes les écritures de lien la posent ;
+// cette tâche rattrape celles d'avant la clé (≈ 2 400 au déploiement, par lots
+// de 200 qui s'enchaînent) puis tout chemin qui l'oublierait. Lit l'index des
+// lignes SANS clé : vide, elle ne coûte rien. Cf convex/postDuplicates.ts.
+crons.hourly(
+  "backfill-post-keys",
+  { minuteUTC: 17 },
+  internal.postDuplicates.backfillPostKeys,
+  {},
+);
+
 export default crons;

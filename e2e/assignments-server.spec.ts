@@ -120,7 +120,10 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
       {
         projectId: A.projectId,
         id: aid,
-        urls: [{ platform: "TikTok", url: "https://www.tiktok.com/@moi/video/123" }],
+        // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+        // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+        // refusé au run suivant, ou au retry de la CI.
+        urls: [{ platform: "TikTok", url: `https://www.tiktok.com/@moi/video/1${Date.now()}` }],
       },
     );
     expect(published.alreadyPublished).toBe(false);

@@ -23,6 +23,24 @@ export function isRemunerated(p: RemunerationFlags): boolean {
 }
 
 /**
+ * Drapeaux de paie d'une PUBLICATION, lus sur le document — le point unique où
+ * un LIEN EN DOUBLE (`duplicateOf`, cf convex/postDuplicates) perd sa paie : ni
+ * fixe, ni CPM, ni palier. Arbitrage du fondateur, 19/11/2026 : une mission
+ * dont le lien est celui d'une autre n'est pas payée tant que la créatrice n'a
+ * pas donné le lien de SA vidéo. Hors doublon : les drapeaux tels quels.
+ */
+export function payFlagsOfPublication(pub: {
+  isWarmup?: boolean;
+  remunere?: boolean;
+  duplicateOf?: unknown;
+}): RemunerationFlags {
+  return {
+    isWarmup: pub.isWarmup === true,
+    remunere: pub.duplicateOf !== undefined ? false : pub.remunere,
+  };
+}
+
+/**
  * Le post s'écarte-t-il de la règle par défaut « payé ssi pas warmup » ?
  *
  * C'est la SEULE question qui mérite un stockage explicite (cf

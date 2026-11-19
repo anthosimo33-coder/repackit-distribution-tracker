@@ -57,7 +57,10 @@ test.describe("CRUD snapshots via le dialog", () => {
     const pubId = ids[0];
     await convex.mutation(api.publications.updateMetrics, {
       id: pubId,
-      postUrl: "https://www.tiktok.com/@test_e2e_snapcrud/video/1",
+      // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+      // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+      // refusé au run suivant, ou au retry de la CI.
+      postUrl: `https://www.tiktok.com/@test_e2e_snapcrud/video/5${Date.now()}`,
     });
 
     await page.goto(adminPath("/carrousels"));

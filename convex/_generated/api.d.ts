@@ -212,6 +212,8 @@ import type * as planEconomics from "../planEconomics.js";
 import type * as platforms from "../platforms.js";
 import type * as playbook from "../playbook.js";
 import type * as playbookFiche from "../playbookFiche.js";
+import type * as postDuplicateGuard from "../postDuplicateGuard.js";
+import type * as postDuplicates from "../postDuplicates.js";
 import type * as postOwner from "../postOwner.js";
 import type * as postOwnerGuard from "../postOwnerGuard.js";
 import type * as postUrlDate from "../postUrlDate.js";
@@ -575,6 +577,8 @@ declare const fullApi: ApiFromModules<{
   platforms: typeof platforms;
   playbook: typeof playbook;
   playbookFiche: typeof playbookFiche;
+  postDuplicateGuard: typeof postDuplicateGuard;
+  postDuplicates: typeof postDuplicates;
   postOwner: typeof postOwner;
   postOwnerGuard: typeof postOwnerGuard;
   postUrlDate: typeof postUrlDate;

@@ -114,6 +114,7 @@ import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
 import { useConvexError } from "@/lib/use-convex-error";
+import { usePostLinkResolver } from "@/lib/use-post-link-resolver";
 import type { Plateforme } from "@/convex/platforms";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
@@ -1225,6 +1226,9 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
   );
   const foreignOwnerOf = (platform: Plateforme): string | null =>
     linkFlags?.find((f) => f.platform === platform)?.foreignOwner ?? null;
+  // « Lien en double » : la vidéo est déjà le post d'une autre mission.
+  const duplicateOfFor = (platform: Plateforme) =>
+    linkFlags?.find((f) => f.platform === platform)?.duplicateOf ?? null;
 
   if (isPublished) {
     return (
@@ -1256,6 +1260,12 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
               <ForeignOwnerNote
                 platform={t.platform}
                 handle={foreignOwnerOf(t.platform) as string}
+              />
+            )}
+            {duplicateOfFor(t.platform) !== null && (
+              <DuplicateLinkNote
+                platform={t.platform}
+                creatorName={duplicateOfFor(t.platform)?.creatorName ?? null}
               />
             )}
           </div>
@@ -1303,6 +1313,34 @@ function ForeignOwnerNote({ platform, handle }: { platform: Plateforme; handle: 
 }
 
 /**
+ * « Lien déjà rattaché à une autre mission » — la vidéo de ce lien est le post
+ * d'une autre publication (cf convex/postDuplicates) : ni vues ni paie ici
+ * tant que « Corriger le lien » n'y a pas mis le post de CETTE vidéo.
+ */
+function DuplicateLinkNote({
+  platform,
+  creatorName,
+}: {
+  platform: Plateforme;
+  creatorName: string | null;
+}) {
+  const tr = useTranslations("admin.assignments.PublicationSection");
+  return (
+    <p
+      className="w-full text-xs font-medium text-rose-600"
+      data-testid={`detail-duplicate-link-${platform}`}
+    >
+      {creatorName !== null
+        ? tr("lienEnDoubleDe", { creator: creatorName })
+        : tr("lienEnDouble")}
+      <span className="block font-normal text-rose-500">
+        {tr("lienEnDoubleAide", { platform })}
+      </span>
+    </p>
+  );
+}
+
+/**
  * Corriger le LIEN DE SUIVI d'un post déjà publié.
  *
  * La modale dit ce que le geste détruit AVANT de le faire : les relevés de vues
@@ -1322,6 +1360,7 @@ function CorrectUrlButton({
   const showError = useConvexError();
   const tr = useTranslations("admin.assignments.CorrectUrlButton");
   const correct = useProjectMutation(api.assignments.correctPublishedUrl);
+  const resolveLinks = usePostLinkResolver();
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState(currentUrl);
   const [busy, setBusy] = useState(false);
@@ -1329,7 +1368,11 @@ function CorrectUrlButton({
   async function submit() {
     setBusy(true);
     try {
-      const r = await correct({ id: assignmentId, platform, url });
+      const r = await correct({
+        id: assignmentId,
+        platform,
+        url: await resolveLinks.url(url),
+      });
       toast.success(
         !r.changed
           ? tr("lienInchange")
