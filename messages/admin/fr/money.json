@@ -805,5 +805,35 @@
       "FX_TARGET_UNKNOWN": "Ne se retire pas : choisis d'abord la devise du revenu.",
       "FX_RATE_ON_TARGET": "Ne se retire pas : {currency} est la devise du revenu."
     }
+  },
+  "VentesParJour": {
+    "periode": "Du {du} au {au} (hier, dernier jour complet)",
+    "periodeAttente": "Jusqu’à hier, dernier jour complet",
+    "periodeGroupe": "Période",
+    "jours": "{n} j",
+    "echec": "Le détail par jour n’a pas pu se calculer",
+    "nonConfigure": "Aucun revenu Whop n’est relié à ce projet.",
+    "nouvellesVentes": "Nouvelles ventes",
+    "autresPaiements": "Autres paiements",
+    "vuesGagnees": "Vues gagnées",
+    "grapheVentesNet": "Nouvelles ventes du jour (net, 1er paiement)",
+    "grapheVentesNombre": "Nouvelles ventes du jour (nombre)",
+    "grapheVues": "Vues gagnées du jour",
+    "milliers": "{n} k",
+    "cliquer": "Clique sur un jour pour voir les posts qui faisaient les vues.",
+    "ventesDuJour": "{count, plural, one {# nouvelle vente} other {# nouvelles ventes}}",
+    "autresDuJour": "autres paiements {montant}",
+    "vuesDuJour": "{vues} vues gagnées",
+    "bulleAutres": "Autres paiements {montant}",
+    "aucuneVue": "Aucune vue gagnée ce jour-là.",
+    "colPost": "Post qui faisait les vues",
+    "colFormat": "Format",
+    "colPublie": "Publié",
+    "colVues": "Vues ce jour",
+    "colPart": "Part",
+    "postSupprime": "post supprimé",
+    "part": "{pct} %",
+    "estime": "Une partie des vues de ce jour est estimée : des relevés espacés de plus de 30 h, répartis au prorata des heures.",
+    "avertissement": "Une vente Whop ne dit pas d’où vient l’acheteur. Ces posts sont ceux qui tiraient les vues ce jour-là, pas ceux qui ont « fait » la vente : un pic de ventes porté par un seul post est un bon indice, rien de plus. Nouvelle vente = premier paiement encaissé d’un abonnement (achat unique compris) ; les renouvellements sont dans les autres paiements. Vues = toutes les vues gagnées, comme la courbe du Tracker (posts de chauffe exclus)."
   }
 }
