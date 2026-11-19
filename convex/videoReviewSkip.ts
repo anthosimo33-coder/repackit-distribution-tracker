@@ -82,6 +82,20 @@ export function initialMissionState(
 }
 
 /**
+ * Le statut de la mission SANS la confiance : celui que lui rendrait le retrait
+ * de `skipVideoReview`. Une mission née « à publier » chez une créatrice de
+ * confiance (`reviewSkippedFrom: "todo"`) n'est pas tournée pour autant : la
+ * garde « pas encore tournée » de `reecrire_mission` lit ce statut-ci, comme
+ * l'écran laisse éditer le script jusqu'à la publication. Limite : rien en base
+ * ne dit si elle a filmé sans rien envoyer.
+ */
+export function statutHorsConfiance(
+  a: Pick<Doc<"assignments">, "status" | "reviewSkippedFrom">,
+): Doc<"assignments">["status"] {
+  return a.status === "to_publish" && a.reviewSkippedFrom !== undefined ? a.reviewSkippedFrom : a.status;
+}
+
+/**
  * Pose (ou retire) la confiance sur la fiche ET aligne ses missions en cours.
  * L'appelant a déjà vérifié le projet, le périmètre et la population.
  *

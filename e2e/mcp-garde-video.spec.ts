@@ -205,6 +205,51 @@ test.describe("Garde-fous vidéo et journal", () => {
     expect((await missionDu(J3)).scriptCombo?.hookBrickId).toBe(avant.scriptCombo?.hookBrickId);
   });
 
+  // 19/11/2026 : les missions de Kelly, Sarah, Elisa et Juliette (publication
+  // sans validation) naissent « à publier » ; l'outil les prenait toutes pour
+  // tournées, quand l'écran laisse éditer le script jusqu'à la publication.
+  test("reecrire_mission chez une créatrice qui publie sans validation : la mission « à publier » d'office se réécrit et la réponse le signale ; refusée une fois la vidéo envoyée", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const nom = `Lou Confiance ${ts}`;
+    const c = await createCreatorSession(convexUrl, { name: `[E2E_TEST] ${nom}`, email: `e2e-confiance-${ts}@repackit.test`, password: "confiance-12345" });
+    await availableTarget({ e2eClient: admin, creatorId: c.creatorId, platform: "TikTok", handle: `@lou${ts}` });
+    await admin.mutation(api.creators.setSkipVideoReview, { creatorId: c.creatorId, enabled: true });
+    const campagne = `Confiance ${ts}`;
+    const campaignId = (await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] ${campagne}` })) as Id<"scriptCampaigns">;
+    const brique = (kind: "hook" | "flux" | "cta", label: string, content: string) =>
+      admin.mutation(api.scripts.createBrick, { campaignId, kind, label, content }) as Promise<Id<"scriptBricks">>;
+    await brique("hook", "Hook tiré", `Hook tiré ${ts}`);
+    const hookNeuf = await brique("hook", "Hook neuf", `Il est revenu au bout d'une semaine ${ts}`);
+    await admin.mutation(api.scripts.updateBrick, { id: hookNeuf, active: false });
+    await brique("flux", "Flux", "Je montre l'appli.");
+    await brique("cta", "CTA", "Tous les memes finalement");
+    const bareme = `Barème confiance ${ts}`;
+    await admin.mutation(api.pricing.createPricing, { name: `[E2E_TEST] ${bareme}`, montantFixe: 50, nbVideosCible: 5, tauxCPM: 1.1 });
+    const { appel } = await cleMissions(page, `E2E confiance ${ts}`);
+    const J3 = jourParis(3);
+    expect((await appel("assigner_scripts", { campagne, createatrices: [nom], jours: [J3], bareme })).erreur).toBe(false);
+    const missionDu = async (jour: string) =>
+      (await admin.query(api.assignments.listAssignments, {})).find((a) => a.creatorId === c.creatorId && jourDe(a.postDate) === jour)!;
+    const avant = await missionDu(J3);
+    // Née « à publier » (la liste ne renvoie pas `reviewSkippedFrom`).
+    expect(avant.status).toBe("to_publish");
+
+    const r = await appel("reecrire_mission", { createatrice: nom, jour: J3, hook: "Hook neuf" });
+    expect(r.erreur, r.texte).toBe(false);
+    expect(r.texte).toContain("publie sans validation");
+    const apres = await missionDu(J3);
+    expect(apres.scriptCombo?.hookBrickId).toBe(hookNeuf);
+    expect(apres.status).toBe("to_publish");
+
+    // Vidéo envoyée : tournée, même chez une créatrice de confiance.
+    await admin.mutation(api.assignments.e2eSetSubmittedVideoStream, { secret: E2E_SECRET, id: avant._id, uid: `uid-confiance-${ts}`, status: "ready" });
+    const tournee = await appel("reecrire_mission", { createatrice: nom, jour: J3, hook: "Hook tiré" });
+    expect(tournee.erreur).toBe(true);
+    expect(tournee.texte).toContain("vidéo déjà envoyée");
+    expect((await missionDu(J3)).scriptCombo?.hookBrickId).toBe(hookNeuf);
+  });
+
   test("reecrire_mission vers une autre campagne : la mission prend les vidéos à reproduire de la nouvelle campagne, les autres partent ; défait à l'identique", async ({ page }) => {
     test.setTimeout(180_000);
     const ts = Date.now();
