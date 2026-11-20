@@ -3,6 +3,7 @@ import {
   initialMissionState,
   linkDayGap,
   skipsVideoReview,
+  statutHorsConfiance,
 } from "../convex/videoReviewSkip";
 import { dayOffset, lateDays } from "../convex/calendarStatus";
 import { creatorVideoStatus } from "../convex/creatorVideoStatus";
@@ -53,6 +54,22 @@ describe("initialMissionState — l'état de naissance d'une mission", () => {
       status: "to_publish",
       managedByAdmin: true,
     });
+  });
+});
+
+describe("statutHorsConfiance — ce que lit la garde « pas encore tournée » de reecrire_mission", () => {
+  it("née « à publier » chez une créatrice de confiance → à faire", () => {
+    expect(statutHorsConfiance({ status: "to_publish", reviewSkippedFrom: "todo" })).toBe("todo");
+    expect(statutHorsConfiance({ status: "to_publish", reviewSkippedFrom: "in_progress" })).toBe("in_progress");
+  });
+  it("passée « à publier » avec une vidéo soumise → reste tournée", () => {
+    expect(statutHorsConfiance({ status: "to_publish", reviewSkippedFrom: "video_submitted" })).toBe("video_submitted");
+  });
+  it("« à publier » par la Validation, ou compte géré (pas de trace) → à publier", () => {
+    expect(statutHorsConfiance({ status: "to_publish", reviewSkippedFrom: undefined })).toBe("to_publish");
+  });
+  it("publiée : la trace reste, le statut aussi", () => {
+    expect(statutHorsConfiance({ status: "published", reviewSkippedFrom: "todo" })).toBe("published");
   });
 });
 

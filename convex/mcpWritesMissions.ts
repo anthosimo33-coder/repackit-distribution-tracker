@@ -81,6 +81,7 @@ import {
 } from "./assignments";
 import { plannedDayKey, representativePostedAt } from "./calendarStatus";
 import { hasSubmittedVideo } from "./assignmentVideo";
+import { statutHorsConfiance } from "./videoReviewSkip";
 import { parisDayOf, parisDayStart } from "./managerCpm";
 import { shiftDay } from "./analyticsDates";
 import { parisDayKey } from "./comptaMath";
@@ -315,7 +316,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
     name: "reecrire_mission",
     title: "Réécrire le script d'une mission",
     description:
-      "MODIFIE les missions : remplace le script d'une mission PAS ENCORE TOURNÉE (à faire ou en cours, aucune vidéo envoyée, pas publiée) — hook, flux, légende, notif et/ou consigne —, sans email. Les briques se désignent par libellé ou morceau de texte, dans la campagne de la mission, ou dans « campagne_briques » (alors hook, flux et légende sont requis, et les « vidéos à reproduire » de la mission deviennent celles de la nouvelle campagne : les autres — ancien format, vidéo rejouée — sont RETIRÉES, sauf « garder_videos_exemples »). Une brique désactivée est acceptée et reste hors du tirage. Le texte est monté depuis les briques, comme à l'assignation. Journalisé ; `defaire` remet le script d'avant. Désignation comme dans `planning`.",
+      "MODIFIE les missions : remplace le script d'une mission PAS ENCORE TOURNÉE (à faire ou en cours — ou « à publier » d'office chez une créatrice qui publie sans validation, la réponse le signale car rien ne dit si elle a déjà filmé —, aucune vidéo envoyée, pas publiée) — hook, flux, légende, notif et/ou consigne —, sans email. Les briques se désignent par libellé ou morceau de texte, dans la campagne de la mission, ou dans « campagne_briques » (alors hook, flux et légende sont requis, et les « vidéos à reproduire » de la mission deviennent celles de la nouvelle campagne : les autres — ancien format, vidéo rejouée — sont RETIRÉES, sauf « garder_videos_exemples »). Une brique désactivée est acceptée et reste hors du tirage. Le texte est monté depuis les briques, comme à l'assignation. Journalisé ; `defaire` remet le script d'avant. Désignation comme dans `planning`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1084,7 +1085,11 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
       const publiee = pasPubliee(x);
       if (publiee) return publiee;
       if (hasSubmittedVideo(x)) return `vidéo déjà envoyée (statut ${STATUTS[x.status] ?? x.status}) : déjà tournée`;
-      return x.status === "todo" || x.status === "in_progress" ? null : `${STATUTS[x.status] ?? x.status} : déjà tournée`;
+      // Chez une créatrice qui publie sans validation, la mission naît « à
+      // publier » : c'est son statut d'avant la confiance qui dit si elle attend
+      // encore le tournage.
+      const statut = statutHorsConfiance(x);
+      return statut === "todo" || statut === "in_progress" ? null : `${STATUTS[x.status] ?? x.status} : déjà tournée`;
     });
     // Le combo d'avant AVEC son texte (il vit hors du document).
     const avant = await comboAvecTexte(ctx, m.a);
@@ -1203,7 +1208,10 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
         : []),
       ...(videosPlafond ? ["vidéos à reproduire de la campagne NON ajoutées : la mission en aurait plus de 20"] : []),
     ];
-    const summary = `${m.libelle} : ${faits.join(", ")}`;
+    const sansValidation = m.a.status === "to_publish" && m.a.reviewSkippedFrom !== undefined;
+    const summary =
+      `${m.libelle} : ${faits.join(", ")}` +
+      (sansValidation ? " — publie sans validation : rien ne dit si elle l'avait déjà tournée" : "");
     await journaliser(ctx, {
       tool: "reecrire_mission",
       summary,
