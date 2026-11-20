@@ -548,7 +548,7 @@ export const getProfitabilityCosts = permissionQuery("business.read")({
   handler: async (ctx, { lot, lots }): Promise<ProfitabilityCosts | null> => {
     const project = await ctx.db.get(ctx.projectId);
     if (project === null || project.whop === undefined) return null;
-    // LU DANS LE CACHE (convex/dashboardCache, recalculé toutes les 30 min,
+    // LU DANS LE CACHE (convex/dashboardCache, recalculé toutes les heures,
     // supprimé par chaque mutation d'argent) : le calcul relisait toutes les
     // publications et toutes les assignations du projet à chaque appel, et se
     // relançait à chaque écriture de l'une d'elles tant que l'écran Paiements

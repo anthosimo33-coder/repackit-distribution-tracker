@@ -75,7 +75,7 @@ export const decisionDashboard = permissionQuery("content.analytics")({
 
 /** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `dashboard`. */
 export async function decisionDashboardCore(ctx: ProjectQueryCtx): Promise<DecisionDashboard> {
-    // LU DANS LE CACHE (convex/dashboardCache.ts, recalculé toutes les 30 min).
+    // LU DANS LE CACHE (convex/dashboardCache.ts, recalculé toutes les heures).
     // Cette query est montée sur l'ACCUEIL admin : elle relit tout le projet
     // (~2,4 MB) et se relançait à chaque écriture de la journée — 689 MB le
     // 2026-09-19. Sans row en cache (projet neuf), calcul en direct.
@@ -84,7 +84,7 @@ export async function decisionDashboardCore(ctx: ProjectQueryCtx): Promise<Decis
       const parsed = JSON.parse(cached) as Omit<DecisionDashboard, "recruits"> &
         Partial<Pick<DecisionDashboard, "recruits">>;
       // Une row écrite AVANT l'ajout des recrues n'a pas le champ jusqu'au
-      // recalcul suivant (≤ 30 min) : sans ce défaut, l'écran lirait
+      // recalcul suivant (≤ 1 h) : sans ce défaut, l'écran lirait
       // `undefined.length` et l'accueil entier tomberait.
       if (parsed.recruits === undefined) parsed.recruits = [];
       return parsed as DecisionDashboard;

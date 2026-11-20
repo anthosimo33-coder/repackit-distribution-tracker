@@ -219,7 +219,10 @@ crons.hourly(
 );
 
 // ACCUEIL ADMIN PRÉ-CALCULÉ (décisions + total dû), CLASSEMENT DU PORTAIL et
-// CARTE RENTABILITÉ de l'écran Paiements — toutes les 30 minutes. Ces vues
+// ÉCRAN PAIEMENTS (lignes + carte Rentabilité) — toutes les HEURES (30 min
+// jusqu'au 2026-11-20 : le fondateur a choisi l'heure pour la facture, ~0,6 Go
+// de lectures en moins par jour ; une mutation d'argent, elle, fait recalculer
+// la paie dans les 20 s, cf `invalidatePayCaches`). Ces vues
 // relisaient tout le projet à chaque affichage et à chaque écriture de la
 // journée. Le total dû et le classement sortent d'UN passage de paie (ils
 // avaient chacun leur cron jusqu'au 2026-11-20). Intervalle, pas heure fixe :
@@ -228,7 +231,7 @@ crons.hourly(
 // n'a pas changé. Cf convex/dashboardCache.ts, convex/leaderboardCache.ts.
 crons.interval(
   "admin-dashboard-cache-refresh",
-  { minutes: 30 },
+  { minutes: 60 },
   internal.dashboardCache.refreshAll,
   {},
 );

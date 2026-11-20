@@ -19,7 +19,7 @@ import { internal } from "./_generated/api";
  * résultat calculé d'avance.
  *
  * MÊME RECETTE que le classement du portail (convex/leaderboardCache.ts) :
- *   - recalcul PÉRIODIQUE (cron, 30 min) plutôt qu'un déclencheur par table —
+ *   - recalcul PÉRIODIQUE (cron, toutes les heures) plutôt qu'un déclencheur par table —
  *     ça couvre sans les énumérer le relevé du soir, une publication confirmée,
  *     un barème modifié, un compte archivé ;
  *   - écriture SEULEMENT si le résultat a changé, sinon on relancerait chez
@@ -28,10 +28,12 @@ import { internal } from "./_generated/api";
  *     une mutation qui relit toutes les publications entre en conflit (OCC)
  *     avec chaque commit du relevé du soir.
  *
- * FRAÎCHEUR. Jusqu'à 30 min de retard sur l'accueil admin. Les deux vues
- * portent sur des données de la veille (vues relevées à 23h30) ou sur de
- * l'argent qui ne bouge qu'au fil des validations ; l'écran de paie, lui,
- * reste calculé en direct.
+ * FRAÎCHEUR. Jusqu'à une heure de retard (30 min jusqu'au 2026-11-20, l'heure
+ * choisie par le fondateur pour la facture). Les vues portent sur des données
+ * de la veille (vues relevées à 23h30) ou sur de l'argent qui ne bouge qu'au
+ * fil des validations. Une mutation d'argent invalide la paie et la fait
+ * recalculer dans les 20 s (`invalidatePayCaches`) ; « Marquer payé » refuse
+ * un montant qui n'est plus celui affiché (convex/payments `markCyclePaid`).
  *
  * PAYLOAD EN JSON. Les deux valeurs sont des agrégats d'affichage, pas des
  * entités : les stocker en JSON évite de dupliquer dans le schéma une forme
@@ -122,7 +124,7 @@ export async function writeDashboardCacheIfChanged(
  * train d'écrire, et recalculer ici lui ferait relire tout le projet dans SA
  * transaction (conflit OCC avec le relevé du soir, cf en-tête). La lecture
  * suivante retombe sur le calcul direct — quelques MB, une fois — et le cron
- * réécrit la row dans la demi-heure.
+ * réécrit la row dans l'heure.
  *
  * C'est ce qui garde l'accueil JUSTE tout de suite après une action faite
  * DEPUIS l'accueil : un acompte saisi, un hook désactivé, un cycle payé.

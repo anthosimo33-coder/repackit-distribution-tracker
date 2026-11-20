@@ -15,19 +15,20 @@ import { computeProjectLeaderboard } from "./payments";
  * passante base facturée le 2026-09-15.
  *
  * QUI LE CALCULE (2026-11-20). Le cron de l'accueil admin
- * (convex/dashboardCache `refreshAll`, toutes les 30 minutes) : le classement
+ * (convex/dashboardCache `refreshAll`, toutes les heures) : le classement
  * sort du MÊME passage de paie que le total dû (`payments.computePayrollCaches`),
  * au lieu d'un cron à lui qui relisait tout le projet une seconde fois.
  *
- * FRAÎCHEUR. Recalcul toutes les 30 minutes (10 au départ). C'est ce qui
+ * FRAÎCHEUR. Recalcul toutes les heures (10 min au départ, 30 min jusqu'au
+ * 2026-11-20). C'est ce qui
  * couvre TOUT ce qui fait bouger un montant sans avoir à l'énumérer : le relevé
  * de vues du soir, une publication confirmée, un barème modifié, un cycle qui
- * bascule avec l'heure. Le portail a donc jusqu'à 30 minutes de retard ; les
+ * bascule avec l'heure. Le portail a donc jusqu'à une heure de retard ; les
  * vues, elles, n'arrivent qu'une fois par nuit. Le classement ADMIN
  * (`payments.leaderboard`) reste calculé en direct — c'est lui que les écrans
  * de paie et les specs e2e comparent au centime.
  *
- * COÛT. Un calcul toutes les 30 minutes (~48/jour) au lieu d'un par
+ * COÛT. Un calcul par heure (~24/jour) au lieu d'un par
  * affichage, et AUCUNE écriture quand rien n'a changé : réécrire la row à
  * l'identique relancerait chez toutes les créatrices la query qu'on cherche à
  * ne plus relancer.

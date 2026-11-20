@@ -1137,7 +1137,7 @@ async function projectPaymentPass(
 
 /**
  * L'écran Paiements. LU DANS LE CACHE (convex/dashboardCache, rangé par le
- * passage de paie toutes les 30 min, supprimé par chaque mutation d'argent qui
+ * passage de paie toutes les heures, supprimé par chaque mutation d'argent qui
  * planifie aussitôt un recalcul) : la query déroulait tous les cycles de toutes
  * les créatrices — 5,6 Mo sur Snytch le 2026-11-20 — à chaque écriture d'une
  * publication ou d'une assignation tant que l'écran était ouvert. Décision du
@@ -1244,7 +1244,7 @@ function dueTotalOfRows(
 }
 
 /**
- * LU DANS LE CACHE (convex/dashboardCache.ts, recalculé toutes les 30 min) :
+ * LU DANS LE CACHE (convex/dashboardCache.ts, recalculé toutes les heures) :
  * cette query est montée sur l'ACCUEIL admin, elle déroule tous les cycles de
  * toutes les créatrices (~2 MB) et se relançait à chaque écriture de la
  * journée — 504 MB le 2026-09-19. L'écran de paie, lui, reste en direct.
@@ -1633,7 +1633,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     cycleIndex: v.number(),
     /**
      * Le montant que l'écran a MONTRÉ pour ce cycle (`totalDue`). L'écran lit un
-     * pré-calcul qui peut avoir jusqu'à 30 min de retard : si le montant à geler
+     * pré-calcul qui peut avoir jusqu'à une heure de retard : si le montant à geler
      * n'est plus celui-là, rien n'est payé et la mutation renvoie les deux
      * montants — on ne gèle jamais un chiffre que personne n'a vu. Absent =
      * comportement d'avant (appelant qui ne montre pas de montant).
