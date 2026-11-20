@@ -58,90 +58,10 @@ crons.cron(
   {},
 );
 
-// RADAR (veille TikTok, module séparé) — sync des comptes favoris 2×/SEMAINE
-// (lundi + jeudi) et NON quotidien : on reste dans le quota Apify gratuit du
-// COMPTE RADAR distinct. 09:00 UTC (après les relevés créateurs 07/08h) pour
-// étaler la charge. Aucun arg → tous les comptes Radar, tous projets confondus.
-// Distinct des crons créateurs ci-dessus (ne pas les fusionner).
-crons.weekly(
-  "radar-sync-monday",
-  { dayOfWeek: "monday", hourUTC: 9, minuteUTC: 0 },
-  internal.radar.runRadarSync,
-  {},
-);
-crons.weekly(
-  "radar-sync-thursday",
-  { dayOfWeek: "thursday", hourUTC: 9, minuteUTC: 0 },
-  internal.radar.runRadarSync,
-  {},
-);
-
-// NOUVEAU RADAR (signaux, ScrapeCreators) — découverte 4 fois par jour, courbe
-// H+6/H+24/H+48 toutes les heures, chacune dans la limite du budget du mois
-// (convex/radarSignalsMath). Sans SCRAPECREATORS_API_KEY, les deux ne font rien.
-crons.interval("radar-signals-discovery", { hours: 6 }, internal.radarSignals.runDiscovery, {});
-crons.hourly("radar-signals-curve", { minuteUTC: 40 }, internal.radarSignals.runCurve, {});
-crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radarSignals.purgeOldSignals, {});
-// Réseaux d'apps (convex/radarNetworks) : recherche du réseau des apps dues chaque heure
-// (la première recherche d'une app est complète, les suivantes courtes, chaque semaine), relevé
-// des comptes suivis toutes les 10 minutes (chacun à son rythme : actif chaque jour, calme tous les 3 jours) : ce que
-// la voie gratuite n'a pas eu le temps de prendre attend le passage suivant au lieu d'être payé (radarFreeMath).
-crons.interval("radar-networks-search", { hours: 1 }, internal.radarNetworks.runNetworkSearch, {});
-crons.interval("radar-networks-accounts", { minutes: 10 }, internal.radarNetworks.runAccountReads, {});
-// La mesure du premier relevé gratuit (convex/radarFirstReadTrial) : 0 crédit, ~100 comptes par jour au plus, 400 en tout.
-crons.interval("radar-first-read-trials", { minutes: 15 }, internal.radarFirstReadTrial.runFirstReadTrials, {});
-// Le résumé du réseau de chaque app (ce que montre l'onglet Comptes suivis), refait chaque heure après les relevés.
-crons.hourly("radar-networks-summary", { minuteUTC: 35 }, internal.radarNetworks.refreshAppNets, {});
-crons.daily("radar-networks-purge", { hourUTC: 3, minuteUTC: 55 }, internal.radarNetworks.purgeNetworks, {});
-// Pubs des apps suivies (TikTok + Meta), Reels Instagram des comptes suivis, transcriptions.
-crons.interval("radar-ads", { hours: 6 }, internal.radarSources.runAdsSearch, {});
-crons.hourly("radar-instagram", { minuteUTC: 40 }, internal.radarSources.runInstaReads, {});
-crons.interval("radar-transcripts", { hours: 2 }, internal.radarSources.runTranscripts, {});
-crons.daily("radar-ads-purge", { hourUTC: 4, minuteUTC: 5 }, internal.radarSources.purgeAds, {});
-// Ce qui sort du lot chez les concurrents de chaque projet (Concurrents › Vue d'ensemble).
-crons.interval("radar-insights", { hours: 6 }, internal.radarInsights.refreshInsights, {});
-// Comptes en pause « hors sujet » rejugés sur leurs vidéos déjà lues (aucun crédit) :
-// celui qui cite une app devenue suivie change de réseau et reprend.
-crons.interval("radar-rejudge-paused", { hours: 6 }, internal.radarNetworks.rejudgePaused, {});
-// Familles de hooks d'une langue à l'autre (Claude Haiku, poste « Analyse IA » du budget ; rien sans ANTHROPIC_API_KEY).
-crons.interval("radar-families", { hours: 6 }, internal.radarFamilies.runFamilies, {});
-// Vidéos devenues invisibles (convex/radarAvailability) : 40 pages publiques toutes les 2 heures, aucun crédit.
-crons.interval("radar-visibility", { hours: 2 }, internal.radarAvailability.runChecks, {});
-// Apps des classements App Store (convex/radarStore) : 30 listes par heure (six pays), puis le contrôle de leurs
-// hashtags sur les pages publiques de TikTok (150 pages toutes les 5 minutes, aucun crédit).
-crons.interval("radar-store-charts", { hours: 1 }, internal.radarStore.runStoreCharts, {});
-crons.interval("radar-store-checks", { minutes: 5 }, internal.radarStore.runStoreChecks, {});
-// Les apps sœurs (convex/radarStore) : les autres apps de l'éditeur de chaque app suivie entrent dans la même file.
-crons.interval("radar-store-siblings", { hours: 1 }, internal.radarStore.runStoreSiblings, {});
-// Apps et logiciels qui paient des créateurs (convex/radarMarket) : les campagnes d'une place de marché publique —
-// la liste toutes les 6 heures, 40 pages de campagne toutes les 30 minutes (aucun crédit), puis Claude Haiku dit
-// chaque heure quel produit chaque campagne promeut (poste « Analyse IA »).
-// Suivi d'office (convex/radarAuto) : les apps trouvées par les classements et la place de marché deviennent des
-// apps suivies quand leur preuve suffit ; les autres restent proposées à l'écran.
-crons.interval("radar-auto-follow", { minutes: 10 }, internal.radarAuto.runAutoFollow, {});
-// Les apps suivies à l'essai (15/11/2026) : gardées à 3 comptes actifs une fois leur recherche faite, en pause sinon.
-crons.interval("radar-trial-settle", { hours: 1 }, internal.radarAuto.settleTrials, {});
-// Les mentions et sites cités par deux comptes ou plus : l'IA dit ce que c'est (15/11/2026) ; le suivi d'office prend les apps.
-crons.interval("radar-candidate-triage", { minutes: 30 }, internal.radarAuto.runCandidateTriage, {});
-// Petits réseaux (convex/radarNaming) : les tournures qui nomment un produit (« le site c'est… »), cherchées deux
-// fois par jour dans tout TikTok, les plus récentes d'abord, sans seuil de vues (16 crédits par passage).
-crons.interval("radar-naming", { hours: 12 }, internal.radarNaming.runNaming, {});
-crons.interval("radar-market-list", { hours: 6 }, internal.radarMarket.runMarketList, {});
-crons.interval("radar-market-reads", { minutes: 30 }, internal.radarMarket.runMarketReads, {});
-crons.interval("radar-market-judge", { hours: 1 }, internal.radarMarket.runMarketJudge, {});
-// La fiche de chaque app suivie : sa fiche App Store ou sa campagne recopiée de l'app repérée, sa niche et ce
-// qu'elle fait en une phrase dits par l'IA (convex/radarFiche).
-crons.interval("radar-fiches", { minutes: 30 }, internal.radarFiche.runFiches, {});
-// Le jugement sémantique (convex/radarJudge) : l'IA dit ce qu'est chaque app et si chaque compte à preuve faible
-// pousse bien son produit. Poste « Analyse IA ».
-crons.interval("radar-judge-apps", { minutes: 30 }, internal.radarJudge.runAppNatures, {});
-crons.interval("radar-judge-accounts", { minutes: 30 }, internal.radarJudge.runAccountJudgments, {});
-// Phase B : les jugements agissent (définitions du fondateur du 14/11/2026) — apps hors périmètre en pause, comptes
-// sans rapport en pause, déplacés vers l'app qu'ils poussent, ou marqués « placement payé ».
-crons.interval("radar-judge-apply", { minutes: 30 }, internal.radarJudge.applyJudgmentsNow, {});
-// Le filtre d'entrée : un compte trouvé par une recherche est vérifié sur sa page publique (gratuit) avant d'être
-// relevé et montré (convex/radarVet).
-crons.interval("radar-vetting", { minutes: 5 }, internal.radarVet.runVetting, {});
+// RADAR : ses tâches planifiées sont retirées le 20/11/2026. Le Radar déménage dans Kopycat (convex/radar/ du dépôt
+// swarm-site), qui le fait tourner lui-même ; deux Radars ne doivent jamais relever les mêmes comptes. Son code et
+// l'export /swarm/export restent ici le temps de la bascule (Kopycat lit l'export tant que RADAR_LOCAL n'y est pas posé),
+// puis partent avec le reste du Radar.
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de
