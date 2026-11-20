@@ -34,6 +34,8 @@ import { paidBeforePayWindow } from "./payWindow";
 import {
   invalidatePayCaches,
   readDashboardCache,
+  readPayEpoch,
+  readPaymentRows,
   writeDashboardCacheIfChanged,
 } from "./dashboardCache";
 import { resolveCreatorKind } from "./roles";
@@ -1133,10 +1135,55 @@ async function projectPaymentPass(
   return { rows, creators, project };
 }
 
+/**
+ * L'écran Paiements. LU DANS LE CACHE (convex/dashboardCache, rangé par le
+ * passage de paie toutes les 30 min, supprimé par chaque mutation d'argent qui
+ * planifie aussitôt un recalcul) : la query déroulait tous les cycles de toutes
+ * les créatrices — 5,6 Mo sur Snytch le 2026-11-20 — à chaque écriture d'une
+ * publication ou d'une assignation tant que l'écran était ouvert. Décision du
+ * fondateur le 2026-11-20 : cache + garde. La garde est dans `markCyclePaid` :
+ * un montant vu qui n'est plus le montant dû ne se paie pas.
+ * Sans cache (invalidé, projet neuf) : calcul direct, la même fonction.
+ */
 export const listPayments = permissionQuery("payments.manage")({
   args: {},
-  handler: async (ctx) => collectProjectPaymentRows(ctx, ctx.projectId),
+  handler: async (ctx): Promise<PaymentRow[]> => {
+    const cached = await readPaymentRows(ctx, ctx.projectId);
+    if (cached !== null) return cached as PaymentRow[];
+    return collectProjectPaymentRows(ctx, ctx.projectId);
+  },
 });
+
+/** Une ligne de l'écran Paiements. */
+export type PaymentRow = Awaited<ReturnType<typeof collectProjectPaymentRows>>[number];
+
+/** Taille maximale d'une part, en octets UTF-8 — sous le 1 Mo d'un document Convex. */
+const PAYMENT_ROWS_PART_BYTES = 700_000;
+
+/**
+ * Les lignes de l'écran en parts JSON, dans l'ordre : chaque part est un
+ * tableau, leur concaténation redonne la liste triée telle quelle. Une liste
+ * vide fait une part `[]` — « aucun paiement » est aussi un résultat.
+ */
+function paymentRowsParts(rows: readonly PaymentRow[]): string[] {
+  const enc = new TextEncoder();
+  const parts: string[] = [];
+  let courante: string[] = [];
+  let octets = 2;
+  for (const r of rows) {
+    const j = JSON.stringify(r);
+    const n = enc.encode(j).length + 1;
+    if (courante.length > 0 && octets + n > PAYMENT_ROWS_PART_BYTES) {
+      parts.push(`[${courante.join(",")}]`);
+      courante = [];
+      octets = 2;
+    }
+    courante.push(j);
+    octets += n;
+  }
+  parts.push(`[${courante.join(",")}]`);
+  return parts;
+}
 
 /**
  * TOTAL DÛ du projet — la carte 3 du dashboard, et RIEN d'autre.
@@ -1581,8 +1628,19 @@ export const projectLeaderboard = creatorQuery({
  * clé sont recalculées serveur. Idempotent : un cycle déjà payé → no-op.
  */
 export const markCyclePaid = permissionMutation("payments.manage")({
-  args: { creatorId: v.id("creators"), cycleIndex: v.number() },
-  handler: async (ctx, { creatorId, cycleIndex }) => {
+  args: {
+    creatorId: v.id("creators"),
+    cycleIndex: v.number(),
+    /**
+     * Le montant que l'écran a MONTRÉ pour ce cycle (`totalDue`). L'écran lit un
+     * pré-calcul qui peut avoir jusqu'à 30 min de retard : si le montant à geler
+     * n'est plus celui-là, rien n'est payé et la mutation renvoie les deux
+     * montants — on ne gèle jamais un chiffre que personne n'a vu. Absent =
+     * comportement d'avant (appelant qui ne montre pas de montant).
+     */
+    expectedTotalDue: v.optional(v.number()),
+  },
+  handler: async (ctx, { creatorId, cycleIndex, expectedTotalDue }) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
     // l'invalide ici (cf convex/dashboardCache.ts).
     await invalidatePayCaches(ctx, ctx.projectId);
@@ -1646,6 +1704,9 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     // D'OÙ viennent les lignes déplacées : sans ça, l'annulation les rendrait à
     // personne et le total de la row source resterait amputé.
     const movedFrom: { paymentId: Id<"payments">; lineItems: LineItem[] }[] = [];
+    // Le partage est calculé AVANT toute écriture : la garde du montant vu
+    // (plus bas) doit pouvoir refuser sans avoir rien déplacé.
+    const sourcesAllegees: { id: Id<"payments">; keep: LineItem[] }[] = [];
     for (const r of rows) {
       if (r.status === "paid" || r.period === period) continue;
       const keep: LineItem[] = [];
@@ -1664,10 +1725,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
       }
       if (taken.length > 0) {
         movedFrom.push({ paymentId: r._id, lineItems: taken });
-        await ctx.db.patch(r._id, {
-          lineItems: keep,
-          totalDue: recomputeTotal(keep),
-        });
+        sourcesAllegees.push({ id: r._id, keep });
       }
     }
     // Pas de forfait talent ici non plus : son gel passe par
@@ -1678,6 +1736,25 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     ];
     const now = Date.now();
     const target = existingRows[0];
+    // ─── LE MONTANT VU EST LE MONTANT GELÉ, OU RIEN ───────────────────────
+    // Le total que la row portera, quelle que soit la branche plus bas. Si
+    // l'écran en montrait un autre (pré-calcul d'avant un relevé, d'avant un
+    // barème), on ne paie pas : l'invalidation faite en tête de mutation est
+    // gardée, l'écran repasse sur le calcul direct et montre le bon montant.
+    const totalAGeler = recomputeTotal([...(target?.lineItems ?? []), ...frozen]);
+    if (expectedTotalDue !== undefined && round2(expectedTotalDue) !== totalAGeler) {
+      return {
+        ok: false,
+        alreadyPaid: false,
+        amountChanged: { seen: round2(expectedTotalDue), current: totalAGeler },
+      };
+    }
+    for (const src of sourcesAllegees) {
+      await ctx.db.patch(src.id, {
+        lineItems: src.keep,
+        totalDue: recomputeTotal(src.keep),
+      });
+    }
     // ─── UNE DEVISE PAR ROW GELÉE ─────────────────────────────────────────
     // Même règle que l'écran (cycleCurrencyOf). Un cycle qui mélange des
     // devises ne se paie pas : additionner des euros et des dollars dans un
@@ -2282,6 +2359,10 @@ export const computePayrollCaches = internalQuery({
     { projectId },
   ): Promise<{
     dueTotalJson: string;
+    /** Les lignes de l'écran Paiements, en parts JSON (cf `paymentRowsParts`). */
+    rowsParts: string[];
+    /** Compteur d'invalidations lu AVEC le calcul (cf dashboardCache). */
+    epoch: number;
     leaderboard: {
       creatorId: Id<"creators">;
       name: string;
@@ -2294,9 +2375,12 @@ export const computePayrollCaches = internalQuery({
     }[];
   }> => {
     const now = Date.now();
+    const epoch = await readPayEpoch(ctx, projectId);
     const pass = await projectPaymentPass(ctx, projectId, now);
     return {
       dueTotalJson: JSON.stringify(dueTotalOfRows(pass.rows, pass.project)),
+      rowsParts: paymentRowsParts(pass.rows),
+      epoch,
       leaderboard: leaderboardOfPass(pass, now).map(
         ({ creatorId, name, rank, totalDue, currency, rate, cycleStart, cycleEnd }) => ({
           creatorId,

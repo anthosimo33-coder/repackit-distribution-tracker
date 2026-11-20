@@ -5,7 +5,7 @@ import {
 } from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, type QueryCtx } from "./_generated/server";
-import { profitCostsKey, readDashboardCache } from "./dashboardCache";
+import { profitCostsKey, readDashboardCache, readPayEpoch } from "./dashboardCache";
 import {
   computeLivePricingBreakdown,
   loadCreatorPayrollSources,
@@ -579,12 +579,21 @@ async function profitabilityCostsLive(
  */
 export const computeCostsJson = internalQuery({
   args: { projectId: v.id("projects"), lot: v.number(), lots: v.number() },
-  handler: async (ctx, { projectId, lot, lots }): Promise<string | null> => {
+  handler: async (
+    ctx,
+    { projectId, lot, lots },
+  ): Promise<{ json: string; epoch: number } | null> => {
     const project = await ctx.db.get(projectId);
     if (project === null || project.whop === undefined) return null;
-    return JSON.stringify(
-      await profitabilityCostsLive({ ...ctx, projectId }, project, lot, lots),
-    );
+    // Le compteur d'invalidations, lu AVEC le calcul : une mutation d'argent
+    // passée entre les deux empêche de ranger un coût d'avant elle.
+    const epoch = await readPayEpoch(ctx, projectId);
+    return {
+      json: JSON.stringify(
+        await profitabilityCostsLive({ ...ctx, projectId }, project, lot, lots),
+      ),
+      epoch,
+    };
   },
 });
 

@@ -3192,6 +3192,28 @@ export default defineSchema({
     changedAt: v.number(),
   }).index("by_project_key", ["projectId", "key"]),
 
+  // ─── Lignes de l'écran Paiements PRÉ-CALCULÉES (cf convex/dashboardCache) ──
+  // `listPayments` déroulait tous les cycles de toutes les créatrices (5,6 Mo
+  // sur Snytch le 2026-11-20) à chaque écriture d'une publication ou d'une
+  // assignation tant que l'écran était ouvert. Le tableau JSON trié est coupé
+  // en parts (une row ≤ 1 Mo) ; `of` = nombre de parts du même passage, écrites
+  // ensemble par une seule mutation.
+  paymentRowsCache: defineTable({
+    projectId: v.id("projects"),
+    part: v.number(),
+    of: v.number(),
+    json: v.string(),
+    changedAt: v.number(),
+  }).index("by_project_part", ["projectId", "part"]),
+
+  // Compteur d'INVALIDATIONS de la paie d'un projet : chaque mutation d'argent
+  // l'avance. Un recalcul lu AVANT une invalidation ne range rien après elle —
+  // sinon il réécrirait un montant que le paiement vient de rendre faux.
+  payCacheEpochs: defineTable({
+    projectId: v.id("projects"),
+    epoch: v.number(),
+  }).index("by_project", ["projectId"]),
+
   // ─── P8 — Paiements (accrual par période) ─────────────────────────────────
   // 1 row = la rémunération d'UN créateur pour UNE période "YYYY-MM". Alimentée
   // par la validation admin (lineItem "base" figé sur rateSnapshot.basePerPost)

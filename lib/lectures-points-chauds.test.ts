@@ -3,12 +3,14 @@ import type { Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
 import type { ProjectQueryCtx } from "../convex/functions";
 import { getAttributionCore, getReliabilityCore } from "../convex/analyticsHub";
-import { invalidatePayCaches } from "../convex/dashboardCache";
 import { getMarketPnlCore } from "../convex/marketPnl";
+import { invalidatePayCaches, writePaymentRows } from "../convex/dashboardCache";
 import {
   computeDueTotal,
   computePayrollCaches,
   computeProjectLeaderboard,
+  listPayments,
+  markCyclePaid,
 } from "../convex/payments";
 import { computeCostsJson, getProfitabilityCosts } from "../convex/profitability";
 import { memoryDb, type MemoryDoc } from "./convex-memory-db";
@@ -62,6 +64,8 @@ function monde() {
     whopPayments: [],
     whopMemberships: [],
     dashboardCache: [],
+    paymentRowsCache: [],
+    payCacheEpochs: [],
     rushes: [],
     syncMarkers: [],
     marketGroups: [],
@@ -257,6 +261,34 @@ describe("cron de l'accueil : un seul passage de paie pour le total dû et le cl
   });
 });
 
+/** Le contexte d'une mutation : lectures dans la base en mémoire, écritures et planifications notées (jamais relues). */
+function mutationContexte(t: Record<string, MemoryDoc[]>) {
+  const mem = memoryDb(t, { limit: null });
+  const ecritures: { op: string; cible: string; valeur?: Record<string, unknown> }[] = [];
+  const planifies: { args: Record<string, unknown> }[] = [];
+  const db = mem.db as object;
+  const ctx = {
+    db: {
+      ...db,
+      insert: async (table: string, valeur: Record<string, unknown>) => {
+        ecritures.push({ op: "insert", cible: table, valeur });
+        return `${table}_neuf`;
+      },
+      patch: async (id: string, valeur: Record<string, unknown>) => void ecritures.push({ op: "patch", cible: id, valeur }),
+      replace: async (id: string, valeur: Record<string, unknown>) => void ecritures.push({ op: "replace", cible: id, valeur }),
+      delete: async (id: string) => void ecritures.push({ op: "delete", cible: id }),
+    },
+    projectId: P as Id<"projects">,
+    userId: ADMIN as Id<"users">,
+    auth: { getUserIdentity: async () => ({ subject: `${ADMIN}|session`, tokenIdentifier: "t", issuer: "i" }) },
+    scheduler: {
+      runAfter: async (_ms: number, _fn: unknown, args: Record<string, unknown>) => void planifies.push({ args }),
+      runAt: async (_ms: number, _fn: unknown, args: Record<string, unknown>) => void planifies.push({ args }),
+    },
+  };
+  return { mem, ecritures, planifies, ctx };
+}
+
 describe("carte Rentabilité : lue dans le cache que range le cron", () => {
   it("rend le calcul direct à l'identique, sans relire publications ni assignations", async () => {
     const t = monde();
@@ -272,8 +304,9 @@ describe("carte Rentabilité : lue dans le cache que range le cron", () => {
     }
     for (const lot of [0, 1]) {
       const { ctx } = contexte(t);
-      const json = (await handler(computeCostsJson)(ctx, { projectId: P, lot, lots: 2 })) as string;
-      t.dashboardCache.push(doc("dashboardCache", { projectId: P, key: `profitCosts:${lot}/2`, json, changedAt: NOW }));
+      const r = (await handler(computeCostsJson)(ctx, { projectId: P, lot, lots: 2 })) as { json: string; epoch: number };
+      expect(r.epoch).toBe(0);
+      t.dashboardCache.push(doc("dashboardCache", { projectId: P, key: `profitCosts:${lot}/2`, json: r.json, changedAt: NOW }));
     }
     for (const lot of [0, 1]) {
       const { mem, ctx } = contexte(t);
@@ -291,17 +324,116 @@ describe("carte Rentabilité : lue dans le cache que range le cron", () => {
     await handler(getProfitabilityCosts)(ctx, { projectId: P, lot: 0, lots: 2 });
     expect(mem.bytesByTable().publications).toBeGreaterThan(0);
   });
+});
 
-  it("une mutation d'argent supprime le total dû et les deux lots, pas les décisions", async () => {
+describe("écran Paiements : lu dans le cache que range le passage de paie", () => {
+  /** Les parts que range le cron, posées comme le ferait `writePaymentRows`. */
+  async function ranger(t: Record<string, MemoryDoc[]>) {
+    const { ctx } = contexte(t);
+    const paie = (await handler(computePayrollCaches)(ctx, { projectId: P })) as { rowsParts: string[]; epoch: number };
+    for (const [part, json] of paie.rowsParts.entries()) {
+      t.paymentRowsCache.push(doc("paymentRowsCache", { projectId: P, part, of: paie.rowsParts.length, json, changedAt: NOW }));
+    }
+    return paie;
+  }
+
+  it("rend les lignes du calcul direct à l'identique, sans relire publications ni assignations", async () => {
+    const t = monde();
+    const direct = contexte(t);
+    const lignes = (await handler(listPayments)(direct.ctx, { projectId: P })) as { status: string; totalDue: number }[];
+    // Le monde n'est pas vide : des cycles payés et des cycles dus.
+    expect(lignes.some((l) => l.status !== "paid" && l.totalDue > 0)).toBe(true);
+    expect(direct.mem.bytesByTable().publications).toBeGreaterThan(0);
+
+    await ranger(t);
+    const { mem, ctx } = contexte(t);
+    expect(await handler(listPayments)(ctx, { projectId: P })).toEqual(lignes);
+    expect(mem.bytesByTable().publications ?? 0).toBe(0);
+    expect(mem.bytesByTable().assignments ?? 0).toBe(0);
+  });
+
+  it("des parts incomplètes ne se servent pas : calcul direct", async () => {
+    const t = monde();
+    await ranger(t);
+    t.paymentRowsCache[0].of = 2; // la part 1 manque
+    const { mem, ctx } = contexte(t);
+    await handler(listPayments)(ctx, { projectId: P });
+    expect(mem.bytesByTable().publications).toBeGreaterThan(0);
+  });
+
+  it("un passage lu avant une mutation d'argent ne range rien", async () => {
+    const t = monde();
+    const { rowsParts, epoch } = await ranger(t);
+    t.payCacheEpochs.push(doc("payCacheEpochs", { projectId: P, epoch: epoch + 1 }));
+    const perime = mutationContexte(t);
+    expect(await handler(writePaymentRows)(perime.ctx, { projectId: P, parts: ["[]"], epoch })).toEqual({ changed: false, stale: true });
+    expect(perime.ecritures).toEqual([]);
+    // Au bon compteur, une part identique n'est pas réécrite ; une part en trop part.
+    const frais = mutationContexte(t);
+    const r = await handler(writePaymentRows)(frais.ctx, { projectId: P, parts: rowsParts, epoch: epoch + 1 });
+    expect(r).toEqual({ changed: false, stale: false });
+    expect(frais.ecritures).toEqual([]);
+  });
+
+  it("une mutation d'argent supprime total dû, lots de rentabilité et lignes, avance le compteur et planifie un recalcul", async () => {
     const lignes = ["decisions", "dueTotal", "profitCosts:0/2", "profitCosts:1/2"].map((key) =>
       doc("dashboardCache", { projectId: P, key, json: "{}", changedAt: NOW }),
     );
     const autreProjet = doc("dashboardCache", { projectId: "projects_blush", key: "dueTotal", json: "{}", changedAt: NOW });
-    const mem = memoryDb({ dashboardCache: [...lignes, autreProjet] });
-    const supprimes: string[] = [];
-    const ctx = { db: { ...(mem.db as object), delete: async (id: string) => void supprimes.push(id) } };
+    const parts = [0, 1].map((part) => doc("paymentRowsCache", { projectId: P, part, of: 2, json: "[]", changedAt: NOW }));
+    const compteur = doc("payCacheEpochs", { projectId: P, epoch: 4 });
+    const { ecritures, planifies, ctx } = mutationContexte({
+      dashboardCache: [...lignes, autreProjet],
+      paymentRowsCache: parts,
+      payCacheEpochs: [compteur],
+    });
     await invalidatePayCaches(ctx as unknown as MutationCtx, P as Id<"projects">);
-    expect(supprimes.sort()).toEqual([lignes[1]._id, lignes[2]._id, lignes[3]._id].sort());
+    expect(ecritures.filter((e) => e.op === "delete").map((e) => e.cible).sort()).toEqual(
+      [lignes[1]._id, lignes[2]._id, lignes[3]._id, parts[0]._id, parts[1]._id].sort(),
+    );
+    expect(ecritures).toContainEqual({ op: "patch", cible: compteur._id, valeur: { epoch: 5 } });
+    expect(planifies).toEqual([{ args: { projectId: P, epoch: 5 } }]);
+  });
+});
+
+describe("Marquer payé : le montant vu est le montant gelé, ou rien", () => {
+  async function aPayer(t: Record<string, MemoryDoc[]>) {
+    const { ctx } = contexte(t);
+    const lignes = (await handler(listPayments)(ctx, { projectId: P })) as {
+      status: string; totalDue: number; creatorId: string; cycleIndex: number;
+    }[];
+    const cible = lignes.find((l) => l.status !== "paid" && l.totalDue > 0);
+    if (!cible) throw new Error("aucun cycle dû dans le monde de test");
+    return cible;
+  }
+
+  it("gèle le montant montré", async () => {
+    const t = monde();
+    const cible = await aPayer(t);
+    const { ecritures, ctx } = mutationContexte(t);
+    const r = await handler(markCyclePaid)(ctx, {
+      projectId: P, creatorId: cible.creatorId, cycleIndex: cible.cycleIndex, expectedTotalDue: cible.totalDue,
+    });
+    expect(r).toEqual({ ok: true, alreadyPaid: false });
+    const gele = ecritures.find((e) => e.op === "insert" && e.cible === "payments");
+    expect(gele?.valeur).toMatchObject({ status: "paid", totalDue: cible.totalDue });
+  });
+
+  it("refuse un montant qui n'est plus le dû : rien n'est gelé, l'écran est invalidé", async () => {
+    const t = monde();
+    const cible = await aPayer(t);
+    const { ecritures, planifies, ctx } = mutationContexte(t);
+    const r = await handler(markCyclePaid)(ctx, {
+      projectId: P, creatorId: cible.creatorId, cycleIndex: cible.cycleIndex, expectedTotalDue: cible.totalDue - 0.01,
+    });
+    expect(r).toEqual({
+      ok: false,
+      alreadyPaid: false,
+      amountChanged: { seen: Math.round((cible.totalDue - 0.01) * 100) / 100, current: cible.totalDue },
+    });
+    expect(ecritures.filter((e) => e.cible === "payments" || e.cible.startsWith("payments_"))).toEqual([]);
+    expect(ecritures).toContainEqual({ op: "insert", cible: "payCacheEpochs", valeur: { projectId: P, epoch: 1 } });
+    expect(planifies).toHaveLength(1);
   });
 });
 
@@ -325,28 +457,61 @@ describe("hub analytics : chaque table du projet lue une seule fois par appel", 
   }
 });
 
+/** Un contexte d'action : chaque query et mutation est reconnue à ses arguments. */
+function actionContexte(opts: { epochActuel?: number; decisionsEchouent?: boolean } = {}) {
+  const ecrits: string[] = [];
+  const ctx = {
+    runQuery: async (_fn: unknown, args: { projectId?: string; lot?: number }) => {
+      if (args.projectId === undefined) return [P];
+      if (args.lot !== undefined) return { json: `{"lot":${args.lot}}`, epoch: 3 };
+      // Ordre : compteur (recalcul planifié seulement), décisions (cron seulement), passage de paie.
+      if (opts.epochActuel !== undefined && !ecrits.includes("compteur lu")) {
+        ecrits.push("compteur lu");
+        return opts.epochActuel;
+      }
+      if (opts.decisionsEchouent && !ecrits.includes("décisions tentées")) {
+        ecrits.push("décisions tentées");
+        throw new Error("Too many documents read");
+      }
+      return { dueTotalJson: '{"dueTotal":1}', leaderboard: [], rowsParts: ["[]"], epoch: 3 };
+    },
+    runMutation: async (_fn: unknown, args: { key?: string; rows?: unknown[]; parts?: string[]; epoch?: number }) => {
+      ecrits.push(args.key ? `${args.key}${args.epoch !== undefined ? `@${args.epoch}` : ""}` : args.parts ? `lignes@${args.epoch}` : "classement");
+      return { changed: true };
+    },
+  };
+  return { ecrits, ctx };
+}
+
 describe("cron de l'accueil : une étape qui échoue ne prive pas les autres", () => {
   it("range la paie et la rentabilité même quand les décisions échouent, puis signale l'échec", async () => {
     const { refreshAll } = await import("../convex/dashboardCache");
-    const ecrits: string[] = [];
-    const ctx = {
-      runQuery: async (_fn: unknown, args: { projectId?: string; lot?: number }) => {
-        if (args.projectId === undefined) return [P];
-        if (args.lot !== undefined) return `{"lot":${args.lot}}`;
-        // L'ordre des étapes : décisions (échoue), puis le passage de paie.
-        if (!ecrits.includes("décisions tentées")) {
-          ecrits.push("décisions tentées");
-          throw new Error("Too many documents read");
-        }
-        return { dueTotalJson: '{"dueTotal":1}', leaderboard: [] };
-      },
-      runMutation: async (_fn: unknown, args: { key?: string; rows?: unknown[] }) => {
-        ecrits.push(args.key ?? "classement");
-        return { changed: true };
-      },
-    };
+    const { ecrits, ctx } = actionContexte({ decisionsEchouent: true });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     await expect(handler(refreshAll)(ctx, {})).rejects.toThrow("Too many documents read");
-    expect(ecrits).toEqual(["décisions tentées", "dueTotal", "classement", "profitCosts:0/2", "profitCosts:1/2"]);
+    expect(ecrits).toEqual([
+      "décisions tentées",
+      "dueTotal@3",
+      "classement",
+      "lignes@3",
+      "profitCosts:0/2@3",
+      "profitCosts:1/2@3",
+    ]);
+  });
+});
+
+describe("recalcul planifié après une mutation d'argent", () => {
+  it("range les vues de la paie avec le compteur lu par le calcul", async () => {
+    const { refreshPay } = await import("../convex/dashboardCache");
+    const { ecrits, ctx } = actionContexte({ epochActuel: 3 });
+    expect(await handler(refreshPay)(ctx, { projectId: P, epoch: 3 })).toEqual({ skipped: false });
+    expect(ecrits).toEqual(["compteur lu", "dueTotal@3", "classement", "lignes@3", "profitCosts:0/2@3", "profitCosts:1/2@3"]);
+  });
+
+  it("ne fait rien quand une invalidation plus récente en a planifié un autre", async () => {
+    const { refreshPay } = await import("../convex/dashboardCache");
+    const { ecrits, ctx } = actionContexte({ epochActuel: 4 });
+    expect(await handler(refreshPay)(ctx, { projectId: P, epoch: 3 })).toEqual({ skipped: true });
+    expect(ecrits).toEqual(["compteur lu"]);
   });
 });
