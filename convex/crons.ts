@@ -58,10 +58,8 @@ crons.cron(
   {},
 );
 
-// RADAR : ses tâches planifiées sont retirées le 20/11/2026. Le Radar déménage dans Kopycat (convex/radar/ du dépôt
-// swarm-site), qui le fait tourner lui-même ; deux Radars ne doivent jamais relever les mêmes comptes. Son code et
-// l'export /swarm/export restent ici le temps de la bascule (Kopycat lit l'export tant que RADAR_LOCAL n'y est pas posé),
-// puis partent avec le reste du Radar.
+// RADAR : parti dans Kopycat (convex/radar/ du dépôt swarm-site) le 20/11/2026, avec ses tâches planifiées, son
+// code et l'export /swarm/export. Plus rien ne le relève d'ici.
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

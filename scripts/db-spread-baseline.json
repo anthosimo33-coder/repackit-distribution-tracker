@@ -13,8 +13,6 @@
   "personnes.ts::listPersonnes::...p",
   "pricing.ts::listPricingSnapshotDrift::...g",
   "publications.ts::listPublications::...p",
-  "radar.ts::listRadarVideosCore::...video",
-  "radar.ts::listTrendVideosCore::...video",
   "scriptAnalytics.ts::postsForBrick::...r",
   "scripts.ts::getCampaign::...campaign",
   "trackerData.ts::trackerWarmupHiddenDates::...args",

@@ -1,4 +1,4 @@
-import { computeOutlierRatio } from "./radarParsing";
+import { computeOutlierRatio } from "./outlier";
 
 /**
  * Sous-ensemble structurel des stats d'une inspiration nécessaire au calcul du
@@ -13,14 +13,15 @@ export interface OutlierRatioInput {
 
 /**
  * Ratio outlier À AFFICHER pour une inspiration. Source UNIQUE partagée par la
- * grille ET la liste → rendu identique dans les deux modes, et identique à
- * l'onglet Radar Outliers (même valeur, même format via formatOutlierRatio).
+ * grille ET la liste → rendu identique dans les deux modes (même valeur, même
+ * format via formatOutlierRatio).
  *
  * Priorité :
- *   1. ratio STOCKÉ (`stats.outlierRatio`, provenance Radar Outliers) ;
- *   2. sinon FALLBACK calculé `views / followers` via computeOutlierRatio — la
- *      fonction pure déjà partagée avec Radar (décision fondateur A). On NE
- *      recalcule RIEN à la main : réutilisation stricte du helper existant ;
+ *   1. ratio STOCKÉ (`stats.outlierRatio`, posé par les ajouts depuis l'ancien
+ *      Radar) ;
+ *   2. sinon FALLBACK calculé `views / followers` via computeOutlierRatio
+ *      (lib/outlier, décision fondateur A). On NE recalcule RIEN à la main :
+ *      réutilisation stricte du helper ;
  *   3. `null` pour un compte (le ratio est par vidéo) ou données insuffisantes
  *      (followers absent/≤0 → computeOutlierRatio renvoie déjà null).
  */

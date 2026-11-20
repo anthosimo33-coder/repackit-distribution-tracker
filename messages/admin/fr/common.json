@@ -887,7 +887,7 @@
   "McpAccessDialog": {
     "connecterClaude": "Connecter Claude",
     "titre": "Connecter Claude à l’app",
-    "description": "Claude peut lire les données de l’app pour toi : comptes, créatrices, vues, rentabilité, meilleurs posts, scripts, compta. Lecture seule par défaut, avec tes droits — il ne voit que ce que tu vois ici. Tu peux autoriser une connexion à modifier la Compta, les missions, les scripts, les publications, la veille ou les barèmes : Claude te demandera ton accord avant chaque modification.",
+    "description": "Claude peut lire les données de l’app pour toi : comptes, créatrices, vues, rentabilité, meilleurs posts, scripts, compta. Lecture seule par défaut, avec tes droits — il ne voit que ce que tu vois ici. Tu peux autoriser une connexion à modifier la Compta, les missions, les scripts, les publications, les inspirations ou les barèmes : Claude te demandera ton accord avant chaque modification.",
     "nomDeLaCle": "Nom de la clé",
     "nomPlaceholder": "ex. Claude sur mon Mac",
     "creerUneCle": "Créer une clé",
@@ -923,7 +923,7 @@
     "ecritureOuverte": "{name} peut modifier {domaine}.",
     "ecritureCoupee": "{name} ne peut plus modifier {domaine}.",
     "ecritureImpossible": "Impossible de changer l'autorisation.",
-    "ecritureAide": "Une connexion est en lecture seule tant que tu n’autorises pas un domaine ici. Claude te demandera ton accord avant chaque modification ; assigner ou relancer une mission, valider ou refuser une vidéo envoient l’email habituel à la créatrice, suivre un compte lance un relevé Apify payant, et un message du coach part par email à la créatrice.",
+    "ecritureAide": "Une connexion est en lecture seule tant que tu n’autorises pas un domaine ici. Claude te demandera ton accord avant chaque modification ; assigner ou relancer une mission, valider ou refuser une vidéo envoient l’email habituel à la créatrice, et un message du coach part par email à la créatrice.",
     "journalTitre": "Modifications faites par Claude",
     "journalPeriode": "30 derniers jours",
     "journalVide": "Aucune modification pour l'instant.",
@@ -991,7 +991,6 @@
       "campaign": "Campagne",
       "tracker": "Tracker",
       "validation": "Validation",
-      "radar": "Radar",
       "inspirations": "Inspirations",
       "messages": "Créatrices",
       "conversations": "Conversations (Instagram, chat BLUSH)",
@@ -1022,9 +1021,9 @@
         "aria": "Modifications des publications pour {name}"
       },
       "veille": {
-        "titre": "Veille",
-        "objet": "la veille et la bibliothèque",
-        "aria": "Modifications de la veille pour {name}"
+        "titre": "Inspirations",
+        "objet": "la bibliothèque d’inspirations",
+        "aria": "Modifications des inspirations pour {name}"
       },
       "messages": {
         "titre": "Messages",

@@ -87,11 +87,10 @@ export const PROMPTS: readonly McpPrompt[] = [
   {
     name: "labo_hooks",
     title: "Labo de hooks",
-    description: "Lit le playbook, les verdicts d'une campagne et les tendances, écrit de nouveaux hooks, propose graduations et coupes.",
+    description: "Lit le playbook, les verdicts et les meilleurs posts d'une campagne, écrit de nouveaux hooks, propose graduations et coupes.",
     arguments: [
       ARG_PROJET,
       { name: "campagne", description: "Nom de la campagne.", required: true },
-      { name: "pays", description: "Pays des tendances à lire, code ISO (défaut : FR)." },
       { name: "nombre", description: "Nombre de hooks à écrire (défaut : 10)." },
     ],
   },
@@ -108,11 +107,10 @@ export const PROMPTS: readonly McpPrompt[] = [
   {
     name: "nouvelle_campagne",
     title: "Monter une nouvelle campagne",
-    description: "Des meilleurs posts et de la veille à une campagne complète (hooks, flux, cta), créée désactivée pour relecture.",
+    description: "Des meilleurs posts à une campagne complète (hooks, flux, cta), créée désactivée pour relecture.",
     arguments: [
       ARG_PROJET,
       { name: "sujet", description: "Le thème ou l'angle de la campagne (facultatif)." },
-      { name: "pays", description: "Pays des tendances à lire, code ISO (défaut : FR)." },
       { name: "hooks", description: "Nombre de hooks à écrire (défaut : 8)." },
     ],
   },
@@ -316,16 +314,14 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
     if (name === "labo_hooks") {
       const campagne = args.campagne?.trim();
       if (!campagne) throw new ToolError("« campagne » : le nom de la campagne.");
-      const pays = (args.pays?.trim() || "FR").toUpperCase();
-      if (!/^[A-Z]{2}$/.test(pays)) throw new ToolError("« pays » : un code ISO à 2 lettres (ex. FR, US).");
       const nombre = entier(args.nombre, "nombre", 10, 1, 20);
       return message(p.description, [
         `Labo de hooks pour la campagne « ${campagne} ».`,
         projetDe(args),
         "1. `playbook` : les fiches prouvées et en test, puis celles qui touchent cette campagne (avec « fiche »). Leurs règles (ce qu'on ne touche pas) et leurs contre-preuves s'imposent aux hooks que tu écris.",
         `2. \`scripts\` (campagne: « ${campagne} ») : les hooks à pousser, à couper, en test, et les signaux forts.`,
-        `3. \`meilleurs_posts\` (campagne: « ${campagne} », 30 derniers jours) et \`veille\` (vue: tendances, pays: ${pays}) : ce qui accroche en ce moment.`,
-        `4. Écris ${nombre} nouveaux hooks : une phrase chacun, dite face caméra, dans le ton des meilleurs, sans chiffre ni promesse inventés. Pour chacun, la raison en une ligne : la fiche du playbook, le hook gagnant ou la tendance qu'il décline.`,
+        `3. \`meilleurs_posts\` (campagne: « ${campagne} », 30 derniers jours) : ce qui accroche en ce moment.`,
+        `4. Écris ${nombre} nouveaux hooks : une phrase chacun, dite face caméra, dans le ton des meilleurs, sans chiffre ni promesse inventés. Pour chacun, la raison en une ligne : la fiche du playbook ou le hook gagnant qu'il décline.`,
         "5. Propose aussi : les hooks à couper (verdict « à couper ») et, si cette campagne est un labo, ceux à graduer (« à pousser », jugés sur assez de posts).",
         scripts
           ? "6. Attends mon accord, puis : `ajouter_hooks` (ils sont créés DÉSACTIVÉS — dis-le), `activer_briques` pour couper, `graduer_hook` pour graduer. Rends ce que chaque réponse dit avoir fait."
@@ -365,21 +361,18 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
     }
 
     if (name === "nouvelle_campagne") {
-      const pays = (args.pays?.trim() || "FR").toUpperCase();
-      if (!/^[A-Z]{2}$/.test(pays)) throw new ToolError("« pays » : un code ISO à 2 lettres (ex. FR, US).");
       const hooks = entier(args.hooks, "hooks", 8, 3, 20);
       const sujet = args.sujet?.trim();
       return message(p.description, [
         `Monte une nouvelle campagne de scripts${sujet ? ` sur « ${sujet} »` : ""}.`,
         projetDe(args),
         "1. Ce qui marche chez nous : `meilleurs_posts` (30 derniers jours, limite: 15) et les verdicts `scripts` des campagnes actives — quels hooks, flux et cta portent les vues.",
-        `2. Ce qui marche dehors : \`veille\` (vue: tendances, pays: ${pays}) et (vue: videos) pour les comptes suivis les plus pertinents.`,
-        `3. Écris ${hooks} hooks, 3 flux et 3 cta, dans le ton des meilleurs posts, sans chiffre ni promesse inventés ; pour chacun, une ligne : ce qu'il reprend (post gagnant ou tendance). Propose un nom de campagne qui ne reprend pas celui d'une campagne existante.`,
+        `2. Écris ${hooks} hooks, 3 flux et 3 cta, dans le ton des meilleurs posts, sans chiffre ni promesse inventés ; pour chacun, une ligne : le post gagnant qu'il reprend. Propose un nom de campagne qui ne reprend pas celui d'une campagne existante.`,
         scripts
-          ? "4. Attends mon accord sur les textes et le nom, puis `creer_campagne` : tout y est créé DÉSACTIVÉ — dis-le, et rappelle qu'il faut activer au moins un hook, un flux et un cta (`activer_briques`) pour qu'un script se tire."
-          : "4. Cette connexion ne peut pas créer de campagne : rends le nom et les textes prêts à coller dans l'écran Scripts (ou allume « Scripts » dans Jarvia › Connecter Claude).",
+          ? "3. Attends mon accord sur les textes et le nom, puis `creer_campagne` : tout y est créé DÉSACTIVÉ — dis-le, et rappelle qu'il faut activer au moins un hook, un flux et un cta (`activer_briques`) pour qu'un script se tire."
+          : "3. Cette connexion ne peut pas créer de campagne : rends le nom et les textes prêts à coller dans l'écran Scripts (ou allume « Scripts » dans Jarvia › Connecter Claude).",
         veille &&
-          "5. Propose 2 ou 3 vidéos de la veille à garder comme exemples (`ajouter_inspiration`, après accord) : elles se joindront aux missions comme « vidéos exemples ».",
+          "4. Si je te donne des liens de vidéos qui marchent ailleurs, propose de les garder comme exemples (`ajouter_inspiration`, après accord) : elles se joindront aux missions comme « vidéos exemples ».",
         REGLES,
       ]);
     }

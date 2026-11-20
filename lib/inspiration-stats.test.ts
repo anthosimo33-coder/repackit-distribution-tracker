@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { resolveOutlierRatio } from "./inspiration-stats";
 
 describe("resolveOutlierRatio", () => {
-  it("prend le ratio STOCKÉ en priorité (provenance Radar)", () => {
+  it("prend le ratio STOCKÉ en priorité", () => {
     // Ratio stocké prime même si views/followers permettraient un autre calcul.
     expect(
       resolveOutlierRatio({ outlierRatio: 47, views: 100, followers: 100 }, "video"),

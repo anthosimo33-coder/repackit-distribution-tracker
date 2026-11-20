@@ -131,7 +131,7 @@ export function useProjectMutation<
     fn({ ...args, projectId } as any);
 }
 
-/** Idem useProjectMutation pour les ACTIONS scopées projet (ex. Radar tendances). */
+/** Idem useProjectMutation pour les ACTIONS scopées projet (ex. ventes par jour). */
 export function useProjectAction<Action extends FunctionReference<"action">>(
   action: Action,
 ): (

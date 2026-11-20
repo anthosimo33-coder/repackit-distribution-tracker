@@ -62,9 +62,6 @@ export const TABLES_PURGEES = [
   "publicShares",
   "projectGuide",
   "guideModules",
-  "radarVideos",
-  "radarAccounts",
-  "radarSignalMarks",
   "whopPayments",
   "whopMemberships",
   "whopPlans",
@@ -112,10 +109,4 @@ export const HORS_PURGE: Record<string, string> = {
     "sans index projet ; effacés avec chaque créatrice (by_creator) — les fichiers Drive eux-mêmes restent chez Google",
   challengeParticipants:
     "sans index projet ; effacés avec chaque défi (by_challenge)",
-  radarTrendHashtags:
-    "cache GLOBAL partagé entre projets (projectId vestigial, optionnel)",
-  radarTrendVideos:
-    "cache GLOBAL partagé entre projets (projectId vestigial, optionnel)",
-  radarSearches:
-    "cache GLOBAL partagé entre projets (projectId vestigial, optionnel)",
 };

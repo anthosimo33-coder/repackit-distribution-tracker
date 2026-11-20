@@ -213,7 +213,7 @@ export function parseTikTokViews(
     const comments = toCount((item as { commentCount?: unknown }).commentCount);
     const title = cleanCaption((item as { text?: unknown }).text);
     // `collectCount` était reçu et jeté : la lecture vit maintenant dans le
-    // helper partagé avec RADAR (convex/apifyItem.ts).
+    // helper partagé convex/apifyItem.ts.
     const profil = parseAuthorProfile(item);
     stats[key] = {
       views,
@@ -221,7 +221,7 @@ export function parseTikTokViews(
       comments,
       title,
       // `collectCount` et `authorMeta` étaient reçus et jetés : la lecture vit
-      // maintenant dans le helper partagé avec RADAR (convex/apifyItem.ts).
+      // maintenant dans le helper partagé convex/apifyItem.ts.
       saves: parseSaves(item),
       // Une photo de profil n'est pas un compteur, mais elle vaut à elle
       // seule d'être remontée (cf. la réplique dans convex/apifyApi.ts).

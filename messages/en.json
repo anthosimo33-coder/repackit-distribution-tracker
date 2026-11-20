@@ -10,7 +10,6 @@
       "pilotage": "Operations",
       "createurs": "Creators",
       "contenu": "Content",
-      "veille": "Radar",
       "outils": "Tools",
       "administration": "Administration",
       "production": "Production",
@@ -36,7 +35,6 @@
       "inspirations": "Inspirations",
       "assets": "Assets",
       "guide": "How it works",
-      "radar": "Radar",
       "defis": "Challenges",
       "equipe": "Roles & permissions",
       "maRemuneration": "My earnings",
@@ -1497,9 +1495,6 @@
     "ERR_PUBLISHED_AT_IN_FUTURE": "The publication date can't be in the future.",
     "ERR_PUBLISH_ACCOUNT_REQUIRED": "Pick at least one publishing account.",
     "ERR_PUBLISH_BEFORE_APPROVAL": "You can only publish after your video is approved.",
-    "ERR_RADAR_ACCOUNT_ALREADY_FOLLOWED": "@{handle} is already followed.",
-    "ERR_RADAR_ACCOUNT_NOT_FOUND": "Radar account not found in this project.",
-    "ERR_RADAR_HANDLE_INVALID": "Invalid TikTok handle. Paste an @, a handle, or a profile URL (tiktok.com/@account).",
     "ERR_RATE_INVALID": "The rate has to be a number ≥ 0.",
     "ERR_REF_TAKEN_BY_CREATOR": "The ref “{next}” already belongs to {name}. A ref can belong to only one person.",
     "ERR_REF_TAKEN_BY_INFLUENCER": "The ref “{next}” is declared for influencer {name}. A ref can belong to only one person.",
@@ -1523,7 +1518,6 @@
     "ERR_SCREENREC_TITLE_REQUIRED": "ScreenRecorder: title required (3–200 characters).",
     "ERR_SCRIPT_COMBO_MISSING": "Missing script combo — can't materialize.",
     "ERR_SCRIPT_LOCKED_PUBLISHED": "The script can't be edited any more: the post is already published.",
-    "ERR_SEARCH_KEYWORD_REQUIRED": "Type a keyword to search for.",
     "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campaign not found in the project.",
     "ERR_SHARE_CREATOR_REQUIRED": "Pick the creator who will receive this link.",
     "ERR_SHARE_EXPIRY_INVALID": "Invalid expiry: 1 to 365 days.",
@@ -1655,12 +1649,7 @@
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Image rejected: JPEG, PNG or WebP, 8 MB at most.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Invalid day range: use YYYY-MM-DD days, the first one before the last.",
     "ERR_PRICING_REASSIGN_STALE": "The list changed since the preview: {found} video(s) to move to this pay grid instead of {expected}. Nothing was changed: check the preview again.",
-    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} isn't a partner creator: publishing without review is for them only.",
-    "ERR_RADAR_APP_INVALID": "Give the app a name and at least one pattern of 3 characters.",
-    "ERR_RADAR_APP_ALREADY_FOLLOWED": "The app “{name}” is already tracked.",
-    "ERR_RADAR_APP_PATTERN_TAKEN": "The pattern “{pattern}” is already part of “{name}”, a tracked app: pick a more specific one, or add the account to that app.",
-    "ERR_RADAR_APP_NOT_FOUND": "App not found.",
-    "ERR_RADAR_TRACKED_FULL": "Already {max} tracked accounts: pause some first."
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} isn't a partner creator: publishing without review is for them only."
   },
   "calendar": {
     "weekday": {

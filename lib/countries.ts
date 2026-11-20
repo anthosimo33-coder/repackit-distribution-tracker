@@ -8,15 +8,11 @@
  * changement de nom officiel. Le drapeau, lui, se calcule : deux lettres
  * ↦ deux symboles régionaux.
  *
- * DEUX LISTES, comme côté serveur (cf convex/countries) :
- *   - `COUNTRY_CODES` — le PAYS CIBLÉ d'un compte : les 250 codes ISO 3166-1
- *     alpha-2 assignés ;
- *   - `TREND_COUNTRY_CODES` — le Radar Tendances : les dix que la source de
- *     tendances sait servir. L'élargir ne donnerait pas de données, elle
- *     proposerait des pays qui répondent vide.
+ * `COUNTRY_CODES` — le PAYS CIBLÉ d'un compte : les 250 codes ISO 3166-1
+ * alpha-2 assignés, comme côté serveur (cf convex/countries).
  *
- * A6 : un module convex ne peut pas importer lib/ — les deux listes de codes
- * sont donc DUPLIQUÉES, et `lib/countries.test.ts` les tient en phase.
+ * A6 : un module convex ne peut pas importer lib/ — la liste de codes est donc
+ * DUPLIQUÉE, et `lib/countries.test.ts` tient les deux copies en phase.
  */
 
 import { isoCountryLabel } from "./country-name";
@@ -48,11 +44,6 @@ export const COUNTRY_CODES = [
 
 /** Code pays supporté (union fermée). */
 export type CountryCode = (typeof COUNTRY_CODES)[number];
-
-/** Pays du Radar Tendances. En phase avec convex/countries.TREND_COUNTRIES. */
-export const TREND_COUNTRY_CODES = [
-  "US", "FR", "GB", "DE", "ES", "IT", "CA", "AU", "BR", "AR",
-] as const;
 
 const CODES: ReadonlySet<string> = new Set(COUNTRY_CODES);
 

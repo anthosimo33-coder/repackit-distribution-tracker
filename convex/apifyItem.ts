@@ -1,7 +1,7 @@
 /**
  * Lecture des champs d'un item TikTok renvoyé par `clockworks/tiktok-scraper` —
- * SOURCE UNIQUE, partagée par le relevé des créatrices (convex/apifyApi.ts) et
- * par la veille RADAR (convex/radarApi.ts).
+ * SOURCE UNIQUE du relevé des créatrices (convex/apifyApi.ts, et sa réplique
+ * lib/apifyPosts.ts). Le Radar, qui la partageait, a quitté Jarvia le 20/11/2026.
  *
  * Module PUR (aucun import Convex) : importable des deux côtés et testable en
  * vitest via `lib/apify-item.test.ts`. Même arrangement que
@@ -13,12 +13,12 @@
  *   - `collectCount` — les SAVES du post ;
  *   - `authorMeta` — les compteurs du COMPTE (abonnés, abonnements, likes
  *     cumulés), servis gratuitement avec chaque vidéo.
- * RADAR les lisait déjà de son côté. Plutôt que d'en écrire une seconde
- * extraction, la lecture vit ici et les deux appelants s'en servent.
+ * Le Radar les lisait déjà de son côté : plutôt que d'en écrire une seconde
+ * extraction, la lecture a été sortie ici.
  *
  * ⚠️ TOUT est optionnel et rendu `null` si absent. La forme exacte de l'item
- * dépend de l'INPUT de l'acteur (`profiles` pour RADAR, `postURLs` pour le
- * relevé) : `authorMeta` est prouvé présent sur l'input profil, PAS encore sur
+ * dépend de l'INPUT de l'acteur (`profiles`, qu'employait le Radar, ou `postURLs`
+ * pour le relevé) : `authorMeta` est prouvé présent sur l'input profil, PAS encore sur
  * l'input URL. Lire défensivement coûte une ligne et évite de faire dépendre le
  * relevé d'une hypothèse — si le champ manque, on stocke `null` et on le voit.
  */
@@ -94,7 +94,7 @@ export type AuthorProfile = {
 /**
  * Compteurs de compte portés par un item vidéo.
  *
- * `fans` est PROUVÉ présent (fixture RADAR issue d'une sortie réelle) ;
+ * `fans` est PROUVÉ présent (fixture issue d'une sortie réelle de l'acteur) ;
  * `following` et `heart` sont plausibles mais non prouvés — d'où la lecture
  * défensive. Un profil dont tous les champs sont `null` ne vaut pas la peine
  * d'être enregistré : `hasAnyCount` permet à l'appelant de l'écarter.

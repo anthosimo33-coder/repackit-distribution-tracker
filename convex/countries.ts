@@ -1,9 +1,8 @@
-import { v, ConvexError } from "convex/values";
+import { v } from "convex/values";
 
 /**
- * CODES PAYS — deux listes, parce que ce sont deux questions différentes.
+ * CODES PAYS — `SUPPORTED_COUNTRIES` : le PAYS CIBLÉ d'un compte.
  *
- * ─── `SUPPORTED_COUNTRIES` : le PAYS CIBLÉ d'un compte ───────────────────────
  * Un label interne, posé à la main par l'équipe. Il n'ouvre aucune porte et
  * n'appelle aucune API : il n'y a donc aucune raison de le restreindre à dix
  * pays. Elle en portait dix, et le parc réel en déborde depuis longtemps
@@ -26,16 +25,9 @@ import { v, ConvexError } from "convex/values";
  * 250 occasions de fautes, et une liste à re-traduire à chaque changement de
  * nom officiel.
  *
- * ─── `TREND_COUNTRIES` : le Radar Tendances ─────────────────────────────────
- * Celle-ci ne bouge PAS. Elle décrit ce que la source de tendances sait servir,
- * pas ce qu'on aimerait lui demander : l'élargir n'ajouterait pas de données,
- * elle proposerait des pays qui répondent vide. Les deux listes étaient
- * confondues — c'est cette confusion qui empêchait d'élargir l'une sans casser
- * l'autre.
+ * La seconde liste, `TREND_COUNTRIES` (les dix pays du Radar Tendances), est
+ * partie avec le Radar le 20/11/2026.
  */
-export const TREND_COUNTRIES = [
-  "US", "FR", "GB", "DE", "ES", "IT", "CA", "AU", "BR", "AR",
-] as const;
 
 /** Pays proposables comme PAYS CIBLÉ d'un compte (liste fermée, 250 codes). */
 export const SUPPORTED_COUNTRIES = [
@@ -71,17 +63,3 @@ export const countryValidator = v.union(
   ...SUPPORTED_COUNTRIES.map((c) => v.literal(c)),
 );
 
-/**
- * Valide + normalise un code de pays de TENDANCE (trim + MAJUSCULES, rejette
- * hors liste). Le Radar saisit son pays en `v.string()` et valide au handler.
- *
- * ⚠️ Vise `TREND_COUNTRIES`, pas la grande liste : un pays que la source ne
- * couvre pas doit être refusé ici, pas répondre vide trois écrans plus loin.
- */
-export function assertCountry(countryCode: string): string {
-  const cc = countryCode.trim().toUpperCase();
-  if (!(TREND_COUNTRIES as readonly string[]).includes(cc)) {
-    throw new ConvexError(`Pays non supporté : ${countryCode}.`);
-  }
-  return cc;
-}

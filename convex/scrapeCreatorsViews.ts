@@ -20,10 +20,11 @@
  * Facebook et TikTok : par lien, 1 crédit par post (`/v1/facebook/post`,
  * `/v2/tiktok/video`). Formes relevées sur de vrais posts le 09/11/2026.
  *
- * CLÉ : `SCRAPECREATORS_RELEVES_API_KEY` si posée, sinon celle du Radar
- * (`SCRAPECREATORS_API_KEY`). Une clé à part met la paie à l'abri du Radar : le
- * 23/10, le Radar partageait le jeton Apify des relevés et l'a vidé. Elle part
- * en en-tête `x-api-key`, jamais dans une URL, un motif ou un journal.
+ * CLÉ : `SCRAPECREATORS_RELEVES_API_KEY` si posée, sinon `SCRAPECREATORS_API_KEY`
+ * (l'ancienne clé du Radar, parti le 20/11/2026 — gardée en repli tant qu'elle
+ * est la seule posée). Une clé à part a mis la paie à l'abri du Radar : le 23/10,
+ * il partageait le jeton Apify des relevés et l'a vidé. Elle part en en-tête
+ * `x-api-key`, jamais dans une URL, un motif ou un journal.
  *
  * CRÉDIT ÉPUISÉ (HTTP 402) : plus aucun appel dans ce passage — chaque requête
  * suivante échouerait de même — et le motif le dit.
@@ -100,7 +101,7 @@ function idOf(x: unknown): string | null {
 
 /**
  * Légende bornée sans couper un emoji en deux : une moitié seule est refusée
- * par Convex et fait tomber toute l'écriture (vu le 07/11/2026, Radar).
+ * par Convex et fait tomber toute l'écriture (vu le 07/11/2026).
  */
 function caption(x: unknown): string | null {
   const t = str(x);

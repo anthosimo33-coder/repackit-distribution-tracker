@@ -24,8 +24,8 @@ const statsValidator = v.object({
   followers: v.optional(v.number()),
   comments: v.optional(v.number()),
   capturedAt: v.optional(v.number()),
-  // Provenance RADAR Outliers (cf. schema) — ratio de surperformance + handle
-  // du compte source. Optionnels, ne concernent que les ajouts depuis Radar.
+  // Ratio de surperformance + handle du compte source (cf. schema) : posés par
+  // les ajouts depuis l'ancien Radar, parti le 20/11/2026. Optionnels.
   outlierRatio: v.optional(v.number()),
   authorHandle: v.optional(v.string()),
 });

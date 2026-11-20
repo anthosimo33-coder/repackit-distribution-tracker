@@ -28,13 +28,13 @@ const jourParis = (n: number) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date(Date.now() + n * DAY));
 
 /**
- * CAMPAGNES, VEILLE, RELANCE, COMPTE CIBLE — les derniers gestes ouverts à
- * Claude. Une campagne créée par Claude naît DÉSACTIVÉE ; suivre un compte
- * passe par le cœur du bouton (relevé Apify annulé ici : pas de jeton en local) ;
- * chaque geste réversible se défait.
+ * CAMPAGNES, INSPIRATIONS, RELANCE, COMPTE CIBLE — les derniers gestes ouverts
+ * à Claude. Une campagne créée par Claude naît DÉSACTIVÉE ; une inspiration
+ * s'ajoute par son lien ; chaque geste réversible se défait. (Les comptes
+ * suivis du Radar sont partis avec lui le 20/11/2026.)
  */
-test.describe("MCP — campagnes, veille, relance, compte cible", () => {
-  test("créer une campagne désactivée, changer de compte, relancer, suivre, inspirer — et défaire", async ({ page }) => {
+test.describe("MCP — campagnes, inspirations, relance, compte cible", () => {
+  test("créer une campagne désactivée, changer de compte, relancer, inspirer — et défaire", async ({ page }) => {
     test.setTimeout(240_000);
     const ts = Date.now();
     const P = E2E_PROJECT_SLUG;
@@ -55,9 +55,9 @@ test.describe("MCP — campagnes, veille, relance, compte cible", () => {
     const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!.match(/jarvia (\S+\/mcp) /)![1];
     await page.getByRole("button", { name: "J’ai copié la clé" }).click();
     const noms = async () => ((await rpc(url, token, "tools/list")).result?.tools ?? []).map((t) => t.name);
-    expect(await noms()).not.toContain("suivre_compte");
-    for (const [label, outil] of [["la veille", "suivre_compte"], ["scripts", "creer_campagne"], ["missions", "relancer"]] as const) {
-      const interrupteur = page.getByRole("switch", { name: `Modifications ${label === "la veille" ? "de la veille" : `des ${label}`} pour ${nomCle}` });
+    expect(await noms()).not.toContain("ajouter_inspiration");
+    for (const [label, outil] of [["inspirations", "ajouter_inspiration"], ["scripts", "creer_campagne"], ["missions", "relancer"]] as const) {
+      const interrupteur = page.getByRole("switch", { name: `Modifications des ${label} pour ${nomCle}` });
       await interrupteur.click();
       await expect(interrupteur).toBeChecked();
       expect(await noms()).toContain(outil);
@@ -148,22 +148,6 @@ test.describe("MCP — campagnes, veille, relance, compte cible", () => {
     );
     expect(relances).toHaveLength(1);
     expect((await appel("defaire", { rang: relances[0].rang, outil: "relancer" })).texte).toContain("ne se défait pas");
-
-    // ── Veille : suivre, noter, ne plus suivre — chacun défait ────────────────
-    const handle = `e2esuivi${ts}`;
-    const suivis = async () => (await admin.query(api.radar.listRadarAccounts, {})).accounts.filter((a) => a.handle === handle);
-    expect((await appel("suivre_compte", { compte: `https://www.tiktok.com/@${handle}`, note: "Format carton" })).erreur).toBe(false);
-    expect(await suivis()).toHaveLength(1);
-    expect((await appel("noter_compte_suivi", { compte: `@${handle}`, note: "Hooks en question" })).erreur).toBe(false);
-    expect((await suivis())[0].note).toBe("Hooks en question");
-    expect((await defaire("noter_compte_suivi")).erreur).toBe(false);
-    expect((await suivis())[0].note).toBe("Format carton");
-    expect((await appel("ne_plus_suivre", { compte: handle })).erreur).toBe(false);
-    expect(await suivis()).toHaveLength(0);
-    expect((await defaire("ne_plus_suivre")).erreur).toBe(false);
-    expect((await suivis()).map((a) => a.note)).toEqual(["Format carton"]);
-    expect((await defaire("suivre_compte")).erreur).toBe(false);
-    expect(await suivis()).toHaveLength(0);
 
     // ── Inspiration : par son lien, sans doublon, défaite ─────────────────────
     const lien = `https://www.tiktok.com/@inspicartes/video/${(BigInt(Math.floor(Date.now() / 1000)) << BigInt(32)).toString()}`;

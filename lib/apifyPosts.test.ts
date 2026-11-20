@@ -466,7 +466,7 @@ describe("parseTikTokViews — les champs que le relevé jetait", () => {
     // TikTok sert une vidéo par son id et ignore le @ de l'URL : l'auteur est
     // la seule preuve de à qui est le post (cf convex/postOwner.ts). La
     // fixture réelle ci-dessus (input `postURLs`) n'a PAS d'`id` : l'id est
-    // lu quand il est servi (input profil, cf radarParsing), jamais supposé.
+    // lu quand il est servi (input profil), jamais supposé.
     const { stats } = parseTikTokViews(
       [{ ...item, authorMeta: { ...item.authorMeta, id: "7673976005312971798" } }],
       ["7674970651362381088"],

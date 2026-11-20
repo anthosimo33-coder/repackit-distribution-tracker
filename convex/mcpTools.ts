@@ -104,7 +104,6 @@ import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
 import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
-import { appelerReseaux, appelerSignaux, NOMS_RESEAUX, NOMS_SIGNAUX, OUTIL_RESEAUX, OUTIL_SIGNAUX } from "./mcpSignaux";
 import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
 import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERSATIONS_LECTURE } from "./mcpConversations";
 import { appelerScenariosLecture, conversationDeMissionMcp, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
@@ -137,13 +136,6 @@ import {
   listChallengesCore,
   previewChallengeWinnersCore,
 } from "./challenges";
-import {
-  listRadarAccountsCore,
-  listRadarVideosCore,
-  listTrendHashtagsCore,
-  listTrendVideosCore,
-} from "./radar";
-import { TREND_COUNTRIES } from "./countries";
 import {
   firstSearchVerdict,
   frictionStepEmitted,
@@ -673,30 +665,6 @@ export const lireDefi = mcpPermissionQuery("challenges.run")({
   }),
 });
 
-/** Écran Veille : les comptes suivis — même lecture, même bloc. */
-export const lireComptesVeille = mcpPermissionQuery("radar.use")({
-  args: {},
-  handler: async (ctx) => listRadarAccountsCore(ctx),
-});
-
-/** Écran Veille : le mur de vidéos (un compte ou tous). */
-export const lireMurVeille = mcpPermissionQuery("radar.use")({
-  args: { accountId: v.optional(v.id("radarAccounts")) },
-  handler: async (ctx, args) => listRadarVideosCore(ctx, args),
-});
-
-/** Écran Veille : les hashtags tendance d'un pays. */
-export const lireTendances = mcpPermissionQuery("radar.use")({
-  args: { countryCode: v.string() },
-  handler: async (ctx, args) => listTrendHashtagsCore(ctx, args),
-});
-
-/** Écran Veille : les vidéos d'un hashtag tendance. */
-export const lireVideosTendance = mcpPermissionQuery("radar.use")({
-  args: { countryCode: v.string(), hashtag: v.string() },
-  handler: async (ctx, args) => listTrendVideosCore(ctx, args),
-});
-
 /**
  * Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc.
  * Deux lectures : les posts suivis, puis les relevés PAR PAGES ; le calcul se
@@ -1209,24 +1177,6 @@ export const OUTILS: readonly McpTool[] = [
     },
   },
   {
-    name: "veille",
-    title: "Veille TikTok",
-    description:
-      "La veille TikTok du projet, comme l'écran Veille (mêmes lectures, rien n'est relancé). « comptes » (défaut) : les comptes suivis (abonnés, vidéos relevées, dernier relevé). « videos » : le mur — vidéos populaires et récentes d'un compte (« compte ») ou de tous, avec vues, likes, commentaires, partages, engagement, légende, hashtags, lien. « tendances » : les hashtags tendance d'un pays (« pays »), puis les vidéos d'un hashtag (« hashtag »).",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projet: ARG_PROJET,
-        vue: { type: "string", description: "Ce qu'on regarde (défaut : comptes).", enum: ["comptes", "videos", "tendances"] },
-        compte: { type: "string", description: "Vue « videos » : le compte suivi (@handle)." },
-        pays: { type: "string", description: "Vue « tendances » : code pays ISO (ex. FR, US)." },
-        hashtag: { type: "string", description: "Vue « tendances » : un hashtag de la liste, pour ses vidéos." },
-        limite: { type: "integer", description: "Éléments listés au plus par rubrique (défaut 20).", minimum: 1, maximum: 100 },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
     name: "fiabilite",
     title: "Fiabilité des données (Analytics)",
     description:
@@ -1513,7 +1463,7 @@ export function jarviaServer(
     missions: "les missions (assigner, replanifier, changer de compte, relancer, abandonner, lier des dossiers d'Assets — l'assignation et la relance envoient un email à la créatrice)",
     scripts: "les scripts (créer une campagne, ajouter, modifier et activer des briques et des notifs, graduer un hook) les scénarios de conversation WhatsApp (créer, modifier, archiver, supprimer une bible) et le mode tournage BLUSH (préparer les fichiers, coller les liens), le playbook (documenter un format qui sort du lot)",
     publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe, posts publiés rangés sur un autre compte de la créatrice)",
-    veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
+    veille: "la bibliothèque d'inspirations (ajouter une vidéo ou un compte)",
     messages: "les messages aux créatrices (le coach : chaque message part par EMAIL, un tous les 3 jours au plus)",
     conversations: "les conversations Instagram et BLUSH (créer, modifier, supprimer un brouillon de capture ; l'image s'exporte depuis l'écran de l'app)",
     baremes: "les barèmes des vidéos déjà attribuées (passer les vidéos d'une créatrice sur un autre barème à partir d'un jour — c'est sa paie) et les taux de change du projet (jamais la paie : la marge, les coûts, les barèmes dans une autre devise)",
@@ -1828,8 +1778,6 @@ export function jarviaServer(
       // la voie d'une connexion en lecture seule ou d'une routine sans personne.
       ...OUTILS_PROPOSITIONS,
       OUTIL_EXPERIENCES,
-      OUTIL_SIGNAUX,
-      OUTIL_RESEAUX,
       OUTIL_BILAN,
       ...OUTILS_CONVERSATIONS_LECTURE,
       ...OUTILS_SCENARIOS_LECTURE,
@@ -1854,12 +1802,6 @@ export function jarviaServer(
 
       if (NOMS_EXPERIENCES_LECTURE.has(name)) {
         return appelerExperiences(ctx, args, ids, projet.slug, lire);
-      }
-      if (NOMS_SIGNAUX.has(name)) {
-        return appelerSignaux(ctx, args, ids, projet.slug, lire);
-      }
-      if (NOMS_RESEAUX.has(name)) {
-        return appelerReseaux(ctx, args, ids, projet.slug, lire);
       }
       if (NOMS_BILAN.has(name)) {
         return appelerBilan(ctx, args, ids, projet.slug, lire);
@@ -3183,123 +3125,6 @@ export function jarviaServer(
             "Score = vues cumulées des vidéos du défi (mode cumulé) ou vues de la meilleure (mode unique) ; seules les vidéos publiées et non retirées comptent.",
             "« gagneraientMaintenant » = qui décrocherait une place si la victoire était actée maintenant (règle de gagnantes, échéance comprise).",
             "La récompense est PAR gagnante. Le « coutReel » d'une récompense en nature est ce qu'elle coûte au projet, jamais montré aux créatrices.",
-          ],
-        });
-      }
-
-      if (name === "veille") {
-        const vue = (args.vue as string | undefined) ?? "comptes";
-        const limite = typeof args.limite === "number" ? args.limite : 20;
-        const nombre = (n: number | null | undefined) => (typeof n === "number" ? n : null);
-        const pct = (x: number | null | undefined) => (typeof x === "number" ? Math.round(x * 1000) / 10 : null);
-
-        if (vue === "tendances") {
-          const pays = typeof args.pays === "string" ? args.pays.trim().toUpperCase() : "";
-          if (!TREND_COUNTRIES.includes(pays as (typeof TREND_COUNTRIES)[number])) {
-            throw new ToolError(`« pays » est requis pour les tendances : ${TREND_COUNTRIES.join(", ")}.`);
-          }
-          const demande = typeof args.hashtag === "string" ? args.hashtag.trim().replace(/^#/, "") : "";
-          const t = await lire(() => ctx.runQuery(internal.mcpTools.lireTendances, { ...ids, countryCode: pays }));
-          if (demande === "") {
-            return json({
-              projet: projet.slug,
-              pays,
-              releveLe: jour(t.fetchedAt),
-              hashtags: t.hashtags.slice(0, limite).map((h) => ({
-                rang: h.rank,
-                // Tel que stocké (TikTok le renvoie avec son « # »).
-                hashtag: h.hashtag,
-                posts: h.posts,
-                vuesVideos: h.videoViews,
-                tendance: h.trendDirection,
-                createursEnTete: h.topCreators,
-                lien: h.tiktokUrl,
-              })),
-              lecture: ["Hashtags tendance du pays tels que le dernier relevé les a rangés ; appelle avec « hashtag » pour ses vidéos."],
-            });
-          }
-          // La forme STOCKÉE (avec « # ») est la clé des vidéos : on la retrouve dans
-          // la liste du pays, que la demande porte le « # » ou non.
-          const trouve = t.hashtags.find((h) => plier(h.hashtag.replace(/^#/, "")) === plier(demande));
-          if (!trouve) {
-            throw new ToolError(
-              `Hashtag « ${demande} » absent des tendances ${pays}. Hashtags : ${t.hashtags.map((h) => h.hashtag).join(", ") || "aucun"}.`,
-            );
-          }
-          const vids = await lire(() =>
-            ctx.runQuery(internal.mcpTools.lireVideosTendance, { ...ids, countryCode: pays, hashtag: trouve.hashtag }),
-          );
-          return json({
-            projet: projet.slug,
-            pays,
-            hashtag: trouve.hashtag,
-            videos: [...vids]
-              .sort((a, b) => b.views - a.views)
-              .slice(0, limite)
-              .map((v) => ({
-                compte: v.authorHandle ?? null,
-                vues: v.views,
-                likes: v.likes,
-                commentaires: v.comments,
-                partages: v.shares,
-                engagementPct: pct(v.engagement),
-                publieLe: jour(v.publishedAt),
-                legende: v.caption ?? null,
-                lien: v.url,
-              })),
-          });
-        }
-
-        const comptes = await lire(() => ctx.runQuery(internal.mcpTools.lireComptesVeille, ids));
-        if (vue === "comptes") {
-          return json({
-            projet: projet.slug,
-            comptesSuivis: comptes.accounts.length,
-            limite: comptes.limit,
-            comptes: comptes.accounts.map((a) => ({
-              compte: a.handle,
-              note: a.note,
-              abonnes: nombre(a.authorFansSnapshot),
-              videos: a.videoCount,
-              dernierReleve: jour(a.lastSyncAt),
-            })),
-          });
-        }
-
-        // vue === "videos" : le mur, un compte ou tous.
-        const demande = typeof args.compte === "string" ? plier(args.compte.replace(/^@/, "")) : null;
-        const compte =
-          demande === null ? null : comptes.accounts.find((a) => plier(a.handle.replace(/^@/, "")) === demande);
-        if (demande !== null && !compte) {
-          throw new ToolError(
-            `Compte « ${args.compte} » absent de la veille. Comptes suivis : ${comptes.accounts.map((a) => a.handle).join(", ") || "aucun"}.`,
-          );
-        }
-        const mur = await lire(() =>
-          ctx.runQuery(internal.mcpTools.lireMurVeille, { ...ids, ...(compte ? { accountId: compte._id } : {}) }),
-        );
-        const video = (v: (typeof mur)[number]) => ({
-          compte: v.accountHandle,
-          vues: v.views,
-          likes: v.likes,
-          commentaires: v.comments,
-          partages: v.shares,
-          enregistrements: v.saves ?? null,
-          engagementPct: pct(v.engagement),
-          publieLe: jour(v.publishedAt),
-          dureeSec: v.durationSec ?? null,
-          legende: v.caption ?? null,
-          ...(v.hashtags && v.hashtags.length > 0 ? { hashtags: v.hashtags } : {}),
-          lien: v.url,
-        });
-        return json({
-          projet: projet.slug,
-          ...(compte ? { compte: compte.handle } : {}),
-          populaires: mur.filter((v) => v.bucket === "popular").slice(0, limite).map(video),
-          recentes: mur.filter((v) => v.bucket === "recent").slice(0, limite).map(video),
-          lecture: [
-            "Le mur de l'écran Veille : « populaires » = les plus vues au dernier relevé ; « récentes » = les autres, de la plus récente à la plus ancienne (épinglées exclues).",
-            "Engagement = (likes + commentaires + partages) ÷ vues, calculé comme à l'écran.",
           ],
         });
       }

@@ -43,7 +43,7 @@ test.describe("Manager — le parcours complet", () => {
     const password = `journey-${ts}`;
 
     // Un compte réel : le circuit d'invitation crée le mot de passe, puis on
-    // pose le rôle manager avec les 12 blocs COCHÉS PAR DÉFAUT — c'est-à-dire
+    // pose le rôle manager avec les 11 blocs COCHÉS PAR DÉFAUT — c'est-à-dire
     // ce que reçoit un vrai manager le jour où on le crée.
     const { token } = await admin.mutation(api.creators.inviteCreator, {
       name: `[E2E_TEST] Journey ${ts}`,
@@ -55,7 +55,7 @@ test.describe("Manager — le parcours complet", () => {
       params: { email, password, flow: "signUp", inviteToken: token },
     });
     const blocs = defaultManagerPermissions();
-    expect(blocs).toHaveLength(12);
+    expect(blocs).toHaveLength(11);
     await admin.mutation(api.permissionProbe.e2eSetMembershipRole, {
       secret: E2E_SECRET,
       email,
