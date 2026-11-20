@@ -315,6 +315,49 @@ test.describe("Garde-fous vidéo et journal", () => {
     expect(await urls()).toEqual([url(1), url(2), url(4), url(3)]);
   });
 
+  // 20/11/2026 : un calendrier de 20 rejeux pour une créatrice qui reprend, à
+  // poser SANS la noyer sous 20 emails (un par appel, échéance = jour de
+  // publication). Le Pilote savait déjà se taire ; les outils non.
+  test("assigner_scripts avec « prevenir: false » : la mission est créée sans email ; sans l'option, l'email part", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const nom = `Léna Silence ${ts}`;
+    const c = await createCreatorSession(convexUrl, { name: `[E2E_TEST] ${nom}`, email: `e2e-silence-${ts}@repackit.test`, password: "silence-12345" });
+    await availableTarget({ e2eClient: admin, creatorId: c.creatorId, platform: "TikTok", handle: `@lena${ts}` });
+    const campagne = `Silence ${ts}`;
+    const campaignId = (await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] ${campagne}` })) as Id<"scriptCampaigns">;
+    const brique = (kind: "hook" | "flux" | "cta", label: string, content: string) =>
+      admin.mutation(api.scripts.createBrick, { campaignId, kind, label, content });
+    await brique("hook", "Hook 1", `Premier hook ${ts}`);
+    await brique("hook", "Hook 2", `Second hook ${ts}`);
+    await brique("flux", "Flux", "Je montre l'appli.");
+    await brique("cta", "CTA", "Le lien est dans ma bio.");
+    const bareme = `Barème silence ${ts}`;
+    await admin.mutation(api.pricing.createPricing, { name: `[E2E_TEST] ${bareme}`, montantFixe: 50, nbVideosCible: 5, tauxCPM: 1.1 });
+    const { appel } = await cleMissions(page, `E2E silence ${ts}`);
+    const missionDu = async (jour: string) =>
+      (await admin.query(api.assignments.listAssignments, {})).find((a) => a.creatorId === c.creatorId && jourDe(a.postDate) === jour)!;
+    const emails = async (jour: string) =>
+      admin.mutation(api.assignments.e2eCreatedEmailsFor, { secret: E2E_SECRET, ids: [(await missionDu(jour))._id] });
+    const J3 = jourParis(3);
+    const J4 = jourParis(4);
+
+    // Témoin : sans l'option, l'email de la mission est planifié.
+    const prevenue = await appel("assigner_scripts", { campagne, createatrices: [nom], jours: [J3], bareme });
+    expect(prevenue.erreur, prevenue.texte).toBe(false);
+    expect(JSON.parse(prevenue.texte).parCreatrice[0]).toMatchObject({ creees: 1, emailEnvoye: true });
+    expect(await emails(J3)).toEqual([{ assignmentId: (await missionDu(J3))._id, count: 1 }]);
+
+    // « prevenir: false » : la mission existe, aucun email planifié, la réponse le dit.
+    const silence = await appel("assigner_scripts", { campagne, createatrices: [nom], jours: [J4], bareme, prevenir: false });
+    expect(silence.erreur, silence.texte).toBe(false);
+    const resultat = JSON.parse(silence.texte) as { fait: string | string[]; parCreatrice: Record<string, unknown>[] };
+    expect(resultat.parCreatrice[0]).toMatchObject({ creees: 1, emailEnvoye: false });
+    expect(String(resultat.fait)).toContain("sans email");
+    expect(await missionDu(J4)).toBeDefined();
+    expect(await emails(J4)).toEqual([]);
+  });
+
   test("supprimer une mission qui a une vidéo : l'écran prévient, la vidéo reste 30 jours en archive", async ({ page }) => {
     test.setTimeout(120_000);
     const ts = Date.now();

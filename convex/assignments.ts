@@ -4767,6 +4767,23 @@ export const e2eCancelEmailsFor = e2eMutation({
 });
 
 /**
+ * E2E — les emails « nouvelle mission » PLANIFIÉS pour ces missions (l'email
+ * porte la première mission de l'appel). Même preuve que ci-dessus : sans
+ * Resend en local, c'est la planification qui dit que l'envoi a été demandé.
+ */
+export const e2eCreatedEmailsFor = e2eMutation({
+  args: { ids: v.array(v.id("assignments")) },
+  handler: async (ctx, { ids }) => {
+    const recents = await ctx.db.system.query("_scheduled_functions").order("desc").take(2000);
+    const voulues = new Set<string>(ids);
+    return recents
+      .filter((f) => f.name.includes("sendAssignmentCreated"))
+      .map((f) => f.args[0] as { assignmentId: string; count: number })
+      .filter((a) => voulues.has(a.assignmentId));
+  },
+});
+
+/**
  * E2E — injecte directement le UID + l'état Cloudflare Stream sur une soumission,
  * SANS appel réseau réel : c'est ainsi que la CI « mocke » Cloudflare (cf
  * apify-sync). Exerce le VRAI rendu (player si "ready", message si "processing",

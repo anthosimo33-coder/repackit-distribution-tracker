@@ -137,6 +137,10 @@ const ARGS_ASSIGNATION = {
   remuneree: { type: "boolean", description: "Vidéo rémunérée ? Défaut : celui de la campagne." },
   consigne: { type: "string", description: "Consigne de tournage pour la créatrice, posée sur chaque vidéo créée." },
   texte_a_incruster: { type: "string", description: "Texte à incruster en haut de la vidéo (une phrase)." },
+  prevenir: {
+    type: "boolean",
+    description: "false = n'envoie AUCUN email : les missions apparaissent dans son espace sans qu'elle soit prévenue. Défaut : true, l'email « nouvelle mission » part.",
+  },
   simuler: {
     type: "boolean",
     description: "true = n'écrit rien : montre les scripts qui seraient tirés (une seule créatrice), comme l'aperçu de l'écran.",
@@ -170,7 +174,7 @@ const ARGS_VIDEOS_EXEMPLES = {
 } as const;
 
 const EMAIL =
-  "ENVOIE un email « nouvelle mission » à chaque créatrice assignée (sauf comptes gérés par l'équipe), comme le bouton de l'écran : dis-le avant d'appeler.";
+  "ENVOIE un email « nouvelle mission » à chaque créatrice assignée (sauf comptes gérés par l'équipe, ou « prevenir: false »), comme le bouton de l'écran : dis-le avant d'appeler.";
 
 export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
   {
@@ -810,6 +814,8 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
     consigne: v.optional(v.string()),
     texteAIncruster: v.optional(v.string()),
     conversation: v.optional(v.string()),
+    /** false = aucune notification : le cœur ne planifie pas l'email. */
+    prevenir: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     const r = await resoudre(ctx, a);
@@ -839,7 +845,7 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
             ...(a.rejeu?.aLIdentique ? { replayVerbatim: true } : {}),
           }
         : {}),
-    });
+    }, a.prevenir === false ? { email: false } : {});
     if (a.consigne) {
       for (const id of res.assignmentIds) await setAssignmentInstructionsCore(ctx, id, a.consigne);
     }
@@ -851,7 +857,8 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
       ` sur ${r.handles.join(", ")}` +
       (jours.length > 0 ? `, ${jours.map(jourTexte).join(", ")}` : "") +
       (a.plage ? `, ${formatPostWindow(a.plage)}` : "") +
-      (a.conversation && res.created > 0 ? `, conversation WhatsApp « ${a.conversation} »` : "");
+      (a.conversation && res.created > 0 ? `, conversation WhatsApp « ${a.conversation} »` : "") +
+      (a.prevenir === false && res.created > 0 ? ", sans email" : "");
     if (res.created > 0) {
       await journaliser(ctx, {
         tool: a.rejeu ? "rejouer_script" : "assigner_scripts",
@@ -869,7 +876,7 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
       comptes: r.handles,
       sansCompteDisponible: r.manquantes,
       bareme: r.bareme.nom,
-      emailEnvoye: premiere !== null && premiere.managedByAdmin !== true,
+      emailEnvoye: a.prevenir !== false && premiere !== null && premiere.managedByAdmin !== true,
       manque: res.shortages.length > 0 ? `${res.shortages[0].assigned}/${res.shortages[0].requested}` : null,
     };
   },
@@ -1824,6 +1831,7 @@ async function appelerEcritureMissions(
             ...(texteArg(args, "consigne") ? { consigne: texteArg(args, "consigne") } : {}),
             ...(texteArg(args, "texte_a_incruster") ? { texteAIncruster: texteArg(args, "texte_a_incruster") } : {}),
             ...(texteArg(args, "conversation") ? { conversation: texteArg(args, "conversation") } : {}),
+            ...(args.prevenir === false ? { prevenir: false } : {}),
           }),
         );
         if (r.creees > 0) faits.push(r.summary);
