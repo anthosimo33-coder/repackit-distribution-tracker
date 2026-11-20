@@ -346,12 +346,16 @@ test.describe("Garde-fous vidéo et journal", () => {
     const prevenue = await appel("assigner_scripts", { campagne, createatrices: [nom], jours: [J3], bareme });
     expect(prevenue.erreur, prevenue.texte).toBe(false);
     expect(JSON.parse(prevenue.texte).parCreatrice[0]).toMatchObject({ creees: 1, emailEnvoye: true });
+    expect(JSON.parse(prevenue.texte).pourDefaire).toContain("L'email à la créatrice est parti.");
     expect(await emails(J3)).toEqual([{ assignmentId: (await missionDu(J3))._id, count: 1 }]);
 
     // « prevenir: false » : la mission existe, aucun email planifié, la réponse le dit.
     const silence = await appel("assigner_scripts", { campagne, createatrices: [nom], jours: [J4], bareme, prevenir: false });
     expect(silence.erreur, silence.texte).toBe(false);
-    const resultat = JSON.parse(silence.texte) as { fait: string | string[]; parCreatrice: Record<string, unknown>[] };
+    const resultat = JSON.parse(silence.texte) as { fait: string | string[]; pourDefaire: string; parCreatrice: Record<string, unknown>[] };
+    // 20/11 : la réponse disait « L'email à la créatrice est parti » même ici.
+    expect(resultat.pourDefaire).toContain("Aucun email n'est parti.");
+    expect(resultat.pourDefaire).not.toContain("L'email à la créatrice est parti.");
     expect(resultat.parCreatrice[0]).toMatchObject({ creees: 1, emailEnvoye: false });
     expect(String(resultat.fait)).toContain("sans email");
     expect(await missionDu(J4)).toBeDefined();
