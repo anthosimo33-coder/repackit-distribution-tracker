@@ -213,12 +213,12 @@ export const refreshAll = internalAction({
       try {
         await f();
       } catch (e) {
-        console.error(`dashboardCache.refreshAll : ${nom} (${projectId})`, e);
+        console.error("dashboardCache.refreshAll", nom, projectId, e);
         echecs.push(e);
       }
     };
     for (const projectId of projectIds) {
-      await etape("décisions", projectId, async () => {
+      await etape("decisions", projectId, async () => {
         await write(
           projectId,
           "decisions",
@@ -229,7 +229,7 @@ export const refreshAll = internalAction({
       });
       // UN passage de paie pour le total dû ET le classement du portail : ils
       // relisaient chacun tout le projet, dans deux crons (cf payments).
-      await etape("paie", projectId, async () => {
+      await etape("payroll", projectId, async () => {
         const paie = await ctx.runQuery(internal.payments.computePayrollCaches, {
           projectId,
         });
@@ -244,7 +244,7 @@ export const refreshAll = internalAction({
       // d'une seconde de calcul). `null` = projet sans Whop : la carte se
       // masque sans rien lire, il n'y a rien à ranger.
       for (let lot = 0; lot < PROFIT_COSTS_LOTS; lot++) {
-        await etape(`rentabilité ${lot}`, projectId, async () => {
+        await etape(`profitCosts:${lot}`, projectId, async () => {
           const json = await ctx.runQuery(internal.profitability.computeCostsJson, {
             projectId,
             lot,
