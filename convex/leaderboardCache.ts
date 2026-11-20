@@ -1,12 +1,7 @@
 import { v } from "convex/values";
-import {
-  internalAction,
-  internalMutation,
-  internalQuery,
-} from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
 import { e2eMutation } from "./functions";
 import { computeProjectLeaderboard } from "./payments";
 
@@ -19,15 +14,20 @@ import { computeProjectLeaderboard } from "./payments";
  * connectées à la moindre écriture sur une assignation. 45 % de la bande
  * passante base facturée le 2026-09-15.
  *
- * FRAÎCHEUR. Recalcul toutes les 10 minutes (convex/crons.ts). C'est ce qui
+ * QUI LE CALCULE (2026-11-20). Le cron de l'accueil admin
+ * (convex/dashboardCache `refreshAll`, toutes les 30 minutes) : le classement
+ * sort du MÊME passage de paie que le total dû (`payments.computePayrollCaches`),
+ * au lieu d'un cron à lui qui relisait tout le projet une seconde fois.
+ *
+ * FRAÎCHEUR. Recalcul toutes les 30 minutes (10 au départ). C'est ce qui
  * couvre TOUT ce qui fait bouger un montant sans avoir à l'énumérer : le relevé
  * de vues du soir, une publication confirmée, un barème modifié, un cycle qui
- * bascule avec l'heure. Le portail a donc jusqu'à 10 minutes de retard ; les
+ * bascule avec l'heure. Le portail a donc jusqu'à 30 minutes de retard ; les
  * vues, elles, n'arrivent qu'une fois par nuit. Le classement ADMIN
  * (`payments.leaderboard`) reste calculé en direct — c'est lui que les écrans
  * de paie et les specs e2e comparent au centime.
  *
- * COÛT. Un calcul toutes les 10 minutes (~144/jour) au lieu d'un par
+ * COÛT. Un calcul toutes les 30 minutes (~48/jour) au lieu d'un par
  * affichage, et AUCUNE écriture quand rien n'a changé : réécrire la row à
  * l'identique relancerait chez toutes les créatrices la query qu'on cherche à
  * ne plus relancer.
@@ -113,45 +113,10 @@ function toCachedRows(
   }));
 }
 
-export const listProjectIds = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<Id<"projects">[]> =>
-    (await ctx.db.query("projects").collect()).map((p) => p._id),
-});
-
-export const computeRows = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }): Promise<CachedLeaderboardRow[]> =>
-    toCachedRows(await computeProjectLeaderboard(ctx, projectId, Date.now())),
-});
-
 export const writeRows = internalMutation({
   args: { projectId: v.id("projects"), rows: v.array(rowValidator) },
   handler: async (ctx, { projectId, rows }) =>
     writeIfChanged(ctx, projectId, rows),
-});
-
-/** Cron : recalcule le classement de chaque projet. */
-export const refreshAll = internalAction({
-  args: {},
-  handler: async (ctx): Promise<{ projects: number; changed: number }> => {
-    const projectIds = await ctx.runQuery(
-      internal.leaderboardCache.listProjectIds,
-      {},
-    );
-    let changed = 0;
-    for (const projectId of projectIds) {
-      const rows = await ctx.runQuery(internal.leaderboardCache.computeRows, {
-        projectId,
-      });
-      const r = await ctx.runMutation(internal.leaderboardCache.writeRows, {
-        projectId,
-        rows,
-      });
-      if (r.changed) changed += 1;
-    }
-    return { projects: projectIds.length, changed };
-  },
 });
 
 /**

@@ -32,7 +32,7 @@ import {
 } from "./payCycle";
 import { paidBeforePayWindow } from "./payWindow";
 import {
-  invalidateDashboardCache,
+  invalidatePayCaches,
   readDashboardCache,
   writeDashboardCacheIfChanged,
 } from "./dashboardCache";
@@ -800,6 +800,12 @@ export async function cyclePaymentsForCreator(
    * l'écran Paiements a besoin : il les affiche tous).
    */
   onlyCycle?: number,
+  /**
+   * Ses assignations du projet, quand l'appelant a déjà lu celles de tout le
+   * projet (index `by_project`, même ordre de création) — `getReliability` les
+   * lisait deux fois. Absent = lecture par créatrice, comme avant.
+   */
+  knownAssignments?: Doc<"assignments">[],
 ): Promise<CyclePayment[]> {
   const creator = await ctx.db.get(creatorId);
   // Ancre = payStartAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
@@ -824,12 +830,14 @@ export async function cyclePaymentsForCreator(
 
   // lineItems LEGACY (modèle RepackIt, base/bonus) des rows NON payées, re-fenêtrés
   // par le cycle de PUBLI de leur assignment (assignmentPublishedAt → cycle).
-  const assignments = (
-    await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter((a) => a.projectId === projectId);
+  const assignments =
+    knownAssignments ??
+    (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((a) => a.projectId === projectId);
   const cycleOfAssignment = new Map(
     assignments.map((a) => [
       a._id,
@@ -1012,11 +1020,25 @@ export async function collectProjectPaymentRows(
   ctx: QueryCtx,
   projectId: Id<"projects">,
 ) {
+  return (await projectPaymentPass(ctx, projectId, Date.now())).rows;
+}
+
+/**
+ * LE passage de paie d'un projet : les lignes de l'écran Paiements, et ce
+ * qu'il a lu pour les produire (fiches, projet). Le cron de l'accueil en tire
+ * le total dû ET le classement du portail — un seul passage au lieu de deux
+ * qui relisaient chacun toutes les publications et toutes les assignations du
+ * projet (5,6 Mo chacun sur Snytch le 2026-11-20, 48 fois par jour).
+ */
+async function projectPaymentPass(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  now: number,
+) {
   const creators = await ctx.db
     .query("creators")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
-  const now = Date.now();
   const liveIds = new Set(creators.map((c) => c._id));
   const project = await ctx.db.get(projectId);
   const out = [];
@@ -1103,11 +1125,12 @@ export async function collectProjectPaymentRows(
       creatorPaymentDetails: null as string | null,
     });
   }
-  return out.sort(
+  const rows = out.sort(
     (a, b) =>
       b.cycleStart - a.cycleStart ||
       a.creatorName.localeCompare(b.creatorName, "fr"),
   );
+  return { rows, creators, project };
 }
 
 export const listPayments = permissionQuery("payments.manage")({
@@ -1150,6 +1173,14 @@ export async function computeDueTotal(
 ): Promise<{ dueTotal: number; byCurrency: DueByCurrency }> {
   const rows = await collectProjectPaymentRows(ctx, projectId);
   const project = await ctx.db.get(projectId);
+  return dueTotalOfRows(rows, project);
+}
+
+/** Le total dû des lignes de l'écran Paiements — la même addition, dans le même ordre. */
+function dueTotalOfRows(
+  rows: readonly { status: string; currency: string | null; remainingDue: number }[],
+  project: Doc<"projects"> | null,
+): { dueTotal: number; byCurrency: DueByCurrency } {
   const parDevise = new Map<string | null, number>();
   let dueTotal = 0;
   for (const p of rows) {
@@ -1338,14 +1369,7 @@ export async function computeProjectLeaderboard(
   // Publications du projet en UNE lecture, partagées par toutes les créatrices
   // (cf AssignmentViewsCache) : sans ça, chaque vidéo relisait sa publication.
   const viewsCache = newViewsCache(await loadProjectPublications(ctx, projectId));
-  const rows: Array<{
-    creatorId: Id<"creators">;
-    name: string;
-    totalDue: number;
-    currency: string | null;
-    cycleStart: number;
-    cycleEnd: number;
-  }> = [];
+  const rows: LeaderboardLine[] = [];
   for (const c of creators) {
     // CLASSEMENT RÉSERVÉ AUX PARTENAIRES. Un talent en est exclu de fait (il ne
     // publie jamais, donc pas de firstPostAt) mais un CLIPPEUR publie, et il y
@@ -1379,6 +1403,24 @@ export async function computeProjectLeaderboard(
       cycleEnd: current.cycleEnd,
     });
   }
+  return rankLeaderboard(rows, project, meCreatorId);
+}
+
+/** Une ligne du classement avant son rang : le cycle EN COURS d'une partenaire. */
+type LeaderboardLine = {
+  creatorId: Id<"creators">;
+  name: string;
+  totalDue: number;
+  currency: string | null;
+  cycleStart: number;
+  cycleEnd: number;
+};
+
+function rankLeaderboard(
+  rows: LeaderboardLine[],
+  project: Doc<"projects"> | null,
+  meCreatorId?: Id<"creators">,
+) {
   // Le RANG compare des gains dans des devises différentes : il se calcule sur
   // la valeur ramenée dans la devise du projet (taux réglé). Chaque ligne garde
   // son montant dans SA devise — c'est lui qu'on affiche.
@@ -1394,6 +1436,42 @@ export async function computeProjectLeaderboard(
     rate: payCurrencyFactor(r.currency, project) ?? 1,
     isMe: meCreatorId !== undefined && r.creatorId === meCreatorId,
   }));
+}
+
+/**
+ * Le classement tiré d'un passage de paie déjà fait — les MÊMES lignes que
+ * `computeProjectLeaderboard`, sans relire le projet.
+ *
+ * Le passage calcule TOUS les cycles de chaque créatrice et garde toujours le
+ * cycle en cours (cf le filtre de `cyclePaymentsForCreator`) ; le classement
+ * n'en demande qu'un, avec la même ancre (`payAnchorOf` = `firstPostAt`). Même
+ * population (partenaires ayant publié), même ordre de parcours (celui des
+ * fiches), même tri. L'égalité est rejouée sur l'export prod et tenue par
+ * lib/lectures-points-chauds.test.ts.
+ */
+function leaderboardOfPass(
+  pass: Awaited<ReturnType<typeof projectPaymentPass>>,
+  now: number,
+) {
+  const rows: LeaderboardLine[] = [];
+  for (const c of pass.creators) {
+    if (resolveCreatorKind(c.kind) !== "partner") continue;
+    if (c.firstPostAt === undefined) continue;
+    const currentIndex = calcCycle(c.firstPostAt, now).cycleIndex;
+    const current = pass.rows.find(
+      (r) => r.creatorId === c._id && r.cycleIndex === currentIndex,
+    );
+    if (!current) continue;
+    rows.push({
+      creatorId: c._id,
+      name: c.name,
+      totalDue: current.totalDue,
+      currency: current.currency,
+      cycleStart: current.cycleStart,
+      cycleEnd: current.cycleEnd,
+    });
+  }
+  return rankLeaderboard(rows, pass.project);
 }
 
 /**
@@ -1507,7 +1585,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
   handler: async (ctx, { creatorId, cycleIndex }) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
     // l'invalide ici (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+    await invalidatePayCaches(ctx, ctx.projectId);
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
       throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
@@ -1730,7 +1808,7 @@ export const revertCyclePayment = permissionMutation("payments.manage")({
   handler: async (ctx, { id }) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
     // l'invalide ici (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+    await invalidatePayCaches(ctx, ctx.projectId);
     const p = await ctx.db.get(id);
     if (!p || p.projectId !== ctx.projectId) {
       throw err(ERR.PAYMENT_NOT_FOUND, "Paiement introuvable.");
@@ -1850,7 +1928,7 @@ export const recordAdvance = permissionMutation("payments.manage")({
   handler: async (ctx, { creatorId, cycleIndex, amount, note }) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
     // l'invalide ici (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+    await invalidatePayCaches(ctx, ctx.projectId);
     if (!(amount > 0)) {
       throw err(ERR.ADVANCE_INVALID, "Le montant d'un acompte doit être positif.");
     }
@@ -1954,7 +2032,7 @@ export const markPaymentPaid = permissionMutation("payments.manage")({
   handler: async (ctx, { id }) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
     // l'invalide ici (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+    await invalidatePayCaches(ctx, ctx.projectId);
     const p = await ctx.db.get(id);
     if (!p || p.projectId !== ctx.projectId) {
       throw new ConvexError("Paiement introuvable.");
@@ -2007,7 +2085,7 @@ export const markTalentMonthPaid = permissionMutation("payments.manage")({
   handler: async (ctx, { creatorId, period }) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
     // l'invalide ici (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+    await invalidatePayCaches(ctx, ctx.projectId);
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
@@ -2083,7 +2161,7 @@ export const markPeriodPaid = permissionMutation("payments.manage")({
   handler: async (ctx, { period }) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
     // l'invalide ici (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+    await invalidatePayCaches(ctx, ctx.projectId);
     const payments = await ctx.db
       .query("payments")
       .withIndex("by_project_period", (q) =>
@@ -2191,11 +2269,48 @@ export const cleanupTestPayments = e2eMutation({
   },
 });
 
-/** Le JSON rangé par le cron dans `dashboardCache` (cf convex/dashboardCache). */
-export const computeDueTotalJson = internalQuery({
+/**
+ * Ce que le cron de l'accueil range pour la paie (cf convex/dashboardCache) :
+ * le total dû (JSON de `dashboardCache`) et le classement du portail (lignes de
+ * `leaderboardCache`), tirés d'UN passage de paie. Ils étaient calculés par
+ * deux queries qui relisaient chacune tout le projet.
+ */
+export const computePayrollCaches = internalQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }): Promise<string> =>
-    JSON.stringify(await computeDueTotal(ctx, projectId)),
+  handler: async (
+    ctx,
+    { projectId },
+  ): Promise<{
+    dueTotalJson: string;
+    leaderboard: {
+      creatorId: Id<"creators">;
+      name: string;
+      rank: number;
+      totalDue: number;
+      currency: string | null;
+      rate: number;
+      cycleStart: number;
+      cycleEnd: number;
+    }[];
+  }> => {
+    const now = Date.now();
+    const pass = await projectPaymentPass(ctx, projectId, now);
+    return {
+      dueTotalJson: JSON.stringify(dueTotalOfRows(pass.rows, pass.project)),
+      leaderboard: leaderboardOfPass(pass, now).map(
+        ({ creatorId, name, rank, totalDue, currency, rate, cycleStart, cycleEnd }) => ({
+          creatorId,
+          name,
+          rank,
+          totalDue,
+          currency,
+          rate,
+          cycleStart,
+          cycleEnd,
+        }),
+      ),
+    };
+  },
 });
 
 /** E2E — recalcul immédiat du total dû, sans attendre le cron. */

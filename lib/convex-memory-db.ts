@@ -83,6 +83,15 @@ export interface MemoryDb {
    */
   allers(): number;
   resetAllers(): void;
+  /**
+   * Octets lus (taille JSON des documents lus) depuis la création ou le dernier
+   * `resetReads` — l'unité de la FACTURE Convex (bande passante base en
+   * lecture), que le nombre de documents ne dit pas : 300 assignations pèsent
+   * plus que 3 000 relevés.
+   */
+  bytes(): number;
+  /** Les mêmes octets, par table. */
+  bytesByTable(): Record<string, number>;
 }
 
 /**
@@ -95,6 +104,26 @@ export function memoryDb(
 ): MemoryDb {
   const limit = opts.limit === undefined ? CONVEX_READ_LIMIT : opts.limit;
   let reads = 0;
+  let octets = 0;
+  let octetsParTable: Record<string, number> = {};
+  const tailles = new WeakMap<MemoryDoc, number>();
+  const taille = (d: MemoryDoc) => {
+    let t = tailles.get(d);
+    if (t === undefined) {
+      t = JSON.stringify(d).length;
+      tailles.set(d, t);
+    }
+    return t;
+  };
+  const tableDe = new Map<string, string>();
+  const pese = (docs: readonly MemoryDoc[]) => {
+    for (const d of docs) {
+      const t = taille(d);
+      octets += t;
+      const table = tableDe.get(d._id) ?? "?";
+      octetsParTable[table] = (octetsParTable[table] ?? 0) + t;
+    }
+  };
   const lus = (n: number) => {
     reads += n;
     if (limit !== null && reads > limit) {
@@ -129,7 +158,12 @@ export function memoryDb(
     });
 
   const parId = new Map<string, MemoryDoc>();
-  for (const docs of Object.values(tables)) for (const d of docs) parId.set(d._id, d);
+  for (const [table, docs] of Object.entries(tables)) {
+    for (const d of docs) {
+      parId.set(d._id, d);
+      tableDe.set(d._id, table);
+    }
+  }
 
   // Par (table, index) : documents triés, regroupés par valeur du 1er champ.
   const trie = new Map<string, { champs: string[]; groupes: Map<string, MemoryDoc[]>; tous: MemoryDoc[] }>();
@@ -236,6 +270,7 @@ export function memoryDb(
         return aller(() => {
           const r = lignes();
           lus(r.length);
+          pese(r);
           return r.filter(garde);
         });
       },
@@ -246,6 +281,7 @@ export function memoryDb(
           for (const d of lignes()) {
             if (out.length >= n) break;
             vus += 1;
+            pese([d]);
             if (garde(d)) out.push(d);
           }
           lus(vus);
@@ -263,6 +299,7 @@ export function memoryDb(
           const debut = opts.cursor === null ? 0 : Number(opts.cursor);
           const fin = Math.min(tout.length, debut + opts.numItems);
           lus(fin - debut);
+          pese(tout.slice(debut, fin));
           return {
             page: tout.slice(debut, fin).filter(garde),
             continueCursor: String(fin),
@@ -281,6 +318,7 @@ export function memoryDb(
       async *[Symbol.asyncIterator]() {
         for (const d of lignes()) {
           lus(1);
+          pese([d]);
           if (garde(d)) yield d;
         }
       },
@@ -292,7 +330,10 @@ export function memoryDb(
     get(id: string) {
       return aller(() => {
         const d = parId.get(id) ?? null;
-        if (d) lus(1);
+        if (d) {
+          lus(1);
+          pese([d]);
+        }
         return d;
       });
     },
@@ -304,7 +345,11 @@ export function memoryDb(
     reads: () => reads,
     resetReads: () => {
       reads = 0;
+      octets = 0;
+      octetsParTable = {};
     },
+    bytes: () => octets,
+    bytesByTable: () => ({ ...octetsParTable }),
     allers: () => allers,
     resetAllers: () => {
       allers = 0;

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import {
   internalAction,
   internalMutation,
@@ -39,9 +39,32 @@ import { internal } from "./_generated/api";
  * imbriqués). Même choix que `posthogCache`.
  */
 
-export type DashboardCacheKey = "decisions" | "dueTotal";
+/**
+ * `profitCosts:<lot>/<lots>` = la moitié COÛT de la carte Rentabilité (écran
+ * Paiements), un lot de créatrices par row — cf `getProfitabilityCosts`. Elle
+ * déroule le moteur de paie créatrice × mois sur tout le projet : 5,8 Mo lus
+ * par lot sur Snytch, 255 appels le 2026-11-19, relancés à chaque écriture
+ * d'une assignation ou d'une publication tant que l'écran était ouvert.
+ */
+const keyValidator = v.union(
+  v.literal("decisions"),
+  v.literal("dueTotal"),
+  v.literal("profitCosts:0/2"),
+  v.literal("profitCosts:1/2"),
+);
 
-const keyValidator = v.union(v.literal("decisions"), v.literal("dueTotal"));
+export type DashboardCacheKey = Infer<typeof keyValidator>;
+
+/** Les lots que monte la carte (components/ProfitabilityCard) — ceux que le cron range. */
+export const PROFIT_COSTS_LOTS = 2;
+
+/** La row d'un lot de la carte ; `null` pour un découpage que le cron ne range pas. */
+export function profitCostsKey(lot: number, lots: number): DashboardCacheKey | null {
+  if (lots !== PROFIT_COSTS_LOTS) return null;
+  if (lot === 0) return "profitCosts:0/2";
+  if (lot === 1) return "profitCosts:1/2";
+  return null;
+}
 
 /** Le JSON en cache, ou `null` — à l'appelant de calculer en direct. */
 export async function readDashboardCache(
@@ -118,6 +141,28 @@ export async function invalidateDashboardCache(
   if (row) await ctx.db.delete(row._id);
 }
 
+/**
+ * INVALIDE ce qui dépend de la paie : le total dû ET la carte Rentabilité. Un
+ * cycle payé gèle son montant (le coût du mois devient « réglé »), un acompte ou
+ * un barème le change : l'écran Paiements, qui porte les deux, doit les montrer
+ * juste après l'action. Même règle que `invalidateDashboardCache` : supprimer,
+ * jamais recalculer dans la mutation.
+ */
+export async function invalidatePayCaches(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+): Promise<void> {
+  const rows = await ctx.db
+    .query("dashboardCache")
+    .withIndex("by_project_key", (q) => q.eq("projectId", projectId))
+    .collect();
+  for (const row of rows) {
+    if (row.key === "dueTotal" || row.key.startsWith("profitCosts:")) {
+      await ctx.db.delete(row._id);
+    }
+  }
+}
+
 export const writeJson = internalMutation({
   args: {
     projectId: v.id("projects"),
@@ -134,7 +179,10 @@ export const listProjectIds = internalQuery({
     (await ctx.db.query("projects").collect()).map((p) => p._id),
 });
 
-/** Cron : recalcule l'accueil admin de chaque projet. */
+/**
+ * Cron : recalcule l'accueil admin de chaque projet, le classement du portail
+ * et la carte Rentabilité de l'écran Paiements.
+ */
 export const refreshAll = internalAction({
   args: {},
   handler: async (ctx): Promise<{ projects: number; changed: number }> => {
@@ -143,22 +191,71 @@ export const refreshAll = internalAction({
       {},
     );
     let changed = 0;
+    const write = async (
+      projectId: Id<"projects">,
+      key: DashboardCacheKey,
+      json: string,
+    ) => {
+      const r = await ctx.runMutation(internal.dashboardCache.writeJson, {
+        projectId,
+        key,
+        json,
+      });
+      if (r.changed) changed += 1;
+    };
+    // Chaque étape à part : un calcul qui échoue (plafond de lecture, donnée
+    // inattendue) ne prive pas les autres vues — ni les autres projets — de
+    // leur rafraîchissement. Le classement avait son propre cron jusqu'au
+    // 2026-11-20 ; il ne doit pas tomber avec les décisions. L'échec reste
+    // visible : le cron échoue à la fin, avec la première erreur.
+    const echecs: unknown[] = [];
+    const etape = async (nom: string, projectId: Id<"projects">, f: () => Promise<void>) => {
+      try {
+        await f();
+      } catch (e) {
+        console.error(`dashboardCache.refreshAll : ${nom} (${projectId})`, e);
+        echecs.push(e);
+      }
+    };
     for (const projectId of projectIds) {
-      for (const key of ["decisions", "dueTotal"] as const) {
-        const json = await ctx.runQuery(
-          key === "decisions"
-            ? internal.dashboardDecisions.computeDecisionsJson
-            : internal.payments.computeDueTotalJson,
-          { projectId },
-        );
-        const r = await ctx.runMutation(internal.dashboardCache.writeJson, {
+      await etape("décisions", projectId, async () => {
+        await write(
           projectId,
-          key,
-          json,
+          "decisions",
+          await ctx.runQuery(internal.dashboardDecisions.computeDecisionsJson, {
+            projectId,
+          }),
+        );
+      });
+      // UN passage de paie pour le total dû ET le classement du portail : ils
+      // relisaient chacun tout le projet, dans deux crons (cf payments).
+      await etape("paie", projectId, async () => {
+        const paie = await ctx.runQuery(internal.payments.computePayrollCaches, {
+          projectId,
         });
-        if (r.changed) changed += 1;
+        await write(projectId, "dueTotal", paie.dueTotalJson);
+        const lb = await ctx.runMutation(internal.leaderboardCache.writeRows, {
+          projectId,
+          rows: paie.leaderboard,
+        });
+        if (lb.changed) changed += 1;
+      });
+      // La carte Rentabilité, lot par lot (un lot = une query, cf le plafond
+      // d'une seconde de calcul). `null` = projet sans Whop : la carte se
+      // masque sans rien lire, il n'y a rien à ranger.
+      for (let lot = 0; lot < PROFIT_COSTS_LOTS; lot++) {
+        await etape(`rentabilité ${lot}`, projectId, async () => {
+          const json = await ctx.runQuery(internal.profitability.computeCostsJson, {
+            projectId,
+            lot,
+            lots: PROFIT_COSTS_LOTS,
+          });
+          const key = profitCostsKey(lot, PROFIT_COSTS_LOTS);
+          if (json !== null && key !== null) await write(projectId, key, json);
+        });
       }
     }
+    if (echecs.length > 0) throw echecs[0];
     return { projects: projectIds.length, changed };
   },
 });

@@ -3180,7 +3180,14 @@ export default defineSchema({
    */
   dashboardCache: defineTable({
     projectId: v.id("projects"),
-    key: v.union(v.literal("decisions"), v.literal("dueTotal")),
+    // Les deux lots de la carte Rentabilité (cf convex/dashboardCache
+    // `PROFIT_COSTS_LOTS`) : une row par lot, comme la carte fait une query par lot.
+    key: v.union(
+      v.literal("decisions"),
+      v.literal("dueTotal"),
+      v.literal("profitCosts:0/2"),
+      v.literal("profitCosts:1/2"),
+    ),
     json: v.string(),
     changedAt: v.number(),
   }).index("by_project_key", ["projectId", "key"]),
