@@ -136,6 +136,9 @@ export const dueStoreApps = internalQuery({
       .query("radarStoreApps")
       .withIndex("by_due", (q) => q.lte("nextCheckAt", now))
       .take(Math.max(0, limit));
+    // File vide (la plupart des passages de 5 min, 20/11/2026 : ~2 000 contrôles par jour pour 288 passages) : rien à
+    // comparer aux apps suivies, la table (2 187 apps, 1,84 Mo) n'est pas relue.
+    if (rows.length === 0) return { due: [], followed: [] };
     const apps = (await ctx.db.query("radarApps").collect()).filter((a) => a.mergedInto === undefined);
     return { due: rows.map((r) => ({ id: r._id, name: r.name, artist: r.artist })), followed: apps.map((a) => ({ strong: a.strong })) };
   },
