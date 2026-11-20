@@ -1497,11 +1497,19 @@ export const ecrireVideosExemples = mcpWriteMutation("assignments.manage", "miss
 
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
+/**
+ * `assigner_scripts` / `rejouer_script` : ce qui se défait, puis ce qu'il en est
+ * de l'email — lu dans les réponses (`emailEnvoye`), pas supposé : avec
+ * « prevenir: false » ou un compte géré, aucun n'est parti.
+ */
+export function ouDefaireAssignation(emailsEnvoyes: number): string {
+  return (
+    "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». " +
+    (emailsEnvoyes > 0 ? "L'email à la créatrice est parti." : "Aucun email n'est parti.")
+  );
+}
+
 const OU_DEFAIRE: Record<string, string> = {
-  assigner_scripts:
-    "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
-  rejouer_script:
-    "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
   replanifier_mission: "`defaire`, ou Assignments › la mission › date de publication / échéance prod.",
   consigne_mission: "`defaire`, ou Assignments › la mission › consigne.",
   annuler_mission:
@@ -1856,7 +1864,8 @@ async function appelerEcritureMissions(
         parCreatrice.push({ createatrice: nom, creees: 0, refus: e.message + indice });
       }
     }
-    return resultatEcriture(projet, faits.length > 0 ? faits : "Aucune vidéo créée.", OU_DEFAIRE[name], { parCreatrice });
+    const emailsEnvoyes = parCreatrice.filter((p) => p.emailEnvoye === true).length;
+    return resultatEcriture(projet, faits.length > 0 ? faits : "Aucune vidéo créée.", ouDefaireAssignation(emailsEnvoyes), { parCreatrice });
   }
 
   if (name === "piloter_missions") return await piloter(ctx, args, cible, projet, aujourdhui);
