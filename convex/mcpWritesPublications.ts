@@ -32,6 +32,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { duplicateGroups } from "./postDuplicateGuard";
 import { markDuplicate } from "./postDuplicates";
+import { syncBonusAfterReleves } from "./bonusSync";
 import { isTikTokShortlink, resolveTikTokShortlink } from "./modelVideoEmbeds";
 import { newOwnerLookupCache, publicationOwnerAssignment, type OwnerLookupCache } from "./pricing";
 import {
@@ -440,18 +441,21 @@ export const ecrireDoublons = mcpWriteMutation("tracker.manage", "publications")
   ): Promise<{
     summary: string;
     apercu: { lien: string; garde: string; aMarquer: string[] }[] | null;
+    /** Publications marquées : leurs paliers se resynchronisent APRÈS (dispatcher). */
+    marquees: Id<"publications">[];
   }> => {
-    // Tout le projet, lu sur le lien ACTUEL : la clé stockée peut manquer (posts
-    // d'avant la clé) — cf duplicateGroups.
-    const pubs = await ctx.db
-      .query("publications")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const groupes = duplicateGroups(pubs);
     const cache = newOwnerLookupCache();
-    const aMarquerDe = (g: (typeof groupes)[number]) => g.extras.filter((e) => e.duplicateOf === undefined);
+    const aMarquerDe = (g: { extras: Doc<"publications">[] }) =>
+      g.extras.filter((e) => e.duplicateOf === undefined);
 
     if (a.liens.length === 0) {
+      // APERÇU : tout le projet, lu sur le lien ACTUEL — la clé stockée peut
+      // manquer (posts d'avant la clé), cf duplicateGroups. ~6,6 Mo sur Snytch.
+      const pubs = await ctx.db
+        .query("publications")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      const groupes = duplicateGroups(pubs);
       const apercu: { lien: string; garde: string; aMarquer: string[] }[] = [];
       for (const g of groupes) {
         const aMarquer = aMarquerDe(g);
@@ -469,23 +473,33 @@ export const ecrireDoublons = mcpWriteMutation("tracker.manage", "publications")
             ? "Aucun lien en double à marquer."
             : `${apercu.length} lien(s) en double, ${n} publication(s) à marquer — rien n'a été écrit.`,
         apercu,
+        marquees: [],
       };
     }
 
-    // Tout est vérifié AVANT la première écriture : un lien refusé n'en laisse
-    // aucun à moitié marqué.
-    const choisis = a.liens.map((lien) => {
+    // MARQUAGE : les publications de CHAQUE lien, par l'index de clé — jamais
+    // tout le projet, que les purges et le journal s'ajoutent à la même limite
+    // de 16 Mo lus. Le groupe est recalculé sur le lien actuel (duplicateGroups),
+    // comme l'aperçu. Tout est vérifié AVANT la première écriture : un lien
+    // refusé n'en laisse aucun à moitié marqué.
+    const choisis: { lien: string; g: { key: string; keeper: Doc<"publications">; extras: Doc<"publications">[] } }[] = [];
+    for (const lien of a.liens) {
       const key = postKeyOf(lien);
       if (key === null) throw err(ERR.MCP_DESIGNATION, `« ${lien} » n'est pas un lien de post.`);
-      const g = groupes.find((x) => x.key === key);
+      const rows = await ctx.db
+        .query("publications")
+        .withIndex("by_project_postKey", (q) => q.eq("projectId", ctx.projectId).eq("postKey", key))
+        .take(50);
+      const g = duplicateGroups(rows).find((x) => x.key === key);
       if (!g) {
         throw err(ERR.MCP_DESIGNATION, `Le lien « ${lien} » n'est rattaché qu'à une publication : rien à marquer.`);
       }
-      return { lien, g };
-    });
+      choisis.push({ lien, g });
+    }
 
     const now = Date.now();
     const faits: string[] = [];
+    const marquees: Id<"publications">[] = [];
     for (const { lien, g } of choisis) {
       const aMarquer = aMarquerDe(g);
       if (aMarquer.length === 0) {
@@ -499,7 +513,10 @@ export const ecrireDoublons = mcpWriteMutation("tracker.manage", "publications")
       // reconstruire si le mauvais doublon avait été marqué.
       const effaces: Etat[] = [];
       for (const p of aMarquer) {
-        const { snapshots, earlyReadings } = await markDuplicate(ctx, p, g.keeper._id, now);
+        const { snapshots, earlyReadings } = await markDuplicate(ctx, p, g.keeper._id, now, {
+          differerBonus: true,
+        });
+        marquees.push(p._id);
         for (const s of snapshots) effaces.push({ table: "metricSnapshots", id: s._id, avant: JSON.stringify(s), apres: null });
         for (const r of earlyReadings) effaces.push({ table: "earlyReadings", id: r._id, avant: JSON.stringify(r), apres: null });
       }
@@ -513,7 +530,7 @@ export const ecrireDoublons = mcpWriteMutation("tracker.manage", "publications")
       });
       faits.push(summary);
     }
-    return { summary: faits.join("\n"), apercu: null };
+    return { summary: faits.join("\n"), apercu: null, marquees };
   },
 });
 
@@ -747,6 +764,9 @@ async function appelerEcriturePublications(
         ),
       );
     }
+    // Paliers des créatrices touchées, APRÈS l'écriture et une transaction par
+    // créatrice — le chemin des relevés de nuit. Ne lève jamais.
+    if (r.marquees.length > 0) await syncBonusAfterReleves(ctx, r.marquees);
     return resultatEcriture(projet, r.summary.split("\n"), OU_DEFAIRE[name]);
   }
   if (name === "deplacer_posts") {

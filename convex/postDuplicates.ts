@@ -40,6 +40,13 @@ export async function markDuplicate(
   pub: Doc<"publications">,
   keeperId: Id<"publications">,
   now: number,
+  /**
+   * Paliers resynchronisés par l'APPELANT, après la mutation (cf
+   * `syncBonusAfterReleves`) — le marquage en lot de l'outil MCP. La synchro
+   * d'une créatrice relit ses assignations, voire celles du projet : dix fois
+   * dans une mutation, c'est la limite de 16 Mo lus (prod, 20/11/2026).
+   */
+  opts: { differerBonus?: boolean } = {},
 ): Promise<{ snapshots: Doc<"metricSnapshots">[]; earlyReadings: Doc<"earlyReadings">[] }> {
   const purged = await purgeMeasurements(ctx, pub._id);
   await ctx.db.patch(pub._id, {
@@ -52,7 +59,7 @@ export async function markDuplicate(
   });
   await recomputeLatestMetrics(ctx, pub._id);
   // Le cumul de paliers de la créatrice vient de perdre ces vues.
-  await syncBonusForPublication(ctx, pub._id);
+  if (!opts.differerBonus) await syncBonusForPublication(ctx, pub._id);
   return purged;
 }
 
