@@ -165,14 +165,32 @@ function activeAccounts(ctx: QueryCtx, apps: AppsById) {
     let acc = seen.get(id);
     if (acc === undefined) {
       const got = await ctx.db.get(id);
-      acc = got?.status === "active" && appShown(apps, got.appId) !== "hidden" ? got : null;
+      acc = got?.status === "active" && (await appShown(apps, got.appId)) !== "hidden" ? got : null;
       seen.set(id, acc);
     }
     return acc;
   };
 }
 
-type AppsById = Map<Id<"radarApps">, Doc<"radarApps">>;
+/** Une app par son id, lue au plus une fois par page. */
+type AppsById = (id: Id<"radarApps">) => Promise<Doc<"radarApps"> | null>;
+
+/**
+ * Les apps d'une page, lues à la demande : celles de ses lignes, jamais toute la table. Jusqu'au 20/11/2026, chaque
+ * page relisait les 2 187 apps (1,84 Mo) ; filtrée par app, une page en lit une ou deux. Swarm en demande des
+ * centaines par synchronisation (61 Go lus le 19/11, quand elle tournait toutes les heures).
+ */
+function appsReader(ctx: QueryCtx): AppsById {
+  const seen = new Map<Id<"radarApps">, Promise<Doc<"radarApps"> | null>>();
+  return (id) => {
+    let got = seen.get(id);
+    if (!got) {
+      got = ctx.db.get(id);
+      seen.set(id, got);
+    }
+    return got;
+  };
+}
 
 /**
  * Ce que Swarm montre d'une app (15/11/2026, « Oui, retire-les », fondateur) : `hidden` pour une app EN PAUSE (hors
@@ -180,9 +198,9 @@ type AppsById = Map<Id<"radarApps">, Doc<"radarApps">>;
  * partent ; jusque-là, 114 créateurs d'apps hors périmètre (Hipobuy, Meta-Klage, Arkose+) s'affichaient dans Swarm
  * sans fiche d'app. Une app fondue vaut la vraie ; une app inconnue (`unknown`) garde la règle d'avant.
  */
-export function appShown(apps: AppsById, id: Id<"radarApps"> | undefined): "shown" | "hidden" | "unknown" {
-  let app = id ? apps.get(id) : undefined;
-  if (app?.mergedInto) app = apps.get(app.mergedInto);
+export async function appShown(apps: AppsById, id: Id<"radarApps"> | undefined): Promise<"shown" | "hidden" | "unknown"> {
+  let app = id ? await apps(id) : null;
+  if (app?.mergedInto) app = await apps(app.mergedInto);
   if (!app) return "unknown";
   return app.status === "active" && app.trialSince === undefined ? "shown" : "hidden";
 }
@@ -239,7 +257,7 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
     const next: AppsCursor = r.isDone ? { i: at.i + 1, c: null } : { i: at.i, c: r.continueCursor };
     return { cursor: JSON.stringify(next), done: r.isDone && at.i + 1 >= appIds.length };
   };
-  const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id, a]));
+  const apps = appsReader(ctx);
   switch (table) {
     case "apps": {
       const r = await ctx.db.query("radarApps").paginate(opts);
@@ -254,8 +272,8 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       const rows = [];
       for (const t of r.page) {
         if (t.status !== "active") continue;
-        if (appShown(apps, t.appId) === "hidden") continue;
-        const app = apps.get(t.appId);
+        if ((await appShown(apps, t.appId)) === "hidden") continue;
+        const app = await apps(t.appId);
         // Relié à son app : par sa preuve, par un placement payé (il cite peu son app par nature, mais sa vidéo compte et
         // s'étiquette), ou parce que l'IA (v2, JUDGE_VERSION) dit qu'il la pousse. Sinon il part « en pause » : pas un
         // créateur pour Swarm, qui ne liste que les comptes actifs, mais ses vidéos gardent leur pseudo et leur lien
@@ -279,7 +297,7 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       for (const x of r.page) {
         const t = await accountOf(x.accountId);
         if (!t) continue;
-        const app = apps.get(x.appId);
+        const app = await apps(x.appId);
         rows.push(projectTrackedVideo(x, app ? videoCitesApp({ caption: x.caption ?? "", hook: x.hook, handle: t.handle }, app) : null));
       }
       return { rows, ...after(r) };
@@ -304,8 +322,8 @@ export async function exportPage(ctx: QueryCtx, table: ExportTable, cursor: stri
       const rows = [];
       for (const s of r.page) {
         if (s.trackedAccountId && !(await isActive(s.trackedAccountId))) continue;
-        if (s.appId && appShown(apps, s.appId) === "hidden") continue;
-        const app = s.appId ? apps.get(s.appId) : undefined;
+        if (s.appId && (await appShown(apps, s.appId)) === "hidden") continue;
+        const app = s.appId ? await apps(s.appId) : null;
         rows.push(projectSignal(s, app && (app.status === "active" || app.mergedInto) ? app : null));
       }
       return { rows, cursor: r.continueCursor, done: r.isDone };

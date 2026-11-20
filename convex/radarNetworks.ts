@@ -259,6 +259,42 @@ export const noteFreeRun = internalMutation({
   },
 });
 
+/**
+ * Ce qu'un relevé de compte lit d'une app (`applyAccountRead`) : ses motifs (radarNetworkMath.AppRule), son nom, ses
+ * projets concurrents. Lus UNE fois par passage de relevés (`appRules`) et passés à chaque relevé : jusqu'au 20/11/2026,
+ * chaque relevé relisait toute la table radarApps (2 187 apps, 1,84 Mo ; ~6 700 relevés par jour, 11,4 Go lus), la
+ * première ligne de la facture Convex. Les motifs seuls pèsent 0,38 Mo, et un argument ne se lit pas en base.
+ */
+const appLiteValidator = v.object({
+  _id: v.id("radarApps"),
+  status: v.union(v.literal("active"), v.literal("paused")),
+  name: v.string(),
+  rivalOf: v.array(v.string()),
+  strong: v.array(v.string()),
+  weak: v.array(v.string()),
+  context: v.array(v.string()),
+  not: v.optional(v.array(v.string())),
+});
+export type AppLite = Infer<typeof appLiteValidator>;
+const appLite = (a: Doc<"radarApps">): AppLite => ({
+  _id: a._id,
+  status: a.status,
+  name: a.name,
+  rivalOf: a.rivalOf,
+  strong: a.strong,
+  weak: a.weak,
+  context: a.context,
+  ...(a.not ? { not: a.not } : {}),
+});
+/** Au-delà, la liste ne tient plus dans un argument Convex (8 192 éléments par tableau) : chaque relevé relit la table. */
+const APP_RULES_MAX = 8_000;
+
+/** Les motifs de toutes les apps, dans l'ordre de création (la première citée l'emporte, cf radarNetworkMath.findApp). */
+export const appRules = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<AppLite[]> => (await ctx.db.query("radarApps").collect()).map(appLite),
+});
+
 /** Comptes dus lus en plus de la part du passage : ceux d'une app en pause sont sautés sans prendre de place. */
 const DUE_SLACK = 200;
 /** Un compte d'une app en pause est revu chaque jour : il repart dans la journée si son app reprend. */
@@ -270,14 +306,15 @@ const PARKED_RECHECK_MS = DAY;
  * ne bougeant plus, il resterait en tête de la file et 800 comptes d'apps en pause bloqueraient tous les relevés.
  */
 export const dueAccounts = internalQuery({
-  args: { now: v.number(), limit: v.number() },
-  handler: async (ctx, { now, limit }): Promise<{ due: DueAccount[]; parked: Id<"radarTracked">[] }> => {
+  // `active` : les apps actives, lues par le passage avec leurs motifs (`appRules`) ; sinon relues ici.
+  args: { now: v.number(), limit: v.number(), active: v.optional(v.array(v.id("radarApps"))) },
+  handler: async (ctx, { now, limit, active: activeIds }): Promise<{ due: DueAccount[]; parked: Id<"radarTracked">[] }> => {
     if (limit <= 0) return { due: [], parked: [] };
     const rows = await ctx.db
       .query("radarTracked")
       .withIndex("by_due", (q) => q.eq("status", "active").lte("nextReadAt", now))
       .take(limit + DUE_SLACK);
-    const active = new Set((await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect()).map((a) => a._id));
+    const active = new Set(activeIds ?? (await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect()).map((a) => a._id));
     return {
       due: rows
         .filter((r) => active.has(r.appId))
@@ -609,8 +646,10 @@ export const applyAccountRead = internalMutation({
     // profil (abonnés, bio) quand aucune vidéo n'est lue en entier.
     light: v.optional(v.array(v.object({ videoId: v.string(), views: v.number(), coverUrl: v.optional(v.string()) }))),
     profile: v.optional(v.object({ fans: v.number(), bio: v.string() })),
+    // Les motifs de toutes les apps, lus une fois par le passage (`appRules`). Absents (relevé isolé, e2e) : relus ici.
+    apps: v.optional(v.array(appLiteValidator)),
   },
-  handler: async (ctx, { accountId, videos, now, light, profile }): Promise<{ promoted: number }> => {
+  handler: async (ctx, { accountId, videos, now, light, profile, apps: passed }): Promise<{ promoted: number }> => {
     const acc = await ctx.db.get(accountId);
     if (!acc) return { promoted: 0 };
     let app = await ctx.db.get(acc.appId);
@@ -680,14 +719,15 @@ export const applyAccountRead = internalMutation({
     const median = medianViews(recent.map((r) => r.views));
     // Le compte va dans le réseau de l'app qu'il cite le plus ; s'il n'en cite
     // aucune (sur ses dernières vidéos lues), il n'est plus relevé.
-    const apps = await ctx.db.query("radarApps").collect();
+    const apps: readonly AppLite[] = passed ?? (await ctx.db.query("radarApps").collect()).map(appLite);
     const own = app;
     // Sa bio, lue à ce relevé (sinon celle déjà connue) : si elle nomme son app, le compte reste dans son réseau.
     const bio = videos.find((s) => s.authorBio)?.authorBio ?? (profile?.bio || undefined);
     const verdict = own ? accountVerdict(acc.matchedBy, recent, acc.handle, own, otherActiveApps(apps, own._id), bio ?? acc.bio) : { kind: "keep" as const };
     if (own && verdict.kind === "move") {
       await moveAccount(ctx, acc, own, verdict.to, recent);
-      app = verdict.to;
+      // Relue en entier : la suite écrit sous elle (signaux, alertes).
+      app = (await ctx.db.get(verdict.to._id)) ?? app;
     }
     const appId = app?._id ?? acc.appId;
     // Premier relevé d'un compte que rien n'a encore prouvé (sa page publique ne se lisait pas) : il reste s'il
@@ -792,7 +832,8 @@ export const applyAccountRead = internalMutation({
 });
 
 /** Les autres apps suivies (actives) : celles qu'un compte ou une vidéo peut citer à la place de la sienne. */
-const otherActiveApps = (apps: readonly Doc<"radarApps">[], own: Id<"radarApps">) => apps.filter((a) => a._id !== own && a.status === "active");
+const otherActiveApps = <T extends { _id: Id<"radarApps">; status: "active" | "paused" }>(apps: readonly T[], own: Id<"radarApps">) =>
+  apps.filter((a) => a._id !== own && a.status === "active");
 
 /** Comptes en pause relus par passage. */
 const REJUDGE_BATCH = 400;
@@ -1297,10 +1338,15 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
   const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
   const b = budgetState(st.budget, st.usage, st.balance);
   const n = allowance(st.budget, b, "tiktok", todayCredits(st, "tiktok"), ACCOUNT_RUNS_PER_DAY);
+  // Les motifs des apps, lus une fois pour tout le passage et passés à chaque relevé (cf `appLiteValidator`).
+  const rules: AppLite[] = await ctx.runQuery(internal.radarNetworks.appRules, {});
+  const apps = rules.length <= APP_RULES_MAX ? rules : undefined;
+  const active = apps?.filter((a) => a.status === "active").map((a) => a._id);
   // Le relevé gratuit d'abord (pages publiques de TikTok) : il ne dépend pas du budget, seul le repli payant y puise.
   const { due, parked }: { due: DueAccount[]; parked: Id<"radarTracked">[] } = await ctx.runQuery(internal.radarNetworks.dueAccounts, {
     now,
     limit: Math.max(n, FREE_READS_PER_RUN),
+    ...(active ? { active } : {}),
   });
   if (parked.length) await ctx.runMutation(internal.radarNetworks.parkAccounts, { ids: parked, now });
   const usage = usageWriter(ctx, "tiktok", now);
@@ -1350,7 +1396,7 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
       );
       // Première page refusée ou vide : une erreur de relevé (un jour d'attente, en pause à la troisième).
       if (outcome === "error") await ctx.runMutation(internal.radarNetworks.markReadError, { accountId: acc.id, now });
-      if (all.length) await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: all, now });
+      if (all.length) await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: all, now, ...(apps ? { apps } : {}) });
       if (outcome === "stop") return "stop";
       // Un premier relevé sur 4 est aussi relevé gratuitement à côté, pour mesurer (convex/radarFirstReadTrial).
       if (reason === "premier" && all.length && trialPick(acc.handle)) {
@@ -1383,7 +1429,7 @@ async function accountReadsPass(ctx: ActionCtx, now: number): Promise<{ calls: n
             const newest = (): Promise<NewestKnown | null> => ctx.runQuery(internal.radarNetworks.freeNewest, { accountId: acc.id });
             const f = await freeRead(acc.handle, { page: freePage, known, newest }, now, undefined, !acc.located);
             if (!f.ok) return f;
-            await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: f.videos, light: f.light, profile: f.profile, now });
+            await ctx.runMutation(internal.radarNetworks.applyAccountRead, { accountId: acc.id, videos: f.videos, light: f.light, profile: f.profile, now, ...(apps ? { apps } : {}) });
           } catch (e) {
             // Lu gratuitement mais pas rangé : il reste dû, relu gratuitement au passage suivant (pas de repli payant :
             // l'écriture échouerait de même).

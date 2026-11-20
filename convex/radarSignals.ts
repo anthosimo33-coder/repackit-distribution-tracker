@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_ROTATION, isRelationFind, isWebFind, signalThemes } from "./radarDiscoveryQueries";
-import { SEED_APPS, appNet, candidatesOf, hashtagCandidates, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedRulesChanged, seedSync, videoApp, videoCitesApp, type SeedApp, type SeedSync } from "./radarNetworkMath";
+import { SEED_APPS, appNet, candidatesOf, hashtagCandidates, canAttach, effectiveRivalOf, findApp, handPause, needsDeclaredLang, rivalElsewhere, sameAppNet, seedRemoval, seedRulesChanged, seedSync, videoApp, videoCitesApp, type AppRule, type SeedApp, type SeedSync } from "./radarNetworkMath";
 import { REJECTED_KEEP_MS } from "./radarVetMath";
 import { isTextOnShot } from "./radarDisplay";
 import { LANG_BY_HAND, OFF_TOPIC_BY_HAND, SEED_ACCOUNTS, SEED_REMOVED } from "./radarSeedAccounts";
@@ -221,8 +221,9 @@ export async function refreshAppNet(ctx: MutationCtx, appId: Id<"radarApps">, no
 export async function moveAccount(
   ctx: MutationCtx,
   acc: Doc<"radarTracked">,
-  from: Doc<"radarApps">,
-  to: Doc<"radarApps">,
+  // Les ids seuls : les deux apps sont relues ici (un relevé de compte n'a que leurs motifs, cf radarNetworks.appRules).
+  from: Pick<Doc<"radarApps">, "_id">,
+  to: Pick<Doc<"radarApps">, "_id">,
   recent: readonly Doc<"radarTrackedVideos">[],
 ): Promise<void> {
   await ctx.db.patch(acc._id, { appId: to._id });
@@ -424,7 +425,8 @@ export async function noteCandidates(
   ctx: MutationCtx,
   s: Pick<SignalInput, "caption" | "authorId" | "authorHandle" | "url" | "mentions" | "authorBio">,
   now: number,
-  apps: readonly Doc<"radarApps">[],
+  // Leurs motifs suffisent (un relevé de compte ne passe que ceux-là, cf radarNetworks.appRules).
+  apps: readonly AppRule[],
   fromApp?: Id<"radarApps">,
   // Une vidéo trouvée par une recherche de produit web (radarDiscoveryQueries.isWebFind) : ses hashtags aussi.
   withHashtags = false,
