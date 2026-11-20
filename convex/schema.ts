@@ -854,6 +854,30 @@ export default defineSchema({
         at: v.number(),
       }),
     ),
+    // ─── IDENTITÉ DU POST — la vidéo derrière le lien ────────────────────────
+    // Clé de la VIDÉO (id TikTok, shortcode Instagram, id YouTube, sinon
+    // l'adresse sans paramètres), calculée par `postKeyOf` (convex/postUrlShape)
+    // à chaque écriture de `postUrl`. C'est elle, et jamais le texte collé ni
+    // l'id de publication, qui dit « même post » : deux liens courts TikTok
+    // différents mènent à la même vidéo (constat du 19/11/2026 : 14 doublons
+    // sur 19 collés avec des codes courts distincts). Absente = publication
+    // écrite avant la clé, remplie par la tâche `backfillPostKeys`.
+    postKey: v.optional(v.string()),
+    // ─── LIEN EN DOUBLE — la vidéo est déjà celle d'une autre publication ─────
+    // Posé quand la clé de post est déjà portée par une autre publication du
+    // projet (`publicationId` = celle qui GARDE les vues). Sur le modèle de
+    // `foreignOwner` : le relevé n'écrit plus rien, les relevés d'avant sont
+    // retirés (copies de ceux de la gardée), et la publication ne paie plus —
+    // ni fixe, ni CPM, ni palier (cf `payFlagsOfPublication`). Arbitrage du
+    // fondateur, 19/11/2026 : « lien à corriger, non payée ». Le geste qui le
+    // lève est « Corriger le lien » (`retrackPublication` l'efface).
+    duplicateOf: v.optional(
+      v.object({
+        publicationId: v.id("publications"),
+        /** Instant où le doublon a été constaté. */
+        at: v.number(),
+      }),
+    ),
     // ─── QUADRANT « Vues × Intent » — classement DÉRIVÉ, recalculé la nuit ────
     // Même nature que les champs `*Latest` ci-dessus : une valeur dénormalisée
     // qu'aucune saisie ne produit, écrite par un job et relue telle quelle par
@@ -948,7 +972,8 @@ export default defineSchema({
     .index("by_project_hookId", ["projectId", "hookId"])
     .index("by_project_parentCarouselId", ["projectId", "parentCarouselId"])
     // Analytics d'une campagne de scripts : ses seules publications.
-    .index("by_project_scriptCampaign", ["projectId", "scriptCombo.campaignId"]),
+    .index("by_project_scriptCampaign", ["projectId", "scriptCombo.campaignId"])
+    .index("by_project_postKey", ["projectId", "postKey"]),
 
   // ─── Refactor métriques temporelles — historique de mesures par row ──────
   // Greenfield. 1 metricSnapshot = une relève de métriques à une date donnée

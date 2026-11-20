@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { AccountCheckLine, todayLocal } from "@/components/admin/AdminPublishForm";
 import { useConvexError } from "@/lib/use-convex-error";
+import { usePostLinkResolver } from "@/lib/use-post-link-resolver";
 
 /**
  * Vidéo DÉJÀ SORTIE : ajouter un compte qu'on n'avait pas coché, AVEC le lien
@@ -46,6 +47,7 @@ export function AddPublishedTargetDialog({
   const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AddPublishedTargetDialog");
   const add = useProjectMutation(api.assignments.addPublishedTarget);
+  const resolveLinks = usePostLinkResolver();
   const today = todayLocal();
   const [url, setUrl] = useState("");
   const [dateStr, setDateStr] = useState(today);
@@ -74,7 +76,7 @@ export function AddPublishedTargetDialog({
       await add({
         id: assignmentId,
         accountId: account._id,
-        url: clean,
+        url: await resolveLinks.url(clean),
         ...(publishedAt !== undefined ? { publishedAt } : {}),
       });
       toast.success(

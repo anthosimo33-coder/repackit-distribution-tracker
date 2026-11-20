@@ -1476,6 +1476,7 @@
     "ERR_PERSON_NOT_FOUND": "Person not found.",
     "ERR_POPULATION_LOCKED": "You can't change {name}'s population: items are linked to it ({comptes, plural, one {# account} other {# accounts}}, {publications, plural, one {# post} other {# posts}}, {payments, plural, one {# payment line} other {# payment lines}}). A creator who has already worked keeps their population — create a new profile if needed.",
     "ERR_PORTAL_ROLE_REJECTED": "This space is reserved for a different population on the project.",
+    "ERR_POST_URL_ALREADY_LINKED": "This {platform} link already belongs to another assignment. Paste the link to this video's post.",
     "ERR_POST_URL_INVALID": "Invalid post URL for {platform} (an http(s) link is expected).",
     "ERR_POST_URL_IS_ACCOUNT": "The URL given for {platform} is a profile link, not a link to a post.",
     "ERR_POST_URL_MISSING": "Missing URL for {platform} — every platform is required.",

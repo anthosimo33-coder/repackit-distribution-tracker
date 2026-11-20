@@ -8,6 +8,13 @@ import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
+
+/**
+ * Numéro de vidéo propre au processus : la clé d'un post TikTok est son ID, pas
+ * le @ du lien (convex/postDuplicateGuard). Deux créatrices ou deux missions
+ * avec le même id seraient la MÊME vidéo — et la seconde serait refusée.
+ */
+let videoSeq = 0;
 const url = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
@@ -105,7 +112,7 @@ async function setup(ts: number, tag: string) {
           platform === "TikTok"
             ? {
                 platform,
-                url: `https://www.tiktok.com/@e2erep${tag}${suffix}tt${ts}/video/75${i}${ts % 100000}`,
+                url: `https://www.tiktok.com/@e2erep${tag}${suffix}tt${ts}/video/75${ts}${++videoSeq}`,
               }
             : {
                 platform,

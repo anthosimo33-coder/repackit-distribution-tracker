@@ -10,6 +10,11 @@ import {
   isTikTokShortlink,
   resolveTikTokShortlink,
 } from "./modelVideoEmbeds";
+import { findLinkedPublication, storedPostKey } from "./postDuplicateGuard";
+import { markDuplicate } from "./postDuplicates";
+import { authedAction, e2eMutation } from "./functions";
+import { isVideoKey, postKeyOf } from "./postUrlShape";
+import type { MutationCtx } from "./_generated/server";
 
 /**
  * Résolution des SHORTLINKS TikTok (vm./vt.tiktok.com) → URL canonique
@@ -50,14 +55,65 @@ export const getPublicationUrl = internalQuery({
  */
 export const patchPostUrl = internalMutation({
   args: { publicationId: v.id("publications"), canonicalUrl: v.string() },
-  handler: async (ctx, { publicationId, canonicalUrl }): Promise<boolean> => {
-    const pub = await ctx.db.get(publicationId);
-    if (!pub || typeof pub.postUrl !== "string") return false;
-    if (!isTikTokShortlink(pub.postUrl)) return false; // déjà résolu / changé
-    await ctx.db.patch(publicationId, { postUrl: canonicalUrl });
-    return true;
+  handler: (ctx, { publicationId, canonicalUrl }): Promise<boolean> =>
+    patchPostUrlCore(ctx, publicationId, canonicalUrl),
+});
+
+/**
+ * E2E — la résolution d'un lien court, sans le réseau : repose le lien court
+ * puis applique EXACTEMENT ce que fait la résolution (`patchPostUrlCore`). Le
+ * lien court est reposé d'abord parce que la vraie résolution, planifiée à la
+ * saisie, a pu passer entre-temps (un faux code mène à l'accueil TikTok).
+ */
+export const e2eResolveShortlink = e2eMutation({
+  args: {
+    publicationId: v.id("publications"),
+    shortlink: v.string(),
+    canonicalUrl: v.string(),
+  },
+  handler: async (ctx, { publicationId, shortlink, canonicalUrl }): Promise<boolean> => {
+    await ctx.db.patch(publicationId, { postUrl: shortlink, postKey: storedPostKey(shortlink) });
+    return patchPostUrlCore(ctx, publicationId, canonicalUrl);
   },
 });
+
+async function patchPostUrlCore(
+  ctx: MutationCtx,
+  publicationId: Id<"publications">,
+  canonicalUrl: string,
+): Promise<boolean> {
+  const pub = await ctx.db.get(publicationId);
+  if (!pub || typeof pub.postUrl !== "string") return false;
+  if (!isTikTokShortlink(pub.postUrl)) return false; // déjà résolu / changé
+  // La clé suit : c'est ici, et seulement ici, qu'un lien court révèle sa vidéo.
+  await ctx.db.patch(publicationId, {
+    postUrl: canonicalUrl,
+    postKey: storedPostKey(canonicalUrl),
+  });
+  // FILET de la garde de saisie : la vidéo résolue est déjà rattachée à une
+  // autre publication du projet (lien court collé sans résolution préalable,
+  // ou résolution d'écran en échec). La saisie est passée ; cette publication
+  // devient « lien à corriger », non payée — arbitrage du 19/11/2026. Celle
+  // qui garde les vues est la publication déjà en place (ou celle qu'elle
+  // double elle-même) : un lien arrivé APRÈS est le doublon, comme à la saisie.
+  if (pub.duplicateOf === undefined && isVideoKey(postKeyOf(canonicalUrl))) {
+    const linked = await findLinkedPublication(
+      ctx,
+      pub.projectId,
+      canonicalUrl,
+      new Set([publicationId as string]),
+    );
+    if (linked !== null) {
+      await markDuplicate(
+        ctx,
+        { ...pub, postUrl: canonicalUrl },
+        linked.duplicateOf?.publicationId ?? linked._id,
+        Date.now(),
+      );
+    }
+  }
+  return true;
+}
 
 /**
  * Résout le shortlink TikTok d'UNE publication et stocke la canonique. No-op si
@@ -91,6 +147,43 @@ export const resolvePublicationShortlink = internalAction({
       canonicalUrl: canonical,
     });
     return null;
+  },
+});
+
+/** Liens par appel : une mission vise au plus 5 plateformes. */
+const MAX_LINKS_PER_CALL = 5;
+
+/**
+ * RÉSOUT les liens courts TikTok AVANT la saisie — appelée par les écrans qui
+ * collent un lien de post, juste avant la mutation de publication.
+ *
+ * Pourquoi avant : un lien court n'a pas d'id de vidéo, et chaque « Partager »
+ * en fabrique un nouveau. Le 19/11/2026, 14 doublons TikTok sur 19 avaient été
+ * collés avec des codes courts DIFFÉRENTS pour la même vidéo : seule l'URL
+ * résolue permet à la garde de saisie (convex/postDuplicateGuard) de les voir.
+ *
+ * Rend les liens dans le même ordre : un lien court résolu devient l'URL
+ * canonique, tout le reste est rendu tel quel — y compris un lien court dont la
+ * résolution échoue (réseau, lien mort) : la saisie ne se bloque jamais sur une
+ * panne, la résolution différée (`resolvePublicationShortlink`) reprend le
+ * relais et marque le doublon s'il y en a un.
+ *
+ * `resolveTikTokShortlink` ne suit que des liens courts TikTok et n'accepte
+ * qu'une cible finale sur tiktok.com (anti-SSRF) : un appelant ne peut pas s'en
+ * servir pour joindre une autre adresse.
+ */
+export const resolvePostLinks = authedAction({
+  args: { urls: v.array(v.string()) },
+  handler: async (_ctx, { urls }): Promise<string[]> => {
+    return Promise.all(
+      urls.map(async (url, i) => {
+        if (i >= MAX_LINKS_PER_CALL || !isTikTokShortlink(url.trim())) return url;
+        const resolved = await resolveTikTokShortlink(url.trim());
+        // Seule une URL qui porte l'id de la vidéo remplace le lien collé : un
+        // lien court mort mène à l'accueil TikTok, qui n'est pas un post.
+        return resolved !== null && isVideoKey(postKeyOf(resolved)) ? resolved : url;
+      }),
+    );
   },
 });
 

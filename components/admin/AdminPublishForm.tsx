@@ -18,6 +18,7 @@ import {
 } from "@/lib/post-url-account";
 import { useTranslations } from "next-intl";
 import { useConvexError } from "@/lib/use-convex-error";
+import { usePostLinkResolver } from "@/lib/use-post-link-resolver";
 
 /** Plateforme attendue par la mutation de publication (dérivée → toujours en phase). */
 type Plateforme =
@@ -104,6 +105,7 @@ export function AdminPublishForm({
   const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AdminPublishForm");
   const publish = useProjectMutation(api.assignments.confirmPublicationAsAdmin);
+  const resolveLinks = usePostLinkResolver();
   const [urls, setUrls] = useState<Record<string, string>>({});
   const today = todayLocal();
   const [dateStr, setDateStr] = useState<string>(today);
@@ -130,7 +132,7 @@ export function AdminPublishForm({
     try {
       await publish({
         id: assignmentId,
-        urls: payload,
+        urls: await resolveLinks.urls(payload),
         ...(publishedAt !== undefined ? { publishedAt } : {}),
         ...(allowBackdate ? { allowBackdate: true } : {}),
       });

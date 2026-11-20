@@ -83,6 +83,9 @@ async function upsertYouTubeSnapshot(
 ): Promise<{ action: "inserted" | "updated" | "skipped" }> {
   const pub = await ctx.db.get(args.publicationId);
   if (!pub) return { action: "skipped" };
+  // Lien en double (cf convex/postDuplicates) : la vidéo est relevée sur la
+  // publication qui la garde ; écrire ici la compterait deux fois.
+  if (pub.duplicateOf !== undefined) return { action: "skipped" };
   // Invariant metricSnapshots : capturedAt jamais antérieur à la publication.
   if (args.capturedAt < pub.datePubli) return { action: "skipped" };
 
@@ -187,7 +190,8 @@ export const listActiveYouTubePublications = internalQuery({
         (p) =>
           typeof p.postUrl === "string" &&
           p.postUrl.length > 0 &&
-          p.datePubli >= cutoff,
+          p.datePubli >= cutoff &&
+          p.duplicateOf === undefined,
       )
       .map((p) => ({
         _id: p._id,

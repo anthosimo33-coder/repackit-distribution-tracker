@@ -99,6 +99,8 @@ export const listEarlyCandidates = internalQuery({
       if (p.plateforme !== "TikTok" && p.plateforme !== "Instagram") continue;
       if (typeof p.postUrl !== "string" || p.postUrl.length === 0) continue;
       if (p.isWarmup === true) continue;
+      // Lien en double : la vidéo est relevée sur la publication gardée.
+      if (p.duplicateOf !== undefined) continue;
       const attempt = await ctx.db
         .query("earlyReadingAttempts")
         .withIndex("by_publication", (q) => q.eq("publicationId", p._id))
@@ -255,7 +257,7 @@ async function writeEarlyPass(
   for (const r of readings.map(stored)) {
     if (foreign.has(r.publicationId)) continue;
     const pub = await ctx.db.get(r.publicationId);
-    if (!pub) continue;
+    if (!pub || pub.duplicateOf !== undefined) continue;
     // Même invariant que metricSnapshots : pas de relevé avant la mise en ligne.
     if (r.capturedAt < r.postedAt) continue;
     const recent = await ctx.db

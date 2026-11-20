@@ -22,7 +22,7 @@
 
 import { effectiveFxRate } from "./currencyRate";
 import { payCutoffAt } from "./payWindow";
-import { isRemunerated } from "./remunerate";
+import { isRemunerated, payFlagsOfPublication } from "./remunerate";
 import type { Id } from "./_generated/dataModel";
 import type { PostFacturable, VideoFacturable } from "./viewsDaily";
 import type { WhopRevenueSummary } from "./whopRevenue";
@@ -202,6 +202,8 @@ export function videosFacturables(
       datePubli: number;
       isWarmup?: boolean;
       remunere?: boolean;
+      /** Lien en double (cf convex/postDuplicates) : ne paie rien. */
+      duplicateOf?: unknown;
       sparkAdLaunchedAt?: number;
     }
   >,
@@ -220,7 +222,7 @@ export function videosFacturables(
     for (const publicationId of ids) {
       const pub = publications.get(publicationId);
       if (pub === undefined) continue;
-      if (!isRemunerated({ isWarmup: pub.isWarmup === true, remunere: pub.remunere })) {
+      if (!isRemunerated(payFlagsOfPublication(pub))) {
         continue;
       }
       posts.push({

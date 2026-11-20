@@ -31,6 +31,7 @@ import {
   purgeUnreferencedImage,
 } from "./storageCleanup";
 import { ERR, err } from "./errorCodes";
+import { assertPostUrlNotLinked, storedPostKey } from "./postDuplicateGuard";
 import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
 
 const mecaniqueValidator = v.union(
@@ -330,6 +331,8 @@ export const createPublication = permissionMutation("tracker.manage")({
     for (const plateforme of args.plateformes) {
       const id = await ctx.db.insert("publications", {
         projectId: ctx.projectId,
+        // Brouillon : pas de lien, donc pas de vidéo — clé « calculée, vide ».
+        postKey: "",
         carouselId: args.carouselId,
         hookId: args.hookId,
         hookText: args.hookText,
@@ -470,6 +473,9 @@ export const createFromAssignment = internalMutation({
       // postUrl non vide → publication "publiée" de plein droit (KPIs, verdicts,
       // snapshots s'appliquent).
       postUrl: args.postUrl,
+      // La vidéo derrière le lien (cf convex/postDuplicateGuard). Un lien court
+      // TikTok a ici la clé de son adresse ; sa résolution la remplace.
+      postKey: storedPostKey(args.postUrl),
       // S3 — undefined (format) → champ omis ; objet (script) → join analytics.
       scriptCombo: args.scriptCombo,
     });
@@ -704,6 +710,20 @@ export const updateMetrics = permissionMutation("tracker.manage")({
     }
     if (sourceId !== undefined) {
       update.sourceId = normalizeSourceId(sourceId) || undefined;
+    }
+    // Lien posé ou changé : même garde qu'à la publication d'une mission — la
+    // vidéo ne s'attache qu'à une publication du projet — et la clé suit.
+    if (args.postUrl !== undefined && args.postUrl !== existing.postUrl) {
+      if (args.postUrl.length > 0) {
+        await assertPostUrlNotLinked(
+          ctx,
+          ctx.projectId,
+          args.postUrl,
+          existing.plateforme,
+          new Set([id as string]),
+        );
+      }
+      update.postKey = storedPostKey(args.postUrl);
     }
 
     await ctx.db.patch(id, update);
@@ -964,7 +984,7 @@ export const getPublicationPayFlags = permissionQuery("tracker.manage")({
  * ou une suppression les rendent faux ou orphelins — et sans tentative, la
  * nouvelle vidéo est relevée dès le passage suivant au lieu d'attendre 2 h.
  */
-async function deleteEarlyReadings(
+export async function deleteEarlyReadings(
   ctx: MutationCtx,
   publicationId: Id<"publications">,
 ): Promise<void> {
@@ -978,6 +998,36 @@ async function deleteEarlyReadings(
     .withIndex("by_publication", (q) => q.eq("publicationId", publicationId))
     .first();
   if (attempt) await ctx.db.delete(attempt._id);
+}
+
+/**
+ * Efface TOUT ce qui a été mesuré d'une publication : relevés (metricSnapshots),
+ * relevés rapides et dernière tentative. Rend les documents effacés (le journal
+ * MCP les garde en entier). N'écrit PAS les champs « latest » : l'appelant
+ * enchaîne `recomputeLatestMetrics`, qui les vide faute de relevé.
+ *
+ * Partagé par le re-ciblage d'un lien (`retrackPublication`) et le drapeau
+ * « lien en double » (convex/postDuplicates) : deux gestes qui disent « ces
+ * relevés ne sont pas ceux de cette publication ».
+ */
+export async function purgeMeasurements(
+  ctx: MutationCtx,
+  publicationId: Id<"publications">,
+): Promise<{ snapshots: Doc<"metricSnapshots">[]; earlyReadings: Doc<"earlyReadings">[] }> {
+  const snapshots = await ctx.db
+    .query("metricSnapshots")
+    .withIndex("by_publication_and_capturedAt", (q) =>
+      q.eq("publicationId", publicationId),
+    )
+    .collect();
+  for (const snap of snapshots) await ctx.db.delete(snap._id);
+  // Même raison pour les relevés rapides : ils décrivent la même vidéo.
+  const earlyReadings = await ctx.db
+    .query("earlyReadings")
+    .withIndex("by_publication_capturedAt", (q) => q.eq("publicationId", publicationId))
+    .collect();
+  await deleteEarlyReadings(ctx, publicationId);
+  return { snapshots, earlyReadings };
 }
 
 /**
@@ -1007,22 +1057,17 @@ export async function retrackPublication(
   pub: Doc<"publications">,
   url: string,
 ): Promise<{ deletedSnapshots: number; viewsBefore: number | undefined }> {
-  const snapshots = await ctx.db
-    .query("metricSnapshots")
-    .withIndex("by_publication_and_capturedAt", (q) =>
-      q.eq("publicationId", pub._id),
-    )
-    .collect();
-  for (const snap of snapshots) await ctx.db.delete(snap._id);
-  // Même raison pour les relevés rapides : ils décrivent l'ancienne vidéo.
-  await deleteEarlyReadings(ctx, pub._id);
+  const { snapshots } = await purgeMeasurements(ctx, pub._id);
 
   // Ce qui décrivait l'ANCIEN lien tombe avec lui : le drapeau « lien d'un
-  // autre compte » (c'est précisément le geste qui le répare) et les marqueurs
-  // d'échec — sans quoi le lien corrigé s'afficherait « Non mesuré — lien d'un
-  // autre compte » jusqu'à son premier relevé.
+  // autre compte » et le drapeau « lien en double » (c'est précisément le geste
+  // qui les répare) et les marqueurs d'échec — sans quoi le lien corrigé
+  // s'afficherait « Non mesuré — lien d'un autre compte » jusqu'à son premier
+  // relevé. La clé de post suit le nouveau lien.
   await ctx.db.patch(pub._id, {
     postUrl: url,
+    postKey: storedPostKey(url),
+    duplicateOf: undefined,
     foreignOwner: undefined,
     lastCollectFailureAt: undefined,
     collectFailureStreak: undefined,
@@ -1495,6 +1540,8 @@ export const duplicateCarousel = permissionMutation("legacy.access")({
 
     await ctx.db.insert("publications", {
       projectId: ctx.projectId,
+      // Duplicat = brouillon sans lien (cf createPublication).
+      postKey: "",
       carouselId: nextCarouselId,
       hookId: source.hookId,
       hookText: source.hookText,

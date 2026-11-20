@@ -186,7 +186,10 @@
     "publieEtPaye": "Published and paid ✓",
     "publie": "Published ✓",
     "lienDUnAutreCompte": "Link from another account (@{handle})",
-    "lienDUnAutreCompteAide": "{platform} attributes this post to @{handle}: no views are read until the link is fixed."
+    "lienDUnAutreCompteAide": "{platform} attributes this post to @{handle}: no views are read until the link is fixed.",
+    "lienEnDouble": "Link already attached to another assignment",
+    "lienEnDoubleDe": "Link already attached to another assignment ({creator})",
+    "lienEnDoubleAide": "This {platform} post belongs to another assignment: no views and no pay here until the link to this video's post is pasted with “Fix the link”."
   },
   "CorrectUrlButton": {
     "corrigerLeLien": "Fix the link",

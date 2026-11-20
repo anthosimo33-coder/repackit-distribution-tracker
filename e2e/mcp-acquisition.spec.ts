@@ -11,6 +11,13 @@ import { config } from "dotenv";
 
 config({ path: ".env.local" });
 
+/**
+ * Numéro de vidéo propre au processus : la clé d'un post TikTok est son ID, pas
+ * le @ du lien (convex/postDuplicateGuard). Deux créatrices ou deux missions
+ * avec le même id seraient la MÊME vidéo — et la seconde serait refusée.
+ */
+let videoSeq = 0;
+
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(convexUrl);
@@ -165,7 +172,7 @@ test.describe("Outil MCP acquisition", () => {
           const pub = await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
             projectId,
             id: lignes[i]._id,
-            urls: [{ platform: "TikTok", url: `https://www.tiktok.com/@${handle}_${ts}/video/74${ts}${i}` }],
+            urls: [{ platform: "TikTok", url: `https://www.tiktok.com/@${handle}_${ts}/video/74${ts}${++videoSeq}` }],
             publishedAt: ts - joursAvant * DAY,
             allowBackdate: true,
           });

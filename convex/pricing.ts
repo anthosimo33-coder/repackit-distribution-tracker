@@ -21,7 +21,7 @@ import {
   videoBonusLedger,
   type CarryRow,
 } from "./videoBonusCarry";
-import { isRemunerated, type RemunerationFlags } from "./remunerate";
+import { isRemunerated, payFlagsOfPublication, type RemunerationFlags } from "./remunerate";
 import { isBonusTierPost, isPromoPost } from "./viewCounters";
 import {
   aggregatePayWindow,
@@ -680,10 +680,8 @@ export async function assignmentViewsAndMetrics(
       now,
       adLaunchedAt,
     });
-    const flags = {
-      isWarmup: pub.isWarmup === true,
-      remunere: pub.remunere,
-    };
+    // Doublon de lien compris (payFlagsOfPublication) : il ne paie plus rien.
+    const flags = payFlagsOfPublication(pub);
     // Non mesuré ET rémunéré = payé sur une ignorance. On le compte pour le
     // dire ; le montant, lui, ne bouge pas (cf `unmeasuredPayablePosts`).
     if (isRemunerated(flags) && collectAvailability(pub) !== "measured") {
@@ -821,8 +819,7 @@ export async function payableViewsAsOf(
       .order("desc")
       .first();
     pubs.push({
-      isWarmup: pub.isWarmup === true,
-      remunere: pub.remunere,
+      ...payFlagsOfPublication(pub),
       views: Math.max(0, snap?.vues ?? 0),
     });
   }

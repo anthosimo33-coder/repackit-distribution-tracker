@@ -23,7 +23,8 @@ import { formatDayMonthFr } from "./dateFr";
 import { normalizeRemunere } from "./remunerate";
 import { isValidPostWindow } from "./postWindow";
 import { endOfParisDay } from "./missionOpsPlan";
-import { detectPostUrlPlatform, isAccountOnlyUrl } from "./postUrlShape";
+import { detectPostUrlPlatform, isAccountOnlyUrl, postKeyOf } from "./postUrlShape";
+import { assertPostUrlNotLinked } from "./postDuplicateGuard";
 import {
   isFormatAllowedOnPlatform,
   publicationPayContext,
@@ -54,6 +55,7 @@ import {
   assignmentPublishedAt,
   assignmentViewsAndMetrics,
   buildPricingSnapshotFor,
+  publicationOwnerAssignment,
   syncBonusUnlocks,
 } from "./pricing";
 import { markRushPublishedForAssignment } from "./rushes";
@@ -3948,6 +3950,19 @@ async function confirmPublicationCore(
     }
   }
 
+  // UN POST, UNE PUBLICATION (convex/postDuplicateGuard) : un lien dont la
+  // vidéo est déjà rattachée à une autre publication du projet est refusé —
+  // Naia avait collé le même reel sur sept missions, payées chacune. Seulement
+  // sur les cibles qu'on va publier : une cible déjà publiée est conservée telle
+  // quelle plus bas (idempotence).
+  for (const t of targets) {
+    if (t.publicationId !== undefined || t.publishedUrl !== undefined) continue;
+    const url = urlByPlatform.get(t.platform);
+    if (url !== undefined) {
+      await assertPostUrlNotLinked(ctx, ctx.projectId, url, t.platform);
+    }
+  }
+
   const now = Date.now();
   // Date de PUBLICATION RÉELLE : l'admin peut la corriger en secours (post publié
   // il y a X jours, lien collé aujourd'hui) → datePubli + suivi des vues + ANCRE de
@@ -4342,6 +4357,7 @@ export const addPublishedTarget = permissionMutation("review.manage")({
     }
     const { platform, format } = await assertTargetAddable(ctx, a, accountId);
     const clean = assertPostUrlShape(url, platform);
+    await assertPostUrlNotLinked(ctx, ctx.projectId, clean, platform);
 
     const now = Date.now();
     const releasedAt = assignmentPublishedAt(a);
@@ -4461,10 +4477,25 @@ export const correctPublishedUrl = permissionMutation("review.manage")({
     if (clean === target.publishedUrl) {
       return { ok: true as const, changed: false, deletedSnapshots: 0 };
     }
-
     const pub = target.publicationId
       ? await ctx.db.get(target.publicationId)
       : null;
+    // MÊME VIDÉO sous une autre forme (le lien court qu'elle avait collé, que
+    // l'écran résout désormais avant l'envoi) : rien à corriger. Re-cibler
+    // effacerait l'historique de la bonne vidéo pour le relever à nouveau.
+    const cleKey = postKeyOf(clean);
+    if (pub && cleKey !== null && cleKey === postKeyOf(pub.postUrl ?? "")) {
+      return { ok: true as const, changed: false, deletedSnapshots: 0 };
+    }
+    // Le bon lien ne doit pas être celui d'une AUTRE publication — sinon la
+    // correction recréerait le doublon qu'elle répare.
+    await assertPostUrlNotLinked(
+      ctx,
+      ctx.projectId,
+      clean,
+      platform,
+      new Set(target.publicationId ? [target.publicationId as string] : []),
+    );
     // Verrou de paie — porté par la PUBLICATION (c'est elle qui alimente le
     // montant). Une cible sans publication (format custom) n'a pas de vues,
     // donc rien à figer : le lien reste corrigeable.
@@ -4522,17 +4553,45 @@ export const getPublishedLinkFlags = permissionQuery("assignments.manage")({
   handler: async (
     ctx,
     { id },
-  ): Promise<{ platform: Plateforme; foreignOwner: string }[]> => {
+  ): Promise<
+    {
+      platform: Plateforme;
+      /** @ du vrai propriétaire si le relevé a prouvé le post à un autre compte. */
+      foreignOwner: string | null;
+      /**
+       * Lien EN DOUBLE (cf convex/postDuplicates) : la créatrice de la mission
+       * qui garde la vidéo (nom figé si sa fiche est supprimée, null si elle
+       * est introuvable). Absent = pas un doublon.
+       */
+      duplicateOf: { creatorName: string | null } | null;
+    }[]
+  > => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) return [];
     const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
     if (filterByCreatorScope([a], (x) => x.creatorId, scope).length === 0) return [];
-    const out: { platform: Plateforme; foreignOwner: string }[] = [];
+    const out: {
+      platform: Plateforme;
+      foreignOwner: string | null;
+      duplicateOf: { creatorName: string | null } | null;
+    }[] = [];
     for (const t of a.targets ?? []) {
       if (!t.publicationId) continue;
       const pub = await ctx.db.get(t.publicationId);
-      if (!pub || pub.projectId !== ctx.projectId || !pub.foreignOwner) continue;
-      out.push({ platform: t.platform, foreignOwner: pub.foreignOwner.username });
+      if (!pub || pub.projectId !== ctx.projectId) continue;
+      if (!pub.foreignOwner && !pub.duplicateOf) continue;
+      let duplicateOf: { creatorName: string | null } | null = null;
+      if (pub.duplicateOf) {
+        const keeper = await ctx.db.get(pub.duplicateOf.publicationId);
+        const owner = keeper ? await publicationOwnerAssignment(ctx, keeper) : null;
+        const creator = owner ? await ctx.db.get(owner.creatorId) : null;
+        duplicateOf = { creatorName: creator?.name ?? owner?.creatorNameSnapshot ?? null };
+      }
+      out.push({
+        platform: t.platform,
+        foreignOwner: pub.foreignOwner?.username ?? null,
+        duplicateOf,
+      });
     }
     return out;
   },

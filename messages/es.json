@@ -1476,6 +1476,7 @@
     "ERR_PERSON_NOT_FOUND": "Persona no encontrada.",
     "ERR_POPULATION_LOCKED": "No se puede cambiar la población de {name}: hay elementos vinculados ({comptes, plural, one {# cuenta} other {# cuentas}}, {publications, plural, one {# publicación} other {# publicaciones}}, {payments, plural, one {# línea de pago} other {# líneas de pago}}). Un creador que ya ha trabajado conserva su población: crea una ficha nueva si hace falta.",
     "ERR_PORTAL_ROLE_REJECTED": "Este espacio está reservado a otra población del proyecto.",
+    "ERR_POST_URL_ALREADY_LINKED": "Este enlace de {platform} ya pertenece a otra misión. Pega el enlace de la publicación de este vídeo.",
     "ERR_POST_URL_INVALID": "URL del post no válida para {platform} (se espera un enlace http(s)).",
     "ERR_POST_URL_IS_ACCOUNT": "La URL indicada para {platform} es un enlace de perfil, no de una publicación.",
     "ERR_POST_URL_MISSING": "Falta la URL para {platform}: todas las plataformas son obligatorias.",

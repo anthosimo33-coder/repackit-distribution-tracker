@@ -186,7 +186,10 @@
     "publieEtPaye": "Publié et payé ✓",
     "publie": "Publié ✓",
     "lienDUnAutreCompte": "Lien d'un autre compte (@{handle})",
-    "lienDUnAutreCompteAide": "{platform} attribue ce post à @{handle} : aucune vue n'est relevée tant que le lien n'est pas corrigé."
+    "lienDUnAutreCompteAide": "{platform} attribue ce post à @{handle} : aucune vue n'est relevée tant que le lien n'est pas corrigé.",
+    "lienEnDouble": "Lien déjà rattaché à une autre mission",
+    "lienEnDoubleDe": "Lien déjà rattaché à une autre mission ({creator})",
+    "lienEnDoubleAide": "Ce post {platform} est celui d'une autre mission : ni vues ni paie ici tant que le lien du post de cette vidéo n'est pas collé avec « Corriger le lien »."
   },
   "CorrectUrlButton": {
     "corrigerLeLien": "Corriger le lien",

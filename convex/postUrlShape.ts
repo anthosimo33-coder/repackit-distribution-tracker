@@ -25,7 +25,7 @@
  * une garde qui refuse ce qu'elle a prouvé faux protège la paie.
  */
 
-import { isTikTokShortlink } from "./postUrlDate";
+import { isTikTokShortlink, tiktokVideoIdFromUrl } from "./postUrlDate";
 import type { Plateforme } from "./platforms";
 
 /** Plateformes d'un lien de post. */
@@ -265,3 +265,59 @@ export function unmatchableUrlReason(
         : illisible;
   return reason.slice(0, 200);
 }
+
+// ─── Identité du post : la VIDÉO derrière le lien ────────────────────────────
+
+/**
+ * CLÉ DE LA VIDÉO derrière un lien de post — DÉFINITION UNIQUE du dépôt (la
+ * garde de saisie, le drapeau doublon, la désignation d'un post par l'outil MCP
+ * via `cleDeLienPost`) :
+ *   - TikTok : `tiktok:<id>` (`/video/`, `/photo/`, `/v/`) ;
+ *   - Instagram : `instagram:<shortcode>` (`/reel/`, `/reels/`, `/p/`, `/tv/`
+ *     confondus, avec ou sans `@` devant, paramètres de partage ignorés) ;
+ *   - YouTube : `youtube:<id>` (shorts, watch, youtu.be) ;
+ *   - sinon l'adresse sans paramètres, sans `www.` ni `/` final, en minuscules.
+ * `null` = pas un lien.
+ *
+ * ⚠️ Un LIEN COURT TikTok (`vm.`, `vt.`, `tiktok.com/t/`) n'a PAS d'id : sa clé
+ * est son adresse. Chaque « Partager » en fabrique un nouveau pour la même
+ * vidéo — 14 doublons sur 19 le 19/11/2026. Seule sa RÉSOLUTION (cf
+ * convex/postUrlResolution) rend la clé de la vidéo : c'est pourquoi la saisie
+ * résout avant d'écrire, et la résolution différée re-calcule la clé.
+ */
+export function postKeyOf(url: string): string | null {
+  const brut = url.trim();
+  const tiktok = tiktokVideoIdFromUrl(brut);
+  if (tiktok) return `tiktok:${tiktok}`;
+  let u: URL;
+  try {
+    u = new URL(brut);
+  } catch {
+    return null;
+  }
+  const hote = u.hostname.toLowerCase().replace(/^(www|m)\./, "");
+  if (hote === "instagram.com") {
+    const m = /^\/(?:[^/]+\/)?(?:reels?|p|tv)\/([A-Za-z0-9_-]+)/.exec(u.pathname);
+    if (m) return `instagram:${m[1]}`;
+  }
+  if (hote === "youtube.com" || hote === "youtu.be") {
+    const id =
+      hote === "youtu.be"
+        ? u.pathname.slice(1).split("/")[0]
+        : (/^\/shorts\/([A-Za-z0-9_-]+)/.exec(u.pathname)?.[1] ?? u.searchParams.get("v"));
+    if (id) return `youtube:${id}`;
+  }
+  return `${hote}${u.pathname.replace(/\/+$/, "")}`.toLowerCase();
+}
+
+/**
+ * La clé désigne-t-elle une VIDÉO par son identifiant (TikTok, Instagram,
+ * YouTube) — et non une simple adresse ? Une adresse peut être celle de
+ * l'accueil TikTok, où mène un lien court mort : deux liens morts ne sont pas
+ * la même vidéo. Seule une clé à identifiant prouve un doublon trouvé APRÈS
+ * coup (résolution d'un lien court).
+ */
+export function isVideoKey(key: string | null): boolean {
+  return key !== null && /^(?:tiktok|instagram|youtube):/.test(key);
+}
+

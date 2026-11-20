@@ -60,7 +60,10 @@ test.describe("Verdict suit la période sélectionnée", () => {
     const pubId = ids[0];
     await convex.mutation(api.publications.updateMetrics, {
       id: pubId,
-      postUrl: "https://www.tiktok.com/@test_e2e_verdict/video/1",
+      // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+      // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+      // refusé au run suivant, ou au retry de la CI.
+      postUrl: `https://www.tiktok.com/@test_e2e_verdict/video/6${Date.now()}`,
     });
     // J+1 : 5/1000 = 0,5 % → FOLD. J+7 : 40/1000 = 4 % → WINNER.
     await convex.mutation(api.metricSnapshots.createSnapshot, {

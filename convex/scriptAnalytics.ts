@@ -192,8 +192,13 @@ export async function gatherCampaignViews(
   // à la source unique des échantillons → les médianes PAR VARIABLE et la
   // médiane de CAMPAGNE qui leur sert de référence sont filtrées d'un seul coup
   // (sinon le biais warmup est compté deux fois). Helper unique.
-  const scriptPubs = pubs.filter((p) =>
-    passesWarmupMode(p.isWarmup === true, warmupMode),
+  // Lien en double (cf convex/postDuplicates) : la vidéo est le post d'une
+  // autre mission — souvent d'une AUTRE campagne (le viral de Kelly comptait
+  // aussi pour « Quand X dit Y »). Hors des échantillons, comme la chauffe.
+  const scriptPubs = pubs.filter(
+    (p) =>
+      p.duplicateOf === undefined &&
+      passesWarmupMode(p.isWarmup === true, warmupMode),
   );
 
   // Relevés des SEULES publications retenues, par publication. Tout leur

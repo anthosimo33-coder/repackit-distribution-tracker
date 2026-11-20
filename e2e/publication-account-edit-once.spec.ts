@@ -73,7 +73,10 @@ test.describe("Publication — modification compte (1 fois)", () => {
     // Publier (postUrl) pour activer la modification de compte.
     await convex.mutation(api.publications.updateMetrics, {
       id: ids[0],
-      postUrl: "https://www.tiktok.com/@x/video/1e2e",
+      // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+      // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+      // refusé au run suivant, ou au retry de la CI.
+      postUrl: `https://www.tiktok.com/@x/video/3${Date.now()}`,
     });
 
     async function openDetail() {

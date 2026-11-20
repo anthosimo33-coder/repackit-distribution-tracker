@@ -70,11 +70,14 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
 
     const tkId = await makeShort(
       "TikTok",
-      "https://www.tiktok.com/@e2e/video/7234567890123456789",
+      // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+      // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+      // refusé au run suivant, ou au retry de la CI.
+      `https://www.tiktok.com/@e2e/video/7${ts}`,
     );
     const igId = await makeShort(
       "Instagram",
-      "https://www.instagram.com/reel/Ce2eReel01/",
+      `https://www.instagram.com/reel/Ce2e${ts.toString(36)}/`,
     );
     const fbId = await makeShort(
       "Facebook",

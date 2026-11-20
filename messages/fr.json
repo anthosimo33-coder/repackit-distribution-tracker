@@ -1476,6 +1476,7 @@
     "ERR_PERSON_NOT_FOUND": "Personne introuvable.",
     "ERR_POPULATION_LOCKED": "Impossible de changer la population de {name} : des éléments y sont rattachés ({comptes, plural, one {# compte} other {# comptes}}, {publications, plural, one {# publication} other {# publications}}, {payments, plural, one {# ligne de paiement} other {# lignes de paiement}}). Un créateur qui a déjà travaillé garde sa population — crée une nouvelle fiche si besoin.",
     "ERR_PORTAL_ROLE_REJECTED": "Cet espace est réservé à une autre population du projet.",
+    "ERR_POST_URL_ALREADY_LINKED": "Ce lien {platform} est déjà celui d'une autre mission. Colle le lien du post de cette vidéo-ci.",
     "ERR_POST_URL_INVALID": "URL du post invalide pour {platform} (lien http(s) attendu).",
     "ERR_POST_URL_IS_ACCOUNT": "L'URL fournie pour {platform} est un lien de profil, pas un lien de publication.",
     "ERR_POST_URL_MISSING": "URL manquante pour {platform} — toutes les plateformes sont obligatoires.",

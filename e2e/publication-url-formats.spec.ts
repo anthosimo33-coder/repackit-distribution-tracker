@@ -114,7 +114,10 @@ test.describe("Publication — formes d'URL", () => {
     const published = await C.client.mutation(api.assignments.confirmPublication, {
       projectId: C.projectId,
       id: nominal._id,
-      urls: [{ platform: "TikTok", url: "https://www.tiktok.com/t/ZP8cDXdtT/" }],
+      // Code court PROPRE AU RUN : un vrai code mène à une vraie vidéo, déjà
+      // rattachée par le run d'avant dans la base e2e — et la garde « lien déjà
+      // rattaché à une autre mission » la refuserait, à juste titre.
+      urls: [{ platform: "TikTok", url: `https://www.tiktok.com/t/ZP${Date.now().toString(36)}/` }],
     });
     expect(published.alreadyPublished).toBe(false);
     const apres = await C.client.query(api.assignments.getMyAssignment, {
@@ -205,7 +208,9 @@ test.describe("Publication — formes d'URL", () => {
 
     // NON PROUVÉ FAUX — le lien court de l'app iOS. Aucun avertissement, et la
     // publication part : c'est exactement ce qui était refusé jusqu'ici.
-    await champ.fill("https://www.tiktok.com/t/ZP8cDXdtT/");
+    // Code court propre au run (cf le test serveur ci-dessus) : l'écran le
+    // résout avant l'envoi, et un vrai code mènerait à une vidéo déjà rattachée.
+    await champ.fill(`https://www.tiktok.com/t/ZP${ts.toString(36)}/`);
     await expect(inline).toBeHidden();
     await expect(page.getByTestId("url-unknown-TikTok")).toBeHidden();
     await confirmer.click();

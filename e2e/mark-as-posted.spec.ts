@@ -86,7 +86,10 @@ test.describe("Tracker — Marquer comme posté (raccourci 1-clic)", () => {
     await urlInput.fill("notvalid");
     await expect(confirmBtn).toBeDisabled();
 
-    await urlInput.fill("https://www.tiktok.com/@test/video/12345");
+    // Lien PROPRE AU RUN : un même post ne s'attache qu'à une publication (garde
+    // « lien déjà rattaché », convex/postDuplicateGuard) — un lien fixe serait
+    // refusé au run suivant, ou au retry de la CI.
+    await urlInput.fill(`https://www.tiktok.com/@test/video/2${Date.now()}`);
     await expect(confirmBtn).toBeEnabled();
 
     await confirmBtn.click();

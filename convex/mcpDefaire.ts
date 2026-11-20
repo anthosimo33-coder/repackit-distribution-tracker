@@ -190,6 +190,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
 export const NON_DEFAISABLE: Record<string, string> = {
   relancer: "l'email de relance est parti.",
   confirmer_publication: "une publication confirmée ne se dé-publie pas : un mauvais lien se corrige dans Assignments › la mission › « Corriger le lien ».",
+  marquer_doublons: "une mission marquée « lien à corriger » se répare dans Assignments › la mission › « Corriger le lien » ; les relevés effacés restent lisibles dans cette ligne du journal.",
   valider_video: "la créatrice a reçu la validation et peut publier.",
   refuser_video: "la créatrice a reçu le motif ; elle renverra une vidéo, à valider à son retour.",
   graduer_hook: "à défaire à l'écran : supprimer la copie dans les ouvertures prouvées, puis réactiver l'original.",

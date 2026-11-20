@@ -76,6 +76,8 @@ test.describe("Playbook — documenter_format", () => {
     const misEnLigne = ts - 30 * HOUR;
     const icpId = (await admin.mutation(api.icps.createIcp, { nom: `[E2E_TEST] Documenter ${ts}` })) as Id<"icps">;
     const creees: Id<"publications">[] = [];
+    /** Lien posé comme un doublon d'avant la garde (cf `poste`). */
+    let doublonAvantLaGarde: string | null = null;
     async function poste(compte: string, lien: string, vues: number) {
       const carouselId = await admin.query(api.publications.getNextCarouselId, {});
       const { ids } = await admin.mutation(api.publications.createPublication, {
@@ -96,7 +98,14 @@ test.describe("Playbook — documenter_format", () => {
       });
       const id = ids[0] as Id<"publications">;
       creees.push(id);
-      await admin.mutation(api.publications.updateMetrics, { id, postUrl: lien });
+      // La vidéo 1 sur un 2e compte est désormais REFUSÉE à la saisie
+      // (convex/postDuplicateGuard) : ce montage reproduit un doublon d'AVANT la
+      // garde, que le Playbook doit toujours ignorer — lien posé brut.
+      if (lien === doublonAvantLaGarde) {
+        await admin.mutation(api.postDuplicates.e2eLegacyPostUrl, { secret: E2E_SECRET, publicationId: id, url: lien });
+      } else {
+        await admin.mutation(api.publications.updateMetrics, { id, postUrl: lien });
+      }
       await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
         secret: E2E_SECRET,
         publicationId: id,
@@ -115,6 +124,7 @@ test.describe("Playbook — documenter_format", () => {
     const v1b: Post = { compte: compte("b"), vues: haut - 5_000, lien: `https://www.tiktok.com/${compte("b")}/video/${video1}?_r=1` };
     const v2: Post = { compte: compte("c"), vues: haut + 3, lien: `https://www.tiktok.com/${compte("c")}/video/${video2}` };
     const v3: Post = { compte: compte("d"), vues: 9_999, lien: `https://www.tiktok.com/${compte("d")}/video/${video3}` };
+    doublonAvantLaGarde = v1b.lien;
     for (const p of [v1a, v1b, v2, v3]) await poste(p.compte, p.lien, p.vues);
 
     const { appel, defaire } = await cle(page, nomCle);

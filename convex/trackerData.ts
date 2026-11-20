@@ -269,6 +269,10 @@ export function publishedAndMatches(
   refOf: (pubId: string) => AssignmentRef | undefined,
 ): boolean {
   if (!(typeof p.postUrl === "string" && p.postUrl.length > 0)) return false;
+  // Lien en double (cf convex/postDuplicates) : la vidéo est déjà le post d'une
+  // autre publication — la compter ici la compterait deux fois (liste, courbe,
+  // Rentabilité « Par jour », partage public, outil MCP `meilleurs_posts`).
+  if (p.duplicateOf !== undefined) return false;
   if (args.dateFrom !== undefined && p.datePubli < args.dateFrom) return false;
   if (args.dateTo !== undefined && p.datePubli > args.dateTo) return false;
   if (!matchesWarmupFilter(p.isWarmup === true, args.warmup ?? "exclude")) {
