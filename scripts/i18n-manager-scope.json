@@ -474,6 +474,7 @@
     "lib/money-by-currency.ts",
     "lib/notification-events.ts",
     "lib/percent.ts",
+    "lib/pilotage-parts.ts",
     "lib/pricing-shape.ts",
     "lib/profitability.ts",
     "lib/publication-status.ts",
