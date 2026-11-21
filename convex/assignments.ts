@@ -1663,6 +1663,27 @@ export const listAssignmentsPilotage = permissionQuery("assignments.manage")({
   handler: async (ctx) => (await listAssignmentsCore(ctx)).map(lignePilotage),
 });
 
+/**
+ * L'écran Missions en DEUX parts, fusionnées par le client
+ * (lib/pilotage-parts.fusionnerPilotage) : les missions créées depuis `depuis`
+ * (« recentes ») et les autres (« anciennes »). Mêmes lignes, même ordre que
+ * `listAssignmentsPilotage`.
+ *
+ * Pourquoi (facture Convex, 21/11/2026) : la liste entière (3,6 Mo lus sur
+ * Snytch, dont 2,6 Mo de missions) était relue à CHAQUE écriture d'une mission
+ * — 497 fois ce jour-là, 1,78 Go, pendant que le connecteur plaçait des
+ * calendriers (16 écritures → 37 relances en 37 min, une par onglet ouvert).
+ * Une écriture ne touche presque toujours que des missions récentes : seule la
+ * part récente est relue ; l'ancienne ne l'est que si une ancienne mission
+ * change. `depuis` est arrondi à la semaine par le client (même argument pour
+ * tous les onglets, une seule bascule par semaine).
+ */
+export const listAssignmentsPilotagePart = permissionQuery("assignments.manage")({
+  args: { depuis: v.number(), part: v.union(v.literal("recentes"), v.literal("anciennes")) },
+  handler: async (ctx, { depuis, part }) =>
+    (await listAssignmentsCore(ctx, { depuis, part })).map(lignePilotage),
+});
+
 type LigneAssignments = Awaited<ReturnType<typeof listAssignmentsCore>>[number];
 
 function lignePilotage(a: LigneAssignments) {
@@ -1688,6 +1709,9 @@ function lignePilotage(a: LigneAssignments) {
     postedAt: a.postedAt,
     managedByAdmin: a.managedByAdmin,
     submittedAt: a.submittedAt,
+    // L'ordre de la liste (création, plus récente d'abord) : la fusion des
+    // deux parts (listAssignmentsPilotagePart) le refait côté client.
+    createdAt: a.createdAt,
     // Les deux porteurs de la vidéo envoyée : l'écran demande à
     // `hasSubmittedVideo` (convex/assignmentVideo) si une suppression ou un
     // abandon toucherait une vidéo. ~1,6 Kio sur 780 lignes.
@@ -1709,18 +1733,41 @@ function lignePilotage(a: LigneAssignments) {
   };
 }
 
-/** Le calcul de l'écran Assignments — appelé par la query ci-dessus ET par l'outil MCP `planning`. */
-export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
+/**
+ * Le calcul de l'écran Assignments — appelé par les queries ci-dessus ET par
+ * l'outil MCP `planning`. `plage` : une seule des deux parts de l'écran (cf
+ * listAssignmentsPilotagePart), coupées sur la date de création du document.
+ */
+export async function listAssignmentsCore(
+  ctx: ProjectQueryCtx,
+  plage?: { depuis: number; part: "recentes" | "anciennes" },
+) {
     // Périmètre du manager : ses créatrices. Le calendrier et la table lisent
     // cette query, ils sont donc bornés tous les deux.
     const assignments = filterByCreatorScope(
       await ctx.db
         .query("assignments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .withIndex("by_project", (q) =>
+          plage === undefined
+            ? q.eq("projectId", ctx.projectId)
+            : plage.part === "recentes"
+              ? q.eq("projectId", ctx.projectId).gte("_creationTime", plage.depuis)
+              : q.eq("projectId", ctx.projectId).lt("_creationTime", plage.depuis),
+        )
         .collect(),
       (a) => a.creatorId,
       await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
     );
+    // Les briques que ces missions citent, et elles seules : le résumé du combo
+    // n'en lit que le libellé. Toutes celles du projet pesaient 0,82 Mo sur
+    // Snytch (1 232 briques, 786 citées) — relues à chaque écriture d'une mission.
+    const brickIds = new Set<Id<"scriptBricks">>();
+    for (const a of assignments) {
+      if (!a.scriptCombo) continue;
+      brickIds.add(a.scriptCombo.hookBrickId);
+      brickIds.add(a.scriptCombo.fluxBrickId);
+      brickIds.add(a.scriptCombo.ctaBrickId);
+    }
     const [
       creators,
       formats,
@@ -1746,10 +1793,10 @@ export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
           .query("scriptCampaigns")
           .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
           .collect(),
-        ctx.db
-          .query("scriptBricks")
-          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-          .collect(),
+        Promise.all([...brickIds].map((id) => ctx.db.get(id))).then((bs) =>
+          // Celles du projet seulement, comme la lecture par projet d'avant.
+          bs.filter((b): b is Doc<"scriptBricks"> => b !== null && b.projectId === ctx.projectId),
+        ),
         ctx.db
           .query("assetFolders")
           .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
