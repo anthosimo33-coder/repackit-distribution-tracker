@@ -331,7 +331,8 @@ async function notifsForNewVideos(
       "Notif activée sur cette campagne, mais aucune notif active : ajoutes-en une, ou désactive la notif.",
     );
   }
-  const rows = input.rows ?? (await projectAssignmentsForCooldown(ctx, input.campaign.projectId));
+  // Seules les missions de la campagne comptent (filtre ci-dessous) : on ne lit qu'elles.
+  const rows = input.rows ?? (await campaignAssignments(ctx, input.campaign.projectId, input.campaign._id));
   const usage = notifUsageOf(rows, {
     campaignId: input.campaign._id,
     creatorId: input.creatorId,
@@ -372,7 +373,8 @@ async function scenariosForNewVideos(
       { theme },
     );
   }
-  const rows = input.rows ?? (await projectAssignmentsForCooldown(ctx, input.campaign.projectId));
+  // Seules les missions de la campagne comptent (filtre ci-dessous) : on ne lit qu'elles.
+  const rows = input.rows ?? (await campaignAssignments(ctx, input.campaign.projectId, input.campaign._id));
   const usage = scenarioUsageOf(rows, {
     campaignId: input.campaign._id,
     creatorId: input.creatorId,
@@ -654,6 +656,38 @@ export async function projectAssignmentsForCooldown(
 }
 
 /**
+ * Les missions d'UNE campagne — tout ce que le TIRAGE d'un script de cette
+ * campagne a besoin de voir (délai entre deux usages, notif, conversation,
+ * dernier usage affiché), à la place de tout le projet.
+ *
+ * Exact, pas approché : le tirage ne compare que des CLÉS de combo, et une clé
+ * n'est faite que des briques de sa campagne (`comboKeyOf` ; le rejeu à
+ * l'identique recopie la campagne avec les briques). Une mission d'une autre
+ * campagne ne peut donc ni bloquer ni départager un script de celle-ci — vérifié
+ * sur l'export prod du 20/11/2026 : 1 898 missions, aucune clé hors de sa
+ * campagne. La notif et la conversation filtraient déjà sur la campagne.
+ *
+ * Pourquoi : `ecrireAssignation` (outils MCP `assigner_scripts`/`rejouer_script`)
+ * lisait 8,3 Mo par appel, tout le projet Snytch deux à trois fois ; 185 appels
+ * en une demi-journée de calendriers (21/11). Cf lib/tirage-lecture-campagne.test.
+ *
+ * ⚠️ Le message « le premier se libère le… » d'un jour sans script libre
+ * (`firstFreeSlotServer`) se calcule, lui, sur TOUT le projet, comme avant :
+ * il est relu à part, sur ce chemin d'erreur seulement.
+ */
+export async function campaignAssignments(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  campaignId: Id<"scriptCampaigns">,
+): Promise<Doc<"assignments">[]> {
+  const rows = await ctx.db
+    .query("assignments")
+    .withIndex("by_campaign", (q) => q.eq("scriptCombo.campaignId", campaignId))
+    .collect();
+  return rows.filter((a) => a.projectId === projectId);
+}
+
+/**
  * Les missions qu'un APERÇU de tirage lit, partagées entre plusieurs aperçus
  * d'UNE même query : celles du projet (cooldown) une fois, celles de chaque
  * créatrice (ce qu'elle a déjà fait) une fois.
@@ -671,16 +705,32 @@ export async function projectAssignmentsForCooldown(
  */
 export type LecturesApercu = {
   missionsDuProjet(): Promise<Doc<"assignments">[]>;
+  /** Celles d'une campagne (cf campaignAssignments) — tirées de celles du projet si elles sont déjà lues. */
+  missionsDeLaCampagne(campaignId: Id<"scriptCampaigns">): Promise<Doc<"assignments">[]>;
   missionsDe(creatorId: Id<"creators">): Promise<Doc<"assignments">[]>;
 };
 
 export function lecturesApercu(ctx: ProjectQueryCtx): LecturesApercu {
   let projet: Promise<Doc<"assignments">[]> | null = null;
+  const parCampagne = new Map<string, Promise<Doc<"assignments">[]>>();
   const parCreatrice = new Map<string, Promise<Doc<"assignments">[]>>();
   return {
     missionsDuProjet() {
       if (projet === null) projet = projectAssignmentsForCooldown(ctx, ctx.projectId);
       return projet;
+    },
+    missionsDeLaCampagne(campaignId) {
+      let lues = parCampagne.get(campaignId);
+      if (lues === undefined) {
+        // Le Pilote a déjà lu tout le projet : les mêmes lignes, dans le même
+        // ordre (`_creationTime`), sans relire la base.
+        lues =
+          projet !== null
+            ? projet.then((rows) => rows.filter((a) => a.scriptCombo?.campaignId === campaignId))
+            : campaignAssignments(ctx, ctx.projectId, campaignId);
+        parCampagne.set(campaignId, lues);
+      }
+      return lues;
     },
     missionsDe(creatorId) {
       let lues = parCreatrice.get(creatorId);
@@ -861,6 +911,7 @@ export async function previewCombosCore(
       campaign,
       creatorId: args.creatorId,
       count: args.videosPerCreator,
+      ...(args.conversationTheme?.trim() ? { rows: await lu.missionsDeLaCampagne(args.campaignId) } : {}),
     });
   } catch {
     conv = { scenarioIds: [], valeurs: [] };
@@ -881,7 +932,9 @@ export async function previewCombosCore(
     args.creatorId,
     args.targets.map((t) => t.platform),
   );
-  const projectRows = await lu.missionsDuProjet();
+  // Les missions de la campagne suffisent au délai ET au dernier usage affiché :
+  // ils ne regardent que des clés de cette campagne (cf campaignAssignments).
+  const projectRows = await lu.missionsDeLaCampagne(args.campaignId);
   const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
   const picked = pickForDates({
     combos: sansHooks(combos, options.hooksExclus),
@@ -1828,6 +1881,14 @@ export async function assignScriptCampaignCore(
   // que des briques que sa fiche remplit ({duree}, {lui}…), puis le texte est
   // rempli. Rejeu à l'identique : la conv de la source (son texte est déjà
   // rempli). Rejeu d'un script sans thème choisi : le thème de la conv source.
+  //
+  // Les missions de LA campagne (cf campaignAssignments), lues UNE fois pour la
+  // conversation, le délai, la trace des doublons et la notif — toutes avant la
+  // première insertion de cet appel, donc le même état. Un appelant qui enchaîne
+  // les appels (Pilote, expérience) passe `projectRows`, qu'il tient à jour.
+  let lignesLues: Promise<Doc<"assignments">[]> | null = null;
+  const missionsDeLaCampagne = () =>
+    (lignesLues ??= campaignAssignments(ctx, ctx.projectId, args.campaignId));
   const themeConversation =
     args.conversationTheme ??
     (replaySrc?.scenarioId ? (await ctx.db.get(replaySrc.scenarioId))?.theme : undefined);
@@ -1838,7 +1899,11 @@ export async function assignScriptCampaignCore(
         campaign,
         creatorId: args.creatorId,
         count: args.videosPerCreator,
-        ...(options.projectRows ? { rows: options.projectRows } : {}),
+        ...(options.projectRows
+          ? { rows: options.projectRows }
+          : themeConversation?.trim()
+            ? { rows: await missionsDeLaCampagne() }
+            : {}),
       });
   const fiche = ficheDuLot(conv.valeurs);
 
@@ -1902,28 +1967,38 @@ export async function assignScriptCampaignCore(
     // `cooldownDays` de la date visée est indisponible, quel que soit le
     // compte ou la créatrice — elle comprise. C'est la SEULE exclusion
     // automatique (0 jour = aucune) ; ce qu'elle a déjà fait ne fait que
-    // passer après ce qu'elle n'a jamais fait.
-    const projectRows = await projectAssignmentsForCooldown(
-      ctx,
-      ctx.projectId,
-    );
+    // passer après ce qu'elle n'a jamais fait. Les missions de la campagne
+    // suffisent : le délai ne bloque que des clés de cette campagne.
+    const lignesCampagne = await missionsDeLaCampagne();
     const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
+    // Le tirage s'arrête au premier jour épuisé : on le note, la date de
+    // libération se calcule après (elle relit tout le projet, cf plus bas).
+    const epuise: { le?: number } = {};
     picked = pickForDates({
       combos: sansHooks(combos, options.hooksExclus),
       derniers,
-      projectRows,
+      projectRows: lignesCampagne,
       postDates: args.postDates,
       count: args.videosPerCreator,
       cooldownDays,
       manualExclusions: args.excludedComboKeys,
       onExhausted: (targetAt) => {
-        // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
-        // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
-        // les dates suivantes déciderait du planning à la place de l'admin.
-        // On refuse en disant QUAND ça repasse.
-        if (targetAt === undefined) return;
-        const freeAt = firstFreeSlotServer(projectRows, targetAt, cooldownDays);
-        if (freeAt === null) return;
+        epuise.le = targetAt;
+      },
+    });
+    if (epuise.le !== undefined) {
+      // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
+      // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
+      // les dates suivantes déciderait du planning à la place de l'admin.
+      // On refuse en disant QUAND ça repasse — date calculée sur TOUT le
+      // projet, comme elle l'a toujours été : chemin d'erreur, lu à part.
+      const targetAt = epuise.le;
+      const freeAt = firstFreeSlotServer(
+        await projectAssignmentsForCooldown(ctx, ctx.projectId),
+        targetAt,
+        cooldownDays,
+      );
+      if (freeAt !== null) {
         throw err(
           ERR.NO_SCRIPT_FREE_THAT_DAY,
           `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
@@ -1934,8 +2009,8 @@ export async function assignScriptCampaignCore(
             `ou ajoute des briques à la campagne.`,
           { at: targetAt, days: cooldownDays, freeAt },
         );
-      },
-    });
+      }
+    }
     if (picked.length < args.videosPerCreator) {
       shortages.push({
         name: creator.name,
@@ -1954,7 +2029,13 @@ export async function assignScriptCampaignCore(
     const imposedKey = verbatimCombo
       ? verbatimCombo.comboKey
       : comboKeyOf(picked[0]);
-    const rows = options.projectRows ?? (await projectAssignmentsForCooldown(ctx, ctx.projectId));
+    // La clé imposée est faite des briques de SA campagne : celle de la source
+    // pour un rejeu à l'identique (il recopie sa campagne), sinon celle-ci.
+    const rows =
+      options.projectRows ??
+      (verbatimCombo && verbatimCombo.combo.campaignId !== args.campaignId
+        ? await campaignAssignments(ctx, ctx.projectId, verbatimCombo.combo.campaignId)
+        : await missionsDeLaCampagne());
     const imposedCooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
     for (let i = 0; i < picked.length; i++) {
       const targetAt = args.postDates?.[i];
@@ -1991,7 +2072,7 @@ export async function assignScriptCampaignCore(
           bricks: allBricks,
           creatorId: args.creatorId,
           count: picked.length,
-          ...(options.projectRows ? { rows: options.projectRows } : {}),
+          rows: options.projectRows ?? (await missionsDeLaCampagne()),
         });
   // La conversation de chaque vidéo, tirée plus haut (rejeu à l'identique :
   // celle de la source).
