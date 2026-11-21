@@ -189,6 +189,12 @@ async function costByMarket(
    * comparent ensuite des montants dans une seule devise.
    */
   toReference: PayFxProject | null,
+  /**
+   * Les publications du projet, lues UNE fois par l'appelant : il en a besoin
+   * lui aussi (fraîcheur du relevé), et les relire ici coûtait 3,1 Mo de plus
+   * par appel sur Snytch (2026-11-20).
+   */
+  publications: readonly Doc<"publications">[],
 ): Promise<{
   parPays: Map<string, MarketCostAcc>;
   parMois: Map<string, number>;
@@ -202,10 +208,6 @@ async function costByMarket(
   const paysDuCompte = new Map<string, string | null>(
     comptes.map((c) => [c._id as string, c.targetCountry ?? null]),
   );
-  const publications = await ctx.db
-    .query("publications")
-    .withIndex("by_project", (q) => q.eq("projectId", projectId))
-    .collect();
   const vuesDeLaPubli = new Map<string, number>(
     publications.map((p) => [p._id as string, p.vuesLatest ?? 0]),
   );
@@ -213,6 +215,11 @@ async function costByMarket(
   // Vues payables / promo payées de chaque vidéo : le même calcul que la paie,
   // partagé sur la query (publications préchargées).
   const vuesCache = newViewsCache(publiParId);
+  // Le moteur, lui, recevait `undefined` : il relisait alors chaque publication
+  // par un `db.get` (toutes, 3,1 Mo sur Snytch le 2026-11-20). Un cache À LUI —
+  // les mêmes publications préchargées, sa propre mémoire de vues, comme la
+  // Rentabilité — et rien d'autre ne change.
+  const moteurCache = newViewsCache(publiParId);
 
   // Les créatrices se lisent dans ce qui COÛTE, pas dans la table des fiches :
   // une créatrice payée puis supprimée n'a plus de fiche, mais l'argent versé
@@ -399,7 +406,7 @@ async function costByMarket(
         month,
         new Set(),
         monthKeyParis,
-        undefined,
+        moteurCache,
         sources,
         parisMonthEndMs(month),
         settledViewsOf,
@@ -682,6 +689,13 @@ export async function getMarketPnlCore(
       );
     }
 
+    // Les publications du projet, lues une fois : le coût par marché ET la
+    // fraîcheur du relevé (plus bas) en ont besoin.
+    const publications = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+
     // ── Coût par MARCHÉ VISÉ ──────────────────────────────────────────────────
     const { parPays: couts, parMois: coutParMois } = await costByMarket(
       ctx,
@@ -689,6 +703,7 @@ export async function getMarketPnlCore(
       from,
       to,
       project,
+      publications,
     );
 
     // ── MATRICE PLAN × PAYS ───────────────────────────────────────────────
@@ -873,10 +888,6 @@ export async function getMarketPnlCore(
     // ── Fraîcheur du relevé — condition de lecture de la colonne coût ─────────
     // Le CPM d'une vidéo court tant que le relevé lui ajoute des vues : sans
     // cette ligne, un coût non mesuré se lit comme un coût faible.
-    const publications = await ctx.db
-      .query("publications")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
     const dansLaPeriode = publications.filter(
       (p) => p.datePubli >= from && p.datePubli <= to,
     );

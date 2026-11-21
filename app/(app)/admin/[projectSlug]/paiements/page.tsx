@@ -245,6 +245,9 @@ function PaiementsPageContenu() {
       creatorId: p.creatorId,
       cycleIndex: p.cycleIndex,
       creatorName: p.creatorName,
+      // Le montant MONTRÉ : la mutation refuse de geler un autre chiffre (cf
+      // convex/payments markCyclePaid — l'écran lit un pré-calcul).
+      totalDue: p.totalDue,
     }));
     if (targets.length === 0) return;
     setBulkBusy(true);
@@ -253,13 +256,22 @@ function PaiementsPageContenu() {
     let ok = 0;
     const failedKeys: string[] = [];
     const failedNames: string[] = [];
+    const changedNames: string[] = [];
     for (const t of targets) {
       try {
-        await markCyclePaid({
+        const r = await markCyclePaid({
           creatorId: t.creatorId,
           cycleIndex: t.cycleIndex,
+          expectedTotalDue: t.totalDue,
         });
-        ok++;
+        if (r.ok) {
+          ok++;
+        } else {
+          // Montant changé depuis l'affichage : rien n'est payé, le cycle reste
+          // sélectionné et l'écran montre déjà le nouveau montant.
+          failedKeys.push(t.key);
+          changedNames.push(t.creatorName);
+        }
       } catch {
         // Cas partiel : on continue, l'échec n'annule pas les cycles déjà passés.
         failedKeys.push(t.key);
@@ -274,6 +286,13 @@ function PaiementsPageContenu() {
     if (ok > 0) {
       toast.success(
         `${ok} cycle${ok > 1 ? "s" : ""} marqué${ok > 1 ? "s" : ""} payé${ok > 1 ? "s" : ""}.`,
+      );
+    }
+    if (changedNames.length > 0) {
+      toast.error(
+        `Montant changé depuis l'affichage, rien n'a été payé pour : ${changedNames
+          .slice(0, 3)
+          .join(", ")}${changedNames.length > 3 ? "…" : ""}. Vérifiez les nouveaux montants puis relancez.`,
       );
     }
     if (failedNames.length > 0) {
@@ -932,8 +951,19 @@ function CycleRow({
   async function onMarkPaid() {
     setBusy(true);
     try {
-      await markCyclePaid({ creatorId: p.creatorId, cycleIndex: p.cycleIndex });
-      toast.success("Cycle marqué payé.");
+      const r = await markCyclePaid({
+        creatorId: p.creatorId,
+        cycleIndex: p.cycleIndex,
+        // Le montant MONTRÉ : la mutation refuse de geler un autre chiffre.
+        expectedTotalDue: p.totalDue,
+      });
+      if (r.ok) {
+        toast.success("Cycle marqué payé.");
+      } else if (r.amountChanged) {
+        toast.error(
+          `Rien n'a été payé : ce cycle affichait ${formatMoney(r.amountChanged.seen, currency)}, il est dû ${formatMoney(r.amountChanged.current, currency)} maintenant. L'écran est à jour, vérifiez puis recommencez.`,
+        );
+      }
     } catch (e) {
       toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {

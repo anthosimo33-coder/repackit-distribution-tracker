@@ -218,29 +218,20 @@ crons.hourly(
   {},
 );
 
-// CLASSEMENT DU CYCLE PRÉ-CALCULÉ — toutes les 30 minutes (10 au départ : la
-// mesure du 2026-09-20 a montré que le recalcul lui-même était devenu le 1er
-// poste de lecture, 363 MB/jour). Le portail lit le
-// résultat (leaderboardCache) au lieu de recalculer tout le projet à chaque
-// affichage : c'était 45 % de la facture Convex (2026-09-15). Intervalle, pas
-// heure fixe : c'est ce qui borne le retard du portail, quel que soit ce qui a
-// fait bouger un montant (relevé, publication, barème, bascule de cycle).
-// N'écrit rien si le classement n'a pas changé. Cf convex/leaderboardCache.ts.
-crons.interval(
-  "leaderboard-cache-refresh",
-  { minutes: 30 },
-  internal.leaderboardCache.refreshAll,
-  {},
-);
-
-// ACCUEIL ADMIN PRÉ-CALCULÉ (décisions + total dû) — toutes les 30 minutes,
-// même recette et même cadence que le classement ci-dessus. Ces deux vues sont
-// montées sur l'accueil admin et relisaient tout le projet à chaque écriture de
-// la journée. N'écrit rien si le résultat n'a pas changé.
-// Cf convex/dashboardCache.ts.
+// ACCUEIL ADMIN PRÉ-CALCULÉ (décisions + total dû), CLASSEMENT DU PORTAIL et
+// ÉCRAN PAIEMENTS (lignes + carte Rentabilité) — toutes les HEURES (30 min
+// jusqu'au 2026-11-20 : le fondateur a choisi l'heure pour la facture, ~0,6 Go
+// de lectures en moins par jour ; une mutation d'argent, elle, fait recalculer
+// la paie dans les 20 s, cf `invalidatePayCaches`). Ces vues
+// relisaient tout le projet à chaque affichage et à chaque écriture de la
+// journée. Le total dû et le classement sortent d'UN passage de paie (ils
+// avaient chacun leur cron jusqu'au 2026-11-20). Intervalle, pas heure fixe :
+// c'est ce qui borne leur retard, quel que soit ce qui a fait bouger un montant
+// (relevé, publication, barème, bascule de cycle). N'écrit rien si le résultat
+// n'a pas changé. Cf convex/dashboardCache.ts, convex/leaderboardCache.ts.
 crons.interval(
   "admin-dashboard-cache-refresh",
-  { minutes: 30 },
+  { minutes: 60 },
   internal.dashboardCache.refreshAll,
   {},
 );

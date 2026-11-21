@@ -40,7 +40,7 @@ import { resolveCreatorKind } from "./roles";
 import { buildPricingSnapshot, buildPricingSnapshotFor, type PricingSnapshot } from "./pricing";
 import { creatorPayCurrency, pricingPayCurrency } from "./creatorPayCurrency";
 import { resolvePayCurrency } from "./payCurrency";
-import { invalidateDashboardCache } from "./dashboardCache";
+import { invalidatePayCaches } from "./dashboardCache";
 import { parisDayOf } from "./managerCpm";
 import {
   classerVideos,
@@ -189,7 +189,7 @@ export async function changerBaremeCore(
     changements.push({ assignmentId: x.a._id, avant: x.a.pricingSnapshot!, apres });
   }
   // Le total dû de l'accueil admin est un pré-calcul : il vient de changer.
-  await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+  await invalidatePayCaches(ctx, ctx.projectId);
   return { plan, changements };
 }
 
@@ -218,7 +218,7 @@ export async function restaurerBaremesCore(
     if (payeesDepuis > 0) return { refus: `${payeesDepuis} vidéo(s) sont dans un cycle payé depuis : leur montant est gelé` };
   }
   for (const l of lignes) await ctx.db.patch(l.assignmentId, { pricingSnapshot: l.avant });
-  await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
+  await invalidatePayCaches(ctx, ctx.projectId);
   return { restaurees: lignes.length };
 }
 

@@ -528,6 +528,12 @@ const ETAPES: Record<TablePurgee, Etape> = {
   dashboardCache: etape((ctx, pid, n) =>
     ctx.db.query("dashboardCache").withIndex("by_project_key", (q) => q.eq("projectId", pid)).take(n),
   ),
+  paymentRowsCache: etape((ctx, pid, n) =>
+    ctx.db.query("paymentRowsCache").withIndex("by_project_part", (q) => q.eq("projectId", pid)).take(n),
+  ),
+  payCacheEpochs: etape((ctx, pid, n) =>
+    ctx.db.query("payCacheEpochs").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   posthogCache: etape((ctx, pid, n) =>
     ctx.db.query("posthogCache").withIndex("by_project_key", (q) => q.eq("projectId", pid)).take(n),
   ),

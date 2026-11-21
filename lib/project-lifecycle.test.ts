@@ -63,9 +63,14 @@ describe("suppression d'un projet — aucune table oubliée", () => {
 
   it("les comptes partent en premier et les caches en dernier (relevés en vol)", () => {
     expect(TABLES_PURGEES[0]).toBe("comptes");
-    expect(TABLES_PURGEES.slice(-4)).toEqual([
+    // Les caches, que les crons et les recalculs planifiés réécrivent pendant
+    // la purge — dont les lignes de l'écran Paiements et le compteur
+    // d'invalidations de la paie (2026-11-20).
+    expect(TABLES_PURGEES.slice(-6)).toEqual([
       "leaderboardCache",
       "dashboardCache",
+      "paymentRowsCache",
+      "payCacheEpochs",
       "posthogCache",
       "posthogWindowCache",
     ]);

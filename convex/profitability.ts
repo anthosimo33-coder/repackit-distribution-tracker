@@ -4,7 +4,8 @@ import {
   type ProjectQueryCtx,
 } from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import { internalQuery, type QueryCtx } from "./_generated/server";
+import { profitCostsKey, readDashboardCache, readPayEpoch } from "./dashboardCache";
 import {
   computeLivePricingBreakdown,
   loadCreatorPayrollSources,
@@ -60,6 +61,9 @@ import type { PayFxProject } from "./payCurrency";
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Ce que le coût lit : la base et le projet — pas l'appelant (le cron n'en a pas). */
+type ProjectReadCtx = QueryCtx & { projectId: Id<"projects"> };
 
 /**
  * Coût créateurs d'UN créateur, ventilé par mois de publication (EUROPE/PARIS,
@@ -383,7 +387,7 @@ async function loadRevenue(
  * au lieu de relire celles de chaque créatrice (même ensemble, même ordre :
  * les deux index ne portent qu'un champ, donc l'ordre de création).
  */
-async function projectCostCreators(ctx: ProjectQueryCtx): Promise<{
+async function projectCostCreators(ctx: ProjectReadCtx): Promise<{
   creatorIds: Id<"creators">[];
   assignmentsOf: Map<Id<"creators">, Doc<"assignments">[]>;
 }> {
@@ -456,7 +460,7 @@ async function loadBase(
 }
 
 async function loadCreatorsPart(
-  ctx: ProjectQueryCtx,
+  ctx: ProjectReadCtx,
   project: Doc<"projects">,
   creatorIds: readonly Id<"creators">[],
   projectPubs: ProjectPubs,
@@ -500,7 +504,7 @@ async function loadCreatorsPart(
  * une transaction.
  */
 async function loadCosts(
-  ctx: ProjectQueryCtx,
+  ctx: ProjectReadCtx,
   project: Doc<"projects">,
   projectPubs: ProjectPubs,
   withVideos: boolean,
@@ -544,8 +548,52 @@ export const getProfitabilityCosts = permissionQuery("business.read")({
   handler: async (ctx, { lot, lots }): Promise<ProfitabilityCosts | null> => {
     const project = await ctx.db.get(ctx.projectId);
     if (project === null || project.whop === undefined) return null;
-    const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
-    return loadCosts(ctx, project, projectPubs, false, { lot, lots });
+    // LU DANS LE CACHE (convex/dashboardCache, recalculé toutes les heures,
+    // supprimé par chaque mutation d'argent) : le calcul relisait toutes les
+    // publications et toutes les assignations du projet à chaque appel, et se
+    // relançait à chaque écriture de l'une d'elles tant que l'écran Paiements
+    // était ouvert — 1,46 Go le 2026-11-19. Sans row (cache invalidé, lot que
+    // le cron ne range pas), calcul en direct : la même fonction.
+    const key = profitCostsKey(lot, lots);
+    const cached =
+      key === null ? null : await readDashboardCache(ctx, ctx.projectId, key);
+    if (cached !== null) return JSON.parse(cached) as ProfitabilityCosts;
+    return profitabilityCostsLive(ctx, project, lot, lots);
+  },
+});
+
+/** Le calcul de `getProfitabilityCosts`, sans cache — celui que le cron range. */
+async function profitabilityCostsLive(
+  ctx: ProjectReadCtx,
+  project: Doc<"projects">,
+  lot: number,
+  lots: number,
+): Promise<ProfitabilityCosts> {
+  const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
+  return loadCosts(ctx, project, projectPubs, false, { lot, lots });
+}
+
+/**
+ * Cron (convex/dashboardCache) : le JSON d'un lot de la carte, ou `null` pour
+ * un projet sans Whop — la carte n'y affiche rien et la query ne lit rien.
+ */
+export const computeCostsJson = internalQuery({
+  args: { projectId: v.id("projects"), lot: v.number(), lots: v.number() },
+  handler: async (
+    ctx,
+    { projectId, lot, lots },
+  ): Promise<{ json: string; epoch: number } | null> => {
+    const project = await ctx.db.get(projectId);
+    if (project === null || project.whop === undefined) return null;
+    // Le compteur d'invalidations, lu AVEC le calcul : une mutation d'argent
+    // passée entre les deux empêche de ranger un coût d'avant elle.
+    const epoch = await readPayEpoch(ctx, projectId);
+    return {
+      json: JSON.stringify(
+        await profitabilityCostsLive({ ...ctx, projectId }, project, lot, lots),
+      ),
+      epoch,
+    };
   },
 });
 

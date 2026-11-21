@@ -92,6 +92,8 @@ export const TABLES_PURGEES = [
   "syncMarkers",
   "leaderboardCache",
   "dashboardCache",
+  "paymentRowsCache",
+  "payCacheEpochs",
   "posthogCache",
   "posthogWindowCache",
 ] as const;

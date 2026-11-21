@@ -286,12 +286,21 @@ export const getAttribution = permissionQuery("business.read")({
 export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<AttributionResult> {
     const project = await ctx.db.get(ctx.projectId);
 
-    const assignments = (
-      await ctx.db
-        .query("assignments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter(isCostBearing);
+    const projectAssignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const assignments = projectAssignments.filter(isCostBearing);
+    // Les assignations de CHAQUE créatrice, prises dans la lecture du projet :
+    // ses sources de paie (plus bas) les relisaient par créatrice — le même
+    // ensemble, dans le même ordre de création, 2,6 Mo de plus par appel sur
+    // Snytch le 2026-11-20.
+    const assignmentsOf = new Map<string, Doc<"assignments">[]>();
+    for (const a of projectAssignments) {
+      const arr = assignmentsOf.get(a.creatorId as string);
+      if (arr) arr.push(a);
+      else assignmentsOf.set(a.creatorId as string, [a]);
+    }
 
     const [creators, formats] = await Promise.all([
       ctx.db
@@ -334,9 +343,8 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       }
     }
 
-    const viewsCache = newViewsCache(
-      await loadProjectPublications(ctx, ctx.projectId),
-    );
+    const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
+    const viewsCache = newViewsCache(projectPubs);
     // Lectures PAR CRÉATRICE (assignations, paliers, victoires de défi, et ses
     // rows `payments` pour l'assiette gelée) : elles ne dépendent pas du mois,
     // donc une seule fois par créatrice pour TOUS ses mois — sans ça,
@@ -350,7 +358,12 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       const cached = inputsByCreator.get(creatorId as string);
       if (cached) return cached;
       const [sources, { settledViewsOf, settledVideoBonusOf }] = await Promise.all([
-        loadCreatorPayrollSources(ctx, ctx.projectId, creatorId),
+        loadCreatorPayrollSources(
+          ctx,
+          ctx.projectId,
+          creatorId,
+          assignmentsOf.get(creatorId as string) ?? [],
+        ),
         // ─── CE QUI EST DÉJÀ PAYÉ NE BOUGE PLUS ───────────────────────────────
         // Une vidéo dont le cycle est réglé coûte ce qu'on a versé, pas ce que
         // ses vues du jour vaudraient : la MÊME assiette gelée que la
@@ -444,14 +457,9 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
     //      cache ci-dessous les partage sur toute la durée de la query.
     // Le coût croît avec le nombre de publications (~20/jour) : sans ça, l'écran
     // se recasse tout seul dans quelques jours.
-    const pubById = new Map(
-      (
-        await ctx.db
-          .query("publications")
-          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-          .collect()
-      ).map((p) => [p._id as string, p]),
-    );
+    // Les publications déjà lues pour le cache de vues : les relire coûtait
+    // 3,1 Mo de plus par appel sur Snytch (2026-11-20).
+    const pubById = projectPubs;
 
     const rows: AttributionRow[] = [];
     for (const a of assignments) {
@@ -2229,9 +2237,22 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
     const fiabProject = await ctx.db.get(ctx.projectId);
     // Un seul cache pour TOUTE la boucle : sans lui, cette query échouait sur la
     // limite d'opérations Convex (prod du 2026-09-06).
-    const cyclesViewsCache = newViewsCache(
-      await loadProjectPublications(ctx, ctx.projectId),
-    );
+    const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
+    const cyclesViewsCache = newViewsCache(projectPubs);
+    // Les assignations du projet, lues UNE fois : les cycles de chaque
+    // créatrice et la couverture du calendrier (plus bas) en ont besoin. Elles
+    // étaient lues deux fois — par créatrice ici, par projet là-bas (2,1 Mo de
+    // plus par appel sur Snytch le 2026-11-20).
+    const projectAssignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const assignmentsOf = new Map<string, Doc<"assignments">[]>();
+    for (const a of projectAssignments) {
+      const arr = assignmentsOf.get(a.creatorId as string);
+      if (arr) arr.push(a);
+      else assignmentsOf.set(a.creatorId as string, [a]);
+    }
     for (const cre of allCreators) {
       const cycles = await cyclePaymentsForCreator(
         ctx,
@@ -2239,6 +2260,8 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
         cre._id,
         Date.now(),
         cyclesViewsCache,
+        undefined,
+        assignmentsOf.get(cre._id as string) ?? [],
       );
       let touched = false;
       for (const cy of cycles) {
@@ -2561,13 +2584,10 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
       };
     }
 
-    // Scraping (vues Jarvia) : dernier snapshot relevé sur une publication.
-    const publications = await ctx.db
-      .query("publications")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // Scraping (vues Jarvia) : dernier snapshot relevé sur une publication —
+    // celles déjà lues pour les cycles de paie, pas une seconde lecture.
     let scrapingSyncMs: number | null = null;
-    for (const p of publications) {
+    for (const p of projectPubs.values()) {
       if (p.latestSnapshotAt !== undefined) {
         scrapingSyncMs = Math.max(scrapingSyncMs ?? 0, p.latestSnapshotAt);
       }
@@ -2581,12 +2601,7 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
     // ⚠️ INDÉPENDANT de PostHog : ce contrôle porte sur des données du projet, il
     // doit s'afficher même sur un projet sans PostHog configuré.
     // Les missions abandonnées ne sont pas des livrables à planifier.
-    const tousAssignments = (
-      await ctx.db
-        .query("assignments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter(isOnPublicationCalendar);
+    const tousAssignments = projectAssignments.filter(isOnPublicationCalendar);
     const planifies = tousAssignments.filter(
       (a) => a.postDate !== undefined,
     ).length;
