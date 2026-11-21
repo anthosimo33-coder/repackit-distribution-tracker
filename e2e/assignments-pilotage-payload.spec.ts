@@ -5,6 +5,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { fusionnerPilotage } from "../lib/pilotage-parts";
 
 config({ path: ".env.local" });
 
@@ -131,6 +132,18 @@ test.describe("Écran Missions — liste légère", () => {
     expect(pilotage.map((a) => a._id)).toEqual(
       (await admin.query(api.assignments.listAssignments, {})).map((a) => a._id),
     );
+
+    // L'écran lit la liste en DEUX parts (récentes / anciennes, coupées sur la
+    // création du document) : fusionnées, elles redonnent la liste, dans l'ordre.
+    // Coupure entre la 1re et la 2e mission semée : chaque part en a.
+    const coupure = (
+      await admin.query(api.assignments.listAssignments, {})
+    ).find((a) => a._id === other._id)!._creationTime;
+    const recentes = await admin.query(api.assignments.listAssignmentsPilotagePart, { depuis: coupure, part: "recentes" });
+    const anciennes = await admin.query(api.assignments.listAssignmentsPilotagePart, { depuis: coupure, part: "anciennes" });
+    expect(recentes.some((a) => a._id === other._id)).toBe(true);
+    expect(anciennes.some((a) => a._id === m._id)).toBe(true);
+    expect(fusionnerPilotage(recentes, anciennes)).toEqual(pilotage);
 
     // Le combo, à la demande : exactement celui de la ligne complète.
     expect(await admin.query(api.assignments.getAssignmentCombo, { id: m._id })).toEqual(

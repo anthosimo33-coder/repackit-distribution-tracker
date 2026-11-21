@@ -99,6 +99,7 @@ import {
 } from "@/lib/assignment-campaign-filter";
 import { matchesSearch, searchTerms } from "@/lib/assignment-search";
 import { buildCreatorOptions } from "@/lib/assignment-creator-filter";
+import { debutDesMissionsRecentes, fusionnerPilotage } from "@/lib/pilotage-parts";
 import {
   buildCountryOptions,
   matchesCountryFilter,
@@ -163,7 +164,15 @@ function AssignmentsPageInner() {
   const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.assignments.AssignmentsPageInner");
-  const assignments = useProjectQuery(api.assignments.listAssignmentsPilotage, {});
+  // La liste en deux parts (cf lib/pilotage-parts) : une écriture ne relance
+  // que la part de la mission touchée, presque toujours la récente.
+  const [depuis] = useState(() => debutDesMissionsRecentes(Date.now()));
+  const recentes = useProjectQuery(api.assignments.listAssignmentsPilotagePart, { depuis, part: "recentes" });
+  const anciennes = useProjectQuery(api.assignments.listAssignmentsPilotagePart, { depuis, part: "anciennes" });
+  const assignments = useMemo(
+    () => (recentes === undefined || anciennes === undefined ? undefined : fusionnerPilotage(recentes, anciennes)),
+    [recentes, anciennes],
+  );
   const projectSlug = useProject().project.slug;
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
   // « en retard »). Impure au render sinon (cf react-hooks/purity, comme le
