@@ -1,19 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   COUNTRY_CODES,
-  TREND_COUNTRY_CODES,
   countryFlag,
   countryLabel,
   countryName,
 } from "./countries";
-import {
-  SUPPORTED_COUNTRIES,
-  TREND_COUNTRIES,
-  assertCountry,
-} from "../convex/countries";
+import { SUPPORTED_COUNTRIES } from "../convex/countries";
 
 /**
- * DEUX LISTES DUPLIQUÉES, ET C'EST LA RÈGLE A6 QUI L'IMPOSE : un module
+ * UNE LISTE DUPLIQUÉE, ET C'EST LA RÈGLE A6 QUI L'IMPOSE : un module
  * `convex/` ne peut pas importer `lib/`. Le seul filet possible est donc un
  * test — celui-ci. Sans lui, ajouter un pays côté serveur sans l'ajouter côté
  * écran donnerait un pays validé mais introuvable, et l'inverse un pays
@@ -23,23 +18,6 @@ describe("listes de pays — serveur et écran en phase", () => {
   it("les 250 codes du PAYS CIBLÉ sont les mêmes des deux côtés", () => {
     expect([...COUNTRY_CODES]).toEqual([...SUPPORTED_COUNTRIES]);
     expect(COUNTRY_CODES).toHaveLength(250);
-  });
-
-  it("les pays du RADAR sont les mêmes des deux côtés, et restent DIX", () => {
-    // Cette liste-ci ne décrit pas ce qu'on aimerait cibler : elle décrit ce que
-    // la source de tendances sait servir. L'élargir proposerait des pays qui
-    // répondent vide.
-    expect([...TREND_COUNTRY_CODES]).toEqual([...TREND_COUNTRIES]);
-    expect(TREND_COUNTRY_CODES).toHaveLength(10);
-  });
-
-  it("le Radar refuse un pays hors de SA liste, même s'il est ciblable", () => {
-    // La Serbie est ciblable pour un compte depuis cet élargissement…
-    expect(COUNTRY_CODES).toContain("RS");
-    // …et reste refusée par le Radar, qui n'a pas de données pour elle.
-    expect(() => assertCountry("RS")).toThrow(/non supporté/i);
-    // Présence en regard : un pays de la liste Radar passe bien.
-    expect(assertCountry("fr")).toBe("FR");
   });
 });
 
@@ -51,8 +29,8 @@ describe("libellés de pays", () => {
   });
 
   it("suit la langue du lecteur", () => {
-    // Un manager anglophone lisait « 🇺🇸 États-Unis » dans le sélecteur du
-    // Radar : le nom venait d'ICU, mais toujours en français.
+    // Un manager anglophone lisait « 🇺🇸 États-Unis » dans un sélecteur de
+    // pays : le nom venait d'ICU, mais toujours en français.
     expect(countryLabel("US", "en")).toBe("🇺🇸 United States");
     expect(countryLabel("DE", "en")).toBe("🇩🇪 Germany");
     expect(countryName("DE", "en")).toBe("Germany");

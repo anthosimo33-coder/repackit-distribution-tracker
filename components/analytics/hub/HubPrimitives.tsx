@@ -218,7 +218,7 @@ export function LastSyncIndicator({
 
 /**
  * État vide informatif — « en attente des premiers événements », JAMAIS un zéro
- * trompeur ni un écran cassé. Reprend le gabarit encadré-pointillé du Radar.
+ * trompeur ni un écran cassé, dans un gabarit encadré-pointillé.
  */
 export function HubEmptyState({
   icon: Icon,

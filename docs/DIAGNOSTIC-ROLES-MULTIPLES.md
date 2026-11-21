@@ -23,6 +23,11 @@
 > `lib/portal-path.ts`, `lib/roles.test.ts`, `lib/permissions.test.ts`,
 > `scripts/check-permission-coverage.*`.
 >
+> **Mise à jour du 2026-11-20** : le Radar a quitté Jarvia (parti dans Kopycat).
+> `convex/radar.ts`, son wrapper d'action local et le bloc `radar.use` n'existent
+> plus ; les passages qui les citent ci-dessous décrivent l'état du 2026-09-05.
+> Seul le wrapper de `convex/notifications.ts` reste.
+>
 > **Vérifié en PRODUCTION** (lecture seule, `convex data --prod`, 2026-09-05) :
 > 27 memberships, répartis en 21 `creator`, 4 `admin`, 1 `talent`, 1 `clipper` —
 > **zéro `manager`**. La table `permissionChanges` est **vide** : aucun bloc n'a
@@ -309,6 +314,9 @@ via un wrapper d'action local (les actions n'ont pas d'accès `db` direct) :
   `fetchTrendVideos`, `searchOutliers` ;
 - [convex/notifications.ts:1354-1358](../convex/notifications.ts) →
   `sendTestNotification`.
+
+> Depuis le 2026-11-20, seul `sendTestNotification` reste : le Radar et son
+> wrapper sont partis.
 
 Les deux font `membership?.role === "admin"`. **Effet de bord déjà en
 production** : un manager qui a le bloc `radar.use` **voit** le Radar

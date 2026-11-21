@@ -193,15 +193,6 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     defaultForManager: false,
   },
   {
-    id: "radar.use",
-    section: "Contenu",
-    label: "Radar",
-    description:
-      "Voir les signaux (les vidéos qui sortent du lot dans toutes les apps) et le budget de la veille, suivre des comptes TikTok.",
-    defaultForManager: true,
-    routes: ["/radar"],
-  },
-  {
     id: "conversations.use",
     section: "Contenu",
     label: "Conversations Instagram",
@@ -307,7 +298,6 @@ export const PERMISSION_ID_LITERALS = [
   "tracker.manage",
   "content.analytics",
   "content.share",
-  "radar.use",
   "conversations.use",
   "creators.pay_terms",
   "pricing.manage",

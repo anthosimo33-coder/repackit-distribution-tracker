@@ -55,7 +55,7 @@ test.describe("Les écrans d'une manageuse ne meurent pas sur un bloc voisin", (
     const projectId = await admin.getProjectId();
     const { email, client } = await compteReel("pages-mgr", ts);
 
-    // Les 12 blocs par défaut d'une manageuse — la configuration réelle, pas une
+    // Les 11 blocs par défaut d'une manageuse — la configuration réelle, pas une
     // configuration choisie pour que le test passe.
     const defauts = [
       "creators.read",
@@ -69,7 +69,6 @@ test.describe("Les écrans d'une manageuse ne meurent pas sur un bloc voisin", (
       "guide.manage",
       "tracker.manage",
       "content.analytics",
-      "radar.use",
     ];
     await admin.mutation(api.permissionProbe.e2eSetMembershipRole, {
       secret: E2E_SECRET,

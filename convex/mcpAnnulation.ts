@@ -234,17 +234,19 @@ export const annulationValidator = v.union(
     apres: v.boolean(),
   }),
   // ── Veille & bibliothèque ─────────────────────────────────────────────────
-  /**
-   * suivre_compte : le compte suivi (ses vidéos relevées partent avec). Le
-   * handle sert si le compte a été retiré puis re-suivi depuis (nouvel id).
-   */
-  v.object({ type: v.literal("veilleSuivi"), accountId: v.id("radarAccounts"), handle: v.optional(v.string()) }),
+  // Les trois variantes du Radar (suivre_compte, ne_plus_suivre,
+  // noter_compte_suivi) ne servent plus qu'à relire les lignes du journal
+  // écrites avant son départ de Jarvia, le 20/11/2026 : plus rien ne les écrit
+  // ni ne les rejoue. `accountId` y reste une simple chaîne, la table
+  // radarAccounts ayant quitté le schéma.
+  /** suivre_compte : le compte suivi. */
+  v.object({ type: v.literal("veilleSuivi"), accountId: v.string(), handle: v.optional(v.string()) }),
   /** ne_plus_suivre : de quoi le suivre à nouveau. */
   v.object({ type: v.literal("veilleRetire"), handle: v.string(), note: v.union(v.string(), v.null()) }),
   /** noter_compte_suivi : la note, avant et après. */
   v.object({
     type: v.literal("veilleNote"),
-    accountId: v.id("radarAccounts"),
+    accountId: v.string(),
     avant: v.union(v.string(), v.null()),
     apres: v.union(v.string(), v.null()),
   }),

@@ -16,7 +16,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
 import { formatDate, formatNumber } from "@/lib/format";
-import { formatOutlierRatio } from "@/components/admin/radar/radar-format";
+import { formatOutlierRatio } from "@/lib/outlier";
 import { resolveOutlierRatio } from "@/lib/inspiration-stats";
 import { getFolderColor } from "@/lib/folder-colors";
 import type {
@@ -70,9 +70,9 @@ function StatsCell({
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.library.StatsCell");
-  // Ratio outlier résolu (stocké Radar ou fallback views/followers) — SORTI du
+  // Ratio outlier résolu (stocké ou fallback views/followers) — SORTI du
   // slice pour rester TOUJOURS visible s'il existe, quelles que soient les
-  // autres stats. Même helper/format que la grille et l'onglet Radar Outliers.
+  // autres stats. Même helper/format que la grille.
   const outlierRatio = resolveOutlierRatio(stats, type);
   // Vues + abonnés = les 2 stats CLÉS (le ratio est un badge séparé) : placées en
   // TÊTE pour toujours survivre au slice(0, 2). Ordre selon le type (un compte

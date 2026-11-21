@@ -10,7 +10,6 @@
       "pilotage": "Pilotage",
       "createurs": "Créateurs",
       "contenu": "Contenu",
-      "veille": "Veille",
       "outils": "Outils",
       "administration": "Administration",
       "production": "Production",
@@ -36,7 +35,6 @@
       "inspirations": "Inspirations",
       "assets": "Assets",
       "guide": "Comment ça marche",
-      "radar": "Radar",
       "defis": "Défis",
       "equipe": "Rôles et droits",
       "maRemuneration": "Ma rémunération",
@@ -1497,9 +1495,6 @@
     "ERR_PUBLISHED_AT_IN_FUTURE": "La date de publication ne peut pas être dans le futur.",
     "ERR_PUBLISH_ACCOUNT_REQUIRED": "Choisis au moins un compte de publication.",
     "ERR_PUBLISH_BEFORE_APPROVAL": "Publication possible seulement après validation de ta vidéo.",
-    "ERR_RADAR_ACCOUNT_ALREADY_FOLLOWED": "@{handle} est déjà suivi.",
-    "ERR_RADAR_ACCOUNT_NOT_FOUND": "Compte Radar introuvable dans ce projet.",
-    "ERR_RADAR_HANDLE_INVALID": "Handle TikTok invalide. Colle un @, un handle, ou une URL de profil (tiktok.com/@compte).",
     "ERR_RATE_INVALID": "Le tarif doit être un nombre ≥ 0.",
     "ERR_REF_TAKEN_BY_CREATOR": "La ref « {next} » est déjà portée par {name}. Une ref ne peut appartenir qu'à une seule personne.",
     "ERR_REF_TAKEN_BY_INFLUENCER": "La ref « {next} » est déclarée pour l'influenceuse {name}. Une ref ne peut appartenir qu'à une seule personne.",
@@ -1523,7 +1518,6 @@
     "ERR_SCREENREC_TITLE_REQUIRED": "ScreenRecorder : titre requis (3-200 caractères).",
     "ERR_SCRIPT_COMBO_MISSING": "Combo de script manquant — matérialisation impossible.",
     "ERR_SCRIPT_LOCKED_PUBLISHED": "Le script ne peut plus être modifié : le post est déjà publié.",
-    "ERR_SEARCH_KEYWORD_REQUIRED": "Saisis un mot-clé à rechercher.",
     "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campagne introuvable dans le projet.",
     "ERR_SHARE_CREATOR_REQUIRED": "Choisis la créatrice qui recevra ce lien.",
     "ERR_SHARE_EXPIRY_INVALID": "Expiration invalide : de 1 à 365 jours.",
@@ -1655,12 +1649,7 @@
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Image refusée : JPEG, PNG ou WebP de 8 Mo au plus.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Plage de jours invalide : des jours AAAA-MM-JJ, le premier avant le dernier.",
     "ERR_PRICING_REASSIGN_STALE": "La liste a changé depuis l'aperçu : {found} vidéo(s) à passer sur ce barème au lieu de {expected}. Rien n'a été modifié : relis l'aperçu.",
-    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} n'est pas une créatrice partenaire : la publication sans validation ne s'adresse qu'à elles.",
-    "ERR_RADAR_APP_INVALID": "Donne un nom à l'app et au moins un motif de 3 caractères.",
-    "ERR_RADAR_APP_ALREADY_FOLLOWED": "L'app « {name} » est déjà suivie.",
-    "ERR_RADAR_APP_PATTERN_TAKEN": "Le motif « {pattern} » est déjà dans ceux de « {name} », une app suivie : choisis-en un plus précis, ou ajoute le compte à cette app.",
-    "ERR_RADAR_APP_NOT_FOUND": "App introuvable.",
-    "ERR_RADAR_TRACKED_FULL": "Déjà {max} comptes suivis : mets-en en pause d'abord."
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} n'est pas une créatrice partenaire : la publication sans validation ne s'adresse qu'à elles."
   },
   "calendar": {
     "weekday": {

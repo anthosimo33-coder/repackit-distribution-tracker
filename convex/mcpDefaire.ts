@@ -63,7 +63,6 @@ import { deplacerPostsCore } from "./postsDeplacement";
 import { etatDeFiche, lireEtatDeFiche } from "./mcpPlaybook";
 import { remettreFicheCore, supprimerFicheCore } from "./playbook";
 import { supprimerTournages } from "./scenarioTournage";
-import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
 import { deleteInspirationCore } from "./inspirations";
 import { deleteConversationCore, restoreConversationCore, updateConversationCore } from "./instaConversations";
 import type { Plateforme } from "./platforms";
@@ -163,9 +162,6 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "marquer_warmup",
   "deplacer_posts",
   "publier_sans_validation",
-  "suivre_compte",
-  "ne_plus_suivre",
-  "noter_compte_suivi",
   "ajouter_inspiration",
   "ventiler_virement",
   "relever_solde",
@@ -200,6 +196,22 @@ export const NON_DEFAISABLE: Record<string, string> = {
 
 function pourquoiPas(l: Doc<"mcpWriteLog">): string {
   return NON_DEFAISABLE[l.tool] ?? "écrite avant que le Défaire existe : à défaire dans l'écran.";
+}
+
+/**
+ * Les lignes des outils du Radar (`suivre_compte`, `ne_plus_suivre`,
+ * `noter_compte_suivi`), écrites avant son départ : elles portent encore une
+ * annulation, que plus rien ne sait rejouer.
+ */
+const RADAR_PARTI = "Le Radar a quitté Jarvia le 20/11/2026 : cette action ne se défait plus.";
+const annulationDuRadar = (l: Doc<"mcpWriteLog">) =>
+  l.annulation?.type === "veilleSuivi" || l.annulation?.type === "veilleRetire" || l.annulation?.type === "veilleNote";
+
+/** Où en est une ligne du journal : défaite, défaisable, ou pourquoi pas. */
+function etatDe(l: Doc<"mcpWriteLog">): string {
+  if (l.defaiteLe !== undefined) return `défaite le ${instantParis(l.defaiteLe)}`;
+  if (annulationDuRadar(l)) return `ne se défait pas — ${RADAR_PARTI}`;
+  return l.annulation ? "se défait" : `ne se défait pas — ${pourquoiPas(l)}`;
 }
 
 /** Le domaine (interrupteur) et le droit (bouton) d'un outil d'écriture. */
@@ -244,12 +256,7 @@ export const lireModifications = internalQuery({
       outil: l.tool,
       fait: l.summary,
       via: l.via.name,
-      etat:
-        l.defaiteLe !== undefined
-          ? `défaite le ${instantParis(l.defaiteLe)}`
-          : l.annulation
-            ? "se défait"
-            : `ne se défait pas — ${pourquoiPas(l)}`,
+      etat: etatDe(l),
     })),
 });
 
@@ -265,7 +272,7 @@ export const lireModification = internalQuery({
       le: instantParis(l.at),
       outil: l.tool,
       fait: l.summary,
-      etat: l.defaiteLe !== undefined ? `défaite le ${instantParis(l.defaiteLe)}` : l.annulation ? "se défait" : `ne se défait pas — ${pourquoiPas(l)}`,
+      etat: etatDe(l),
       documents:
         l.etats?.map((e) => ({ table: e.table, id: e.id, avant: lire(e.avant), apres: lire(e.apres) })) ??
         "non gardés : modification d'avant le 05/10/2026",
@@ -469,32 +476,12 @@ async function annuler(
       const { deleted } = await deleteCampaignCore(ctx, a.campaignId);
       return `Campagne supprimée, avec ses ${deleted} brique(s).`;
     }
-    case "veilleSuivi": {
-      // Retiré puis re-suivi depuis (par `defaire` de ne_plus_suivre, ou à
-      // l'écran) : même handle, autre id — c'est toujours « ce » compte suivi.
-      const compte =
-        (await ctx.db.get(a.accountId)) ??
-        (a.handle === undefined
-          ? null
-          : await ctx.db
-              .query("radarAccounts")
-              .withIndex("by_project_handle", (q) => q.eq("projectId", ctx.projectId).eq("handle", a.handle!))
-              .first());
-      if (!compte) throw refus("Ce compte n'est déjà plus suivi.");
-      await removeRadarAccountCore(ctx, compte._id);
-      return "Compte retiré de la veille, avec les vidéos relevées.";
-    }
-    case "veilleRetire": {
-      await addRadarAccountCore(ctx, a.handle, a.note ?? undefined);
-      return "Compte suivi à nouveau : un nouveau relevé est lancé (les vidéos relevées avant le retrait sont perdues).";
-    }
-    case "veilleNote": {
-      const compte = await ctx.db.get(a.accountId);
-      if (!compte) throw refus("Ce compte n'est plus suivi.");
-      if ((compte.note ?? null) !== a.apres) throw refus("La note a changé depuis : rien n'a été écrasé.");
-      await updateRadarAccountNoteCore(ctx, a.accountId, a.avant ?? undefined);
-      return "Note d'origine remise.";
-    }
+    // Les comptes suivis du Radar : il a quitté Jarvia le 20/11/2026, ses
+    // annulations restent lisibles au journal mais ne se rejouent plus.
+    case "veilleSuivi":
+    case "veilleRetire":
+    case "veilleNote":
+      throw refus(RADAR_PARTI);
     case "inspirationCreee": {
       if (!(await ctx.db.get(a.inspirationId))) throw refus("Cette inspiration a déjà été supprimée.");
       await deleteInspirationCore(ctx, a.inspirationId);
@@ -839,6 +826,7 @@ export const ecrireDefaire = mcpWriteMutationDifferee()({
     }
     if (l.defaiteLe !== undefined) throw refus(`Déjà défaite le ${instantParis(l.defaiteLe)}.`);
     if (!l.annulation) throw refus(`« ${l.summary} » ne se défait pas : ${pourquoiPas(l)}`);
+    if (annulationDuRadar(l)) throw refus(RADAR_PARTI);
     const droit = droitDe(l.tool);
     if (!droit) throw refus("Outil inconnu au journal.");
     // La garde de l'écriture d'origine : son domaine, son bouton.
