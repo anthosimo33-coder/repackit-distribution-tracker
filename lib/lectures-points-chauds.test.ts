@@ -396,6 +396,21 @@ describe("écran Paiements : lu dans le cache que range le passage de paie", () 
   });
 });
 
+describe("déploiement de test : aucun recalcul planifié", () => {
+  it("invalide sans planifier quand E2E_SECRET existe (jamais en prod)", async () => {
+    vi.stubEnv("E2E_SECRET", "secret-de-test");
+    try {
+      const ligne = doc("dashboardCache", { projectId: P, key: "dueTotal", json: "{}", changedAt: NOW });
+      const { ecritures, planifies, ctx } = mutationContexte({ dashboardCache: [ligne], paymentRowsCache: [], payCacheEpochs: [] });
+      await invalidatePayCaches(ctx as unknown as MutationCtx, P as Id<"projects">);
+      expect(ecritures).toContainEqual({ op: "delete", cible: ligne._id });
+      expect(planifies).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("Marquer payé : le montant vu est le montant gelé, ou rien", () => {
   async function aPayer(t: Record<string, MemoryDoc[]>) {
     const { ctx } = contexte(t);

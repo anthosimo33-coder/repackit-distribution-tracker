@@ -197,10 +197,19 @@ export async function invalidatePayCaches(
   const epoch = (compteur?.epoch ?? 0) + 1;
   if (compteur) await ctx.db.patch(compteur._id, { epoch });
   else await ctx.db.insert("payCacheEpochs", { projectId, epoch });
-  await ctx.scheduler.runAfter(PAY_REFRESH_DELAY_MS, internal.dashboardCache.refreshPay, {
-    projectId,
-    epoch,
-  });
+  // Pas de recalcul planifié sur un déploiement DE TEST (E2E_SECRET n'existe
+  // jamais en prod, cf convex/functions `assertE2eSecret`) : toutes les specs y
+  // partagent un projet, et le recalcul lancé 20 s après le paiement d'une spec
+  // servait aux suivantes un écran Paiements figé d'avant leurs propres
+  // écritures — 15 specs rouges en CI le 2026-11-20. Les specs y vérifient le
+  // calcul direct ; le chemin du cache l'est par lib/lectures-points-chauds.test
+  // et par les recalculs explicites (e2eRefresh*).
+  if (!process.env.E2E_SECRET) {
+    await ctx.scheduler.runAfter(PAY_REFRESH_DELAY_MS, internal.dashboardCache.refreshPay, {
+      projectId,
+      epoch,
+    });
+  }
 }
 
 /**
