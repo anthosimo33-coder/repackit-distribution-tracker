@@ -118,12 +118,20 @@ function asRecord(x: unknown): Record<string, unknown> | null {
   return x !== null && typeof x === "object" ? (x as Record<string, unknown>) : null;
 }
 
+/**
+ * Montant Whop → nombre en unités de la devise. Deux formats coexistent : les
+ * comptes anciens (Snytch) renvoient un nombre ou une chaîne (`9.99`), les comptes
+ * récents (BLUSH, constaté le 21/11/2026) un objet Money
+ * `{ amount: "9.90", currency, decimals }`, montant en chaîne décimale.
+ */
 function toAmount(x: unknown): number {
   if (typeof x === "number") return Number.isFinite(x) ? x : 0;
   if (typeof x === "string" && x.trim() !== "") {
     const n = Number(x);
     return Number.isFinite(n) ? n : 0;
   }
+  const money = asRecord(x);
+  if (money && "amount" in money) return toAmount(money.amount);
   return 0;
 }
 
@@ -193,7 +201,7 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
   const rawStatus = String(r.substatus ?? r.status ?? "");
   const status = normalizeWhopStatus(rawStatus);
 
-  const fee = toAmount(asRecord(r.application_fee)?.amount);
+  let fee = toAmount(asRecord(r.application_fee)?.amount);
   // Brut CRÉATEUR (hors frais acheteur) : total → subtotal → settlement_amount.
   const grossRaw =
     r.total ?? r.subtotal ?? r.settlement_amount ?? undefined;
@@ -202,6 +210,8 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
   if (r.amount_after_fees !== undefined && r.amount_after_fees !== null) {
     net = toAmount(r.amount_after_fees);
     gross = grossRaw !== undefined ? toAmount(grossRaw) : round2(net + fee);
+    // Format récent : pas d'`application_fee`, les frais sont l'écart brut − net.
+    if (r.application_fee === undefined && gross > net) fee = round2(gross - net);
   } else {
     gross = grossRaw !== undefined ? toAmount(grossRaw) : 0;
     net = round2(gross - fee); // fallback : net dérivé (brut − frais)
@@ -209,8 +219,9 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
   const refundedAmount = toAmount(r.refunded_amount);
   const currency = (getStr(r.currency) ?? "usd").toLowerCase();
   const paidAt = toMs(r.paid_at) || toMs(r.created_at);
-  const planId = getStr(asRecord(r.plan)?.id);
-  const membershipId = getStr(asRecord(r.membership)?.id);
+  // Format récent : l'offre s'appelle « variant » (`variant_id`, préfixe plan_).
+  const planId = getStr(asRecord(r.plan)?.id) ?? getStr(r.variant_id) ?? getStr(r.plan_id);
+  const membershipId = getStr(asRecord(r.membership)?.id) ?? getStr(r.membership_id);
   // Vérifié en prod le 03/08 : deux valeurs seulement, subscription_create (46) et
   // subscription_cycle (13). On stocke la valeur BRUTE — une valeur future
   // inconnue doit rester lisible, pas être écrasée dans un booléen.
@@ -422,7 +433,7 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
     getStr(asRecord(r.member)?.id) ??
     getStr(r.member_id);
   const planId =
-    getStr(asRecord(r.plan)?.id) ?? getStr(r.plan_id) ?? getStr(r.plan);
+    getStr(asRecord(r.plan)?.id) ?? getStr(r.plan_id) ?? getStr(r.variant_id) ?? getStr(r.plan);
   const status = (getStr(r.status) ?? getStr(r.substatus) ?? "unknown").toLowerCase();
   const valid = typeof r.valid === "boolean" ? r.valid : undefined;
   const createdAt =
