@@ -13,6 +13,8 @@
  *
  * Réf. API (vérifié 2026-07) : GET https://api.whop.com/api/v1/payments
  *   ?company_id=biz_… — auth `Bearer <company API key>` — pagination CURSEUR
+ *   (les comptes Whop récents exigent `account_id` à la place : cf
+ *   `whopWantsAccountId`, constaté le 21/11/2026 sur BLUSH)
  *   (`first` + `page_info.has_next_page`/`end_cursor`). Champs : id, status,
  *   substatus, total/subtotal (brut créateur), application_fee.amount (frais),
  *   amount_after_fees (net), refunded_amount, currency, paid_at, plan.id, membership.id.
@@ -25,6 +27,21 @@ const WHOP_MEMBERSHIPS_ENDPOINT = "https://api.whop.com/api/v1/memberships";
 const PAGE_SIZE = 100;
 /** Borne de sécurité : 50 × 100 = 5000 paiements/sync (anti-boucle infinie). */
 const MAX_PAGES = 50;
+
+/**
+ * Le paramètre qui désigne le compte Whop dans la requête. Whop l'a renommé : les
+ * comptes anciens (Snytch) acceptent encore `company_id`, les comptes récents
+ * (BLUSH, ouvert en octobre 2026) le refusent en HTTP 400 et exigent `account_id`
+ * (« company_id is not supported; filter by account_id », « account_id is
+ * required »). Chaque appel essaie `company_id`, puis rejoue la même requête avec
+ * `account_id`, une seule fois.
+ */
+type WhopAccountParam = "company_id" | "account_id";
+
+/** Vrai quand Whop refuse `company_id` et demande `account_id`. */
+export function whopWantsAccountId(status: number, error: string): boolean {
+  return status === 400 && /account_id/i.test(error);
+}
 
 /** Paiement Whop NORMALISÉ (montants en devise, prêt pour whopPayments). */
 export interface NormalizedWhopPayment {
@@ -308,20 +325,28 @@ export async function fetchWhopPlans(
   opts: { planIds?: string[]; fetchImpl?: typeof fetch } = {},
 ): Promise<FetchWhopPlansResult> {
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const params = new URLSearchParams();
-  params.set("company_id", companyId);
-  params.set("first", String(PAGE_SIZE));
-  for (const pid of opts.planIds ?? []) params.append("plan_ids", pid);
-
+  let accountParam: WhopAccountParam = "company_id";
   let res: Response;
-  try {
-    res = await fetchImpl(`${WHOP_PLANS_ENDPOINT}?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-    });
-  } catch (e) {
-    return { plans: [], error: `network: ${e instanceof Error ? e.message : String(e)}` };
+  for (;;) {
+    const params = new URLSearchParams();
+    params.set(accountParam, companyId);
+    params.set("first", String(PAGE_SIZE));
+    for (const pid of opts.planIds ?? []) params.append("plan_ids", pid);
+    try {
+      res = await fetchImpl(`${WHOP_PLANS_ENDPOINT}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      });
+    } catch (e) {
+      return { plans: [], error: `network: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    if (res.ok) break;
+    const error = await readWhopError(res);
+    if (accountParam === "company_id" && whopWantsAccountId(res.status, error)) {
+      accountParam = "account_id";
+      continue;
+    }
+    return { plans: [], error };
   }
-  if (!res.ok) return { plans: [], error: await readWhopError(res) };
   let json: unknown;
   try {
     json = await res.json();
@@ -449,10 +474,11 @@ export async function fetchWhopMemberships(
   const memberships: NormalizedWhopMembership[] = [];
   let after: string | undefined;
   let pages = 0;
+  let accountParam: WhopAccountParam = "company_id";
 
   for (let i = 0; i < MAX_PAGES; i++) {
     const params = new URLSearchParams();
-    params.set("company_id", companyId);
+    params.set(accountParam, companyId);
     params.set("first", String(PAGE_SIZE));
     if (after) params.set("after", after);
     for (const pid of opts.planIds ?? []) params.append("plan_ids", pid);
@@ -474,7 +500,13 @@ export async function fetchWhopMemberships(
       return { memberships, pages, truncated: true, error: "rate_limited (429)" };
     }
     if (!res.ok) {
-      return { memberships, pages, truncated: false, error: await readWhopError(res) };
+      const error = await readWhopError(res);
+      if (accountParam === "company_id" && whopWantsAccountId(res.status, error)) {
+        accountParam = "account_id";
+        i -= 1; // rejouer la même page avec account_id
+        continue;
+      }
+      return { memberships, pages, truncated: false, error };
     }
     let json: unknown;
     try {
@@ -539,10 +571,11 @@ export async function fetchWhopPayments(
   const payments: NormalizedWhopPayment[] = [];
   let after: string | undefined;
   let pages = 0;
+  let accountParam: WhopAccountParam = "company_id";
 
   for (let i = 0; i < MAX_PAGES; i++) {
     const params = new URLSearchParams();
-    params.set("company_id", companyId);
+    params.set(accountParam, companyId);
     params.set("first", String(PAGE_SIZE));
     params.set("order", "created_at");
     params.set("direction", "desc");
@@ -569,7 +602,13 @@ export async function fetchWhopPayments(
       return { payments, pages, truncated: true, error: "rate_limited (429)" };
     }
     if (!res.ok) {
-      return { payments, pages, truncated: false, error: await readWhopError(res) };
+      const error = await readWhopError(res);
+      if (accountParam === "company_id" && whopWantsAccountId(res.status, error)) {
+        accountParam = "account_id";
+        i -= 1; // rejouer la même page avec account_id
+        continue;
+      }
+      return { payments, pages, truncated: false, error };
     }
     let json: unknown;
     try {
