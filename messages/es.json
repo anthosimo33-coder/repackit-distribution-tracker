@@ -617,7 +617,12 @@
         "unlocked": "Umbral alcanzado: el fijo del mes está asegurado."
       },
       "seeGrid": "Ver mi tarifa",
-      "videoBonusCarriedHint": "Vídeo de un ciclo ya pagado: este nivel se alcanzó después del pago, se abona en este ciclo."
+      "videoBonusCarriedHint": "Vídeo de un ciclo ya pagado: este nivel se alcanzó después del pago, se abona en este ciclo.",
+      "fixeMin": {
+        "title": "{count, plural, one {# vídeo con menos de {views} vistas — sin fijo} other {# vídeos con menos de {views} vistas — sin fijo}}",
+        "views": "{views} vistas",
+        "rule": "Un vídeo cobra su fijo a partir de {views} vistas (todas las plataformas sumadas, en sus primeros 30 días)."
+      }
     },
     "videos": {
       "trackingActive": "Seguimiento activo",
@@ -977,7 +982,9 @@
         "seuil": "Se desbloquea a partir de {views} visualizaciones acumuladas en tus vídeos del ciclo.",
         "progress": "{done} / {target} este ciclo",
         "earned": "{amount} ganados",
-        "locked": "{done} / {target} visualizaciones para desbloquear"
+        "locked": "{done} / {target} visualizaciones para desbloquear",
+        "minPerVideo": "Cada vídeo necesita al menos {views} vistas para cobrar su fijo.",
+        "underMin": "{count, plural, one {# vídeo por debajo del mínimo de vistas, sin fijo} other {# vídeos por debajo del mínimo de vistas, sin fijo}}"
       },
       "cpm": {
         "label": "Tus visualizaciones",

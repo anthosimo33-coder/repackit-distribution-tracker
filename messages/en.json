@@ -617,7 +617,12 @@
         "unlocked": "Threshold reached — this month's flat fee is secured."
       },
       "seeGrid": "See my pay grid",
-      "videoBonusCarriedHint": "Video from an already-paid cycle: this tier was reached after payment, so it is paid in this cycle."
+      "videoBonusCarriedHint": "Video from an already-paid cycle: this tier was reached after payment, so it is paid in this cycle.",
+      "fixeMin": {
+        "title": "{count, plural, one {# video under {views} views — no fixed pay} other {# videos under {views} views — no fixed pay}}",
+        "views": "{views} views",
+        "rule": "A video earns its fixed pay from {views} views (all platforms added up, over its first 30 days)."
+      }
     },
     "videos": {
       "trackingActive": "Tracking active",
@@ -977,7 +982,9 @@
         "seuil": "Unlocked once your videos reach {views} combined views in the cycle.",
         "progress": "{done} / {target} this cycle",
         "earned": "{amount} earned",
-        "locked": "{done} / {target} views to unlock"
+        "locked": "{done} / {target} views to unlock",
+        "minPerVideo": "Each video needs at least {views} views to earn its fixed pay.",
+        "underMin": "{count, plural, one {# video under the view minimum, no fixed pay} other {# videos under the view minimum, no fixed pay}}"
       },
       "cpm": {
         "label": "Your views",

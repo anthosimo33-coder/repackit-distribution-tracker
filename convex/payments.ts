@@ -1341,6 +1341,11 @@ async function withBonusVideos(
   for (const c of cycles) {
     const ids = new Set<string>([
       ...c.pricingBreakdown.videoBonuses.map((b) => b.assignmentId),
+      // Vidéos sous le minimum de vues : l'écran dit LESQUELLES n'ont pas touché
+      // leur fixe, sinon « 2 vidéos sous 200 vues » ne se vérifie pas.
+      ...(c.pricingBreakdown.perAssignment ?? []).flatMap((a) =>
+        a.sousMinimum === true ? [a.assignmentId] : [],
+      ),
       ...c.lineItems.flatMap((li) =>
         li.kind === "video_bonus" && li.assignmentId ? [li.assignmentId] : [],
       ),

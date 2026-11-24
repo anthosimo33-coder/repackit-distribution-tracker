@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,7 @@ import {
 } from "@/lib/pricing-shape";
 import {
   estimateMissionEarnings,
+  missionFixedPrice,
   evaluateBonusTiers,
   tiersOf,
   videoBonusAmount,
@@ -100,6 +102,10 @@ const EMPTY = {
   nbVideosCible: "",
   tauxCPM: "",
   seuilVuesFixe: "",
+  /** Minimum de vues par vidéo activé ? Séparé du nombre : vider le champ ne doit pas replier le bloc. */
+  minVuesActif: false,
+  /** Pré-rempli à 200, la valeur demandée ; modifiable. */
+  minVuesParVideo: "200",
 };
 
 function emptyTier(): TierForm {
@@ -275,6 +281,8 @@ function PricingsPageContenu() {
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
       seuilVuesFixe: p.seuilVuesFixe > 0 ? String(p.seuilVuesFixe) : "",
+      minVuesActif: p.minVuesParVideo > 0,
+      minVuesParVideo: p.minVuesParVideo > 0 ? String(p.minVuesParVideo) : EMPTY.minVuesParVideo,
     });
     setTiers(tiersToForm(p.bonusTiers ?? []));
     setTemplateId(p.bonusTemplateId ?? null);
@@ -296,6 +304,8 @@ function PricingsPageContenu() {
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
       seuilVuesFixe: p.seuilVuesFixe > 0 ? String(p.seuilVuesFixe) : "",
+      minVuesActif: p.minVuesParVideo > 0,
+      minVuesParVideo: p.minVuesParVideo > 0 ? String(p.minVuesParVideo) : EMPTY.minVuesParVideo,
     });
     setTiers(tiersToForm(p.bonusTiers ?? []));
     setTemplateId(p.bonusTemplateId ?? null);
@@ -318,6 +328,11 @@ function PricingsPageContenu() {
       // enregistré « seuil de 0 vue » sur tous les barèmes qui n'en ont pas.
       seuilVuesFixe:
         form.seuilVuesFixe.trim() === "" ? 0 : Number(form.seuilVuesFixe),
+      // Désactivé ou vide = aucun minimum (0, normalisé en absence côté serveur).
+      minVuesParVideo:
+        form.minVuesActif && form.minVuesParVideo.trim() !== ""
+          ? Number(form.minVuesParVideo)
+          : 0,
       bonusTiers: formToTiers(tiers),
       // Toujours transmis, y compris à null : sans ça, une simple modification
       // de nom effacerait la provenance et l'écran cesserait de signaler la
@@ -760,6 +775,16 @@ function PricingRow({
               title={`Le fixe n'est dû que si les vidéos du mois cumulent au moins ${new Intl.NumberFormat("fr-FR").format(p.seuilVuesFixe)} vues.`}
             >
               conditionné · {formatSeuil(p.seuilVuesFixe)} vues
+            </span>
+          )}
+          {/* MINIMUM PAR VIDÉO — même famille que la condition du mois : il
+              change ce que paie le fixe, donc il se lit à côté de la nature. */}
+          {p.minVuesParVideo > 0 && (
+            <span
+              className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase text-amber-800"
+              title={`Une vidéo sous ${new Intl.NumberFormat("fr-FR").format(p.minVuesParVideo)} vues ne touche pas son fixe.`}
+            >
+              min. {formatSeuil(p.minVuesParVideo)} vues / vidéo
             </span>
           )}
           <span>{p.nbVideosCible} vidéos</span>
@@ -1810,6 +1835,13 @@ function PricingEditorDialog({
             </div>
           )}
 
+          {/* MINIMUM DE VUES PAR VIDÉO — l'autre condition du fixe, jugée vidéo
+              par vidéo. Masqué sans fixe, comme le seuil du mois (le serveur
+              refuse un minimum qui ne conditionnerait rien). */}
+          {Number(form.montantFixe) > 0 && (
+            <MinVuesParVideoField form={form} setForm={setForm} money={moneyBareme} />
+          )}
+
           <PayoutPreview
             form={form}
             tiers={tiers}
@@ -2141,6 +2173,81 @@ function LadderOption({ name, count }: { name: string; count: number }) {
   );
 }
 
+/**
+ * MINIMUM DE VUES PAR VIDÉO — interrupteur + nombre (200 par défaut).
+ *
+ * La ligne d'aperçu passe par `estimateMissionEarnings`, le moteur du portail :
+ * « 199 vues → 0 € · 200 vues → 8 € » est ce que la créatrice lira chez elle.
+ */
+function MinVuesParVideoField({
+  form,
+  setForm,
+  money,
+}: {
+  form: typeof EMPTY;
+  setForm: React.Dispatch<React.SetStateAction<typeof EMPTY>>;
+  money: (n: number) => string;
+}) {
+  const min = Math.round(Number(form.minVuesParVideo));
+  const valide = form.minVuesActif && Number.isFinite(min) && min > 0;
+  const nbVideos = Math.max(1, Number(form.nbVideosCible) || 0);
+  const snapshot = {
+    pricingId: "preview",
+    montantFixe: Number(form.montantFixe) || 0,
+    nbVideosCible: nbVideos,
+    tauxCPM: Number(form.tauxCPM) || 0,
+    minVuesParVideo: valide ? min : 0,
+  };
+  const fixe = missionFixedPrice(snapshot);
+  const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n);
+  return (
+    <div className="space-y-2.5 rounded-lg border border-slate-200 px-3 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor="minVuesActif">Minimum de vues par vidéo</Label>
+        <Switch
+          id="minVuesActif"
+          checked={form.minVuesActif}
+          onCheckedChange={(c) => setForm((f) => ({ ...f, minVuesActif: c }))}
+        />
+      </div>
+      {form.minVuesActif && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              id="minVuesParVideo"
+              aria-label="Nombre minimum de vues par vidéo"
+              type="number"
+              min={1}
+              step={50}
+              className="w-28"
+              value={form.minVuesParVideo}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, minVuesParVideo: e.target.value }))
+              }
+            />
+            <span className="text-sm text-slate-600">
+              vues minimum pour qu&apos;une vidéo touche son fixe
+            </span>
+          </div>
+          {valide && (
+            <p className="text-xs tabular-nums text-slate-700">
+              {fmt(min - 1)} vues → {money(estimateMissionEarnings(snapshot, min - 1).fixed)}{" "}
+              de fixe · {fmt(min)} vues → {money(estimateMissionEarnings(snapshot, min).fixed)}
+            </p>
+          )}
+          <p className="text-xs leading-relaxed text-slate-500">
+            Sous ce nombre, la vidéo ne touche pas son fixe ({money(fixe)}) et ne
+            prend pas de place dans les {nbVideos} vidéos du forfait. Le CPM, lui,
+            reste payé. Vues comptées : plateformes additionnées, sur les 30
+            premiers jours de la vidéo. Une vidéo pas encore mesurée est payée en
+            attendant.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Paliers de vues de la simulation — de la vidéo modeste au très gros succès. */
 const VIEW_STEPS = [
   10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000,
@@ -2176,6 +2283,8 @@ function PayoutPreview({
     montantFixe: Number(form.montantFixe) || 0,
     nbVideosCible: nbVideos,
     tauxCPM: Number(form.tauxCPM) || 0,
+    // Le minimum par vidéo entre dans la simulation comme dans la paie.
+    minVuesParVideo: form.minVuesActif ? Number(form.minVuesParVideo) || 0 : 0,
   };
   const perVideo = estimateMissionEarnings(snapshot, views);
   // Bonus PAR VIDÉO : hors plafond, s'ajoute à chaque vidéo de la simulation.
