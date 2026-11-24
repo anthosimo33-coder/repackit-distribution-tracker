@@ -6,6 +6,7 @@ import {
   permissionQuery,
   creatorScopeFor,
   requireCreatorInScope,
+  type ProjectMutationCtx,
 } from "./functions";
 import { isInCreatorScope } from "./creatorScope";
 import { collectAvailability } from "./collectAvailability";
@@ -2526,7 +2527,7 @@ export async function buildPricingSnapshotFor(
 
 // ─── CRUD admin (scopé projet) ───────────────────────────────────────────────
 
-type PricingInput = {
+export type PricingInput = {
   name: string;
   /** Devise du barème (code ISO). Absente ⇒ celle du projet. */
   currency?: string;
@@ -2784,32 +2785,49 @@ async function pricingCurrencyLocked(
   return challenges.some((c) => c.pricingId === pricingId);
 }
 
+/**
+ * CŒUR de « Nouveau pricing » — partagé par l'écran Barèmes et l'outil MCP
+ * `creer_bareme` (convex/mcpBaremesEdition) : une seule règle d'écriture.
+ */
+export async function createPricingCore(
+  ctx: ProjectMutationCtx,
+  args: PricingInput,
+): Promise<{ pricingId: Id<"pricings"> }> {
+  const project = await ctx.db.get(ctx.projectId);
+  if (!project) throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
+  // Toujours ÉCRITE à la création, même égale à celle du projet : un barème
+  // neuf n'a aucun snapshot d'avant avec qui partager un groupe de paie, et
+  // une devise explicite se lit sans détour.
+  const currency =
+    normalizeCurrency(args.currency) ?? normalizeCurrency(project.payCurrency);
+  if (currency !== null) await admitPricingCurrency(ctx, project, currency);
+  const fields = pricingWriteFields(validatePricingFields(args));
+  const pricingId = await ctx.db.insert("pricings", {
+    projectId: ctx.projectId,
+    ...fields,
+    currency: currency ?? undefined,
+    status: "active",
+    createdAt: Date.now(),
+  });
+  return { pricingId };
+}
+
 export const createPricing = permissionMutation("pricing.manage")({
   args: PRICING_ARGS,
-  handler: async (ctx, args) => {
-    const project = await ctx.db.get(ctx.projectId);
-    if (!project) throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
-    // Toujours ÉCRITE à la création, même égale à celle du projet : un barème
-    // neuf n'a aucun snapshot d'avant avec qui partager un groupe de paie, et
-    // une devise explicite se lit sans détour.
-    const currency =
-      normalizeCurrency(args.currency) ?? normalizeCurrency(project.payCurrency);
-    if (currency !== null) await admitPricingCurrency(ctx, project, currency);
-    const fields = pricingWriteFields(validatePricingFields(args));
-    const pricingId = await ctx.db.insert("pricings", {
-      projectId: ctx.projectId,
-      ...fields,
-      currency: currency ?? undefined,
-      status: "active",
-      createdAt: Date.now(),
-    });
-    return { pricingId };
-  },
+  handler: async (ctx, args) => createPricingCore(ctx, args),
 });
 
-export const updatePricing = permissionMutation("pricing.manage")({
-  args: { id: v.id("pricings"), ...PRICING_ARGS },
-  handler: async (ctx, { id, ...args }) => {
+/**
+ * CŒUR de la modification d'un barème — partagé par l'écran et l'outil MCP
+ * `modifier_bareme`. ⚠️ `seuilVuesFixe` et `minVuesParVideo` absents valent
+ * « retirés » (validatePricingFields les normalise) : un appelant qui ne veut
+ * changer qu'un terme renvoie les autres tels quels.
+ */
+export async function updatePricingCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"pricings">,
+  args: PricingInput,
+): Promise<{ ok: true }> {
     const pricing = await ctx.db.get(id);
     if (!pricing || pricing.projectId !== ctx.projectId) {
       throw new ConvexError("Pricing introuvable.");
@@ -2844,7 +2862,11 @@ export const updatePricing = permissionMutation("pricing.manage")({
     // lus en direct : les toucher ici change bien la grille des créatrices.
     await ctx.db.patch(id, fields);
     return { ok: true };
-  },
+}
+
+export const updatePricing = permissionMutation("pricing.manage")({
+  args: { id: v.id("pricings"), ...PRICING_ARGS },
+  handler: async (ctx, { id, ...args }) => updatePricingCore(ctx, id, args),
 });
 
 export const archivePricing = permissionMutation("pricing.manage")({
@@ -2859,9 +2881,11 @@ export const archivePricing = permissionMutation("pricing.manage")({
   },
 });
 
-export const deletePricing = permissionMutation("pricing.manage")({
-  args: { id: v.id("pricings") },
-  handler: async (ctx, { id }) => {
+/** CŒUR de la suppression — partagé par l'écran et le `defaire` de `creer_bareme`. */
+export async function deletePricingCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"pricings">,
+): Promise<{ ok: true }> {
     const pricing = await ctx.db.get(id);
     if (!pricing || pricing.projectId !== ctx.projectId) {
       throw new ConvexError("Pricing introuvable.");
@@ -2873,8 +2897,15 @@ export const deletePricing = permissionMutation("pricing.manage")({
     }
     await ctx.db.delete(id);
     return { ok: true };
-  },
+}
+
+export const deletePricing = permissionMutation("pricing.manage")({
+  args: { id: v.id("pricings") },
+  handler: async (ctx, { id }) => deletePricingCore(ctx, id),
 });
+
+/** Le barème est-il attribué à au moins une vidéo ? (exporté pour l'outil MCP) */
+export const pricingUsedByAssignments = pricingInUse;
 
 /**
  * Devises qu'un barème ferait ADOPTER au projet (premier barème d'un projet

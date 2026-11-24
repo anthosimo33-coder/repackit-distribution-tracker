@@ -86,6 +86,8 @@ import { restaurerBaremesCore } from "./pricingReassign";
 import { setFxRateCore } from "./fxRates";
 import { fxRateOf } from "./fxRatesMath";
 import type { PricingSnapshot } from "./pricing";
+import { deletePricingCore, pricingUsedByAssignments, updatePricingCore } from "./pricing";
+import { empreinteTermes, termesDe, termesDepuisEmpreinte, versChampsPricing } from "./baremeTermes";
 
 const FENETRE_MS = 30 * 86_400_000;
 const LIMITE = 30;
@@ -153,6 +155,8 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "lier_assets",
   "videos_exemples_mission",
   "changer_bareme",
+  "creer_bareme",
+  "modifier_bareme",
   "regler_taux",
   "creer_campagne",
   "ajouter_hooks",
@@ -435,6 +439,41 @@ async function annuler(
       );
       if ("refus" in r) throw refus(`Rien n'a été remis : ${r.refus}.`);
       return `${r.restaurees} vidéo(s) remise(s) sur leur barème d'avant.`;
+    }
+    case "baremeCree": {
+      const p = await ctx.db.get(a.pricingId);
+      if (!p) throw refus("Ce barème a déjà été supprimé.");
+      if (empreinteTermes(termesDe(p)) !== a.apres) {
+        throw refus("Ses termes ont changé depuis : rien n'a été supprimé — archive-le à l'écran si c'est voulu.");
+      }
+      // Servi à quelque chose ⇒ on ne le supprime pas : une vidéo, une grille
+      // de créatrice ou la grille par défaut du projet le lisent.
+      const project = await ctx.db.get(ctx.projectId);
+      const grille = (
+        await ctx.db
+          .query("creators")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).some((c) => c.bonusPricingId === p._id);
+      if ((await pricingUsedByAssignments(ctx, ctx.projectId, p._id)) || grille || project?.defaultBonusPricingId === p._id) {
+        throw refus("Il sert déjà (vidéos attribuées ou grille de créatrice) : rien n'a été supprimé — archive-le à l'écran Barèmes.");
+      }
+      await deletePricingCore(ctx, p._id);
+      return `Barème « ${p.name} » supprimé.`;
+    }
+    case "baremeModifie": {
+      const p = await ctx.db.get(a.pricingId);
+      if (!p) throw refus("Ce barème a été supprimé depuis.");
+      if (empreinteTermes(termesDe(p)) !== a.apres) throw refus("Ses termes ont changé depuis : rien n'a été écrasé.");
+      try {
+        // Le geste de l'écran, sous sa règle.
+        await updatePricingCore(ctx, p._id, versChampsPricing(termesDepuisEmpreinte(a.avant)));
+      } catch (e) {
+        const m = refusDe(e);
+        if (m === null) throw e;
+        throw refus(`Rien n'a été remis : ${m}`);
+      }
+      return `Termes d'avant remis sur « ${termesDepuisEmpreinte(a.avant).nom} ».`;
     }
     case "experienceCreee":
     case "missionsCreees": {
