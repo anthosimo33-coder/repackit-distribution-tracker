@@ -123,6 +123,22 @@ export const annulationValidator = v.union(
     type: v.literal("bareme"),
     lignes: v.array(v.object({ assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() })),
   }),
+  /**
+   * creer_bareme : le barème créé et ses termes à la création (empreinte de
+   * convex/baremeTermes). Défaire le supprime s'il n'a pas bougé, n'est
+   * attribué à aucune vidéo et n'est la grille d'aucune créatrice.
+   */
+  v.object({ type: v.literal("baremeCree"), pricingId: v.id("pricings"), apres: v.string() }),
+  /**
+   * modifier_bareme : les termes du barème, avant et après (même empreinte).
+   * Défaire remet l'avant si le barème montre encore l'après.
+   */
+  v.object({
+    type: v.literal("baremeModifie"),
+    pricingId: v.id("pricings"),
+    avant: v.string(),
+    apres: v.string(),
+  }),
   // ── Scripts ───────────────────────────────────────────────────────────────
   /**
    * regler_taux : le taux d'UNE devise, avant et après (`null` = pas de taux).

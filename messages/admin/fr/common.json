@@ -980,7 +980,9 @@
       "modifier_briques": "Briques modifiées",
       "preparer_tournages": "Fichiers de tournage préparés",
       "liens_tournage": "Liens de tournage collés",
-      "documenter_format": "Fiche du playbook écrite"
+      "documenter_format": "Fiche du playbook écrite",
+      "creer_bareme": "Barème créé",
+      "modifier_bareme": "Barème modifié"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -1038,7 +1040,7 @@
       },
       "baremes": {
         "titre": "Barèmes",
-        "objet": "les barèmes des vidéos déjà attribuées et les taux de change",
+        "objet": "les barèmes (créer, modifier, changer celui des vidéos déjà attribuées) et les taux de change",
         "aria": "Modifications des barèmes pour {name}"
       }
     }

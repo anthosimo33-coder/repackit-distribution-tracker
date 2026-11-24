@@ -980,7 +980,9 @@
       "modifier_briques": "Bricks edited",
       "preparer_tournages": "Filming files prepared",
       "liens_tournage": "Filming links pasted",
-      "documenter_format": "Playbook entry written"
+      "documenter_format": "Playbook entry written",
+      "creer_bareme": "Pay grid created",
+      "modifier_bareme": "Pay grid edited"
     },
     "section": {
       "treasury": "Cash",
@@ -1038,7 +1040,7 @@
       },
       "baremes": {
         "titre": "Pay grids",
-        "objet": "the pay grids of videos already assigned and exchange rates",
+        "objet": "pay grids (create, edit, change the one of videos already assigned) and exchange rates",
         "aria": "Pay grid edits for {name}"
       }
     }
