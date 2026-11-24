@@ -607,9 +607,19 @@ function PricingsPageContenu() {
               n: number,
               c: number,
               currency: string | null,
+              conditions: { seuilVuesFixe: number; minVuesParVideo: number },
             ) => {
               const enDevise = moneyIn(currency);
-              return `${enDevise(m)} / ${n} vidéos · CPM ${enDevise(c)}`;
+              const fr = (v: number) => new Intl.NumberFormat("fr-FR").format(v);
+              return (
+                `${enDevise(m)} / ${n} vidéos · CPM ${enDevise(c)}` +
+                (conditions.seuilVuesFixe > 0
+                  ? ` · fixe conditionné à ${fr(conditions.seuilVuesFixe)} vues`
+                  : "") +
+                (conditions.minVuesParVideo > 0
+                  ? ` · min. ${fr(conditions.minVuesParVideo)} vues / vidéo`
+                  : " · sans minimum par vidéo")
+              );
             };
             return (
               <>
@@ -624,6 +634,7 @@ function PricingsPageContenu() {
                       d.current.nbVideosCible,
                       d.current.tauxCPM,
                       d.current.currency,
+                      d.current,
                     )}
                     .
                   </DialogDescription>
@@ -634,12 +645,12 @@ function PricingsPageContenu() {
                 <div className="min-w-0 space-y-4">
                   {d.generations.map((g) => (
                     <div
-                      key={`${g.montantFixe}-${g.nbVideosCible}-${g.tauxCPM}-${g.currency ?? ""}`}
+                      key={`${g.montantFixe}-${g.nbVideosCible}-${g.tauxCPM}-${g.seuilVuesFixe}-${g.minVuesParVideo}-${g.currency ?? ""}`}
                       className="space-y-1.5 rounded-md border border-slate-200 p-3"
                     >
                       <p className="text-sm font-medium text-slate-900">
                         {g.count} assignation{g.count > 1 ? "s" : ""} à{" "}
-                        {terms(g.montantFixe, g.nbVideosCible, g.tauxCPM, g.currency)}
+                        {terms(g.montantFixe, g.nbVideosCible, g.tauxCPM, g.currency, g)}
                       </p>
                       <ul className="space-y-0.5 text-xs text-slate-500">
                         {g.sample.map((a) => (
@@ -2206,6 +2217,7 @@ function MinVuesParVideoField({
         <Label htmlFor="minVuesActif">Minimum de vues par vidéo</Label>
         <Switch
           id="minVuesActif"
+          aria-label="Minimum de vues par vidéo"
           checked={form.minVuesActif}
           onCheckedChange={(c) => setForm((f) => ({ ...f, minVuesActif: c }))}
         />
@@ -2218,7 +2230,7 @@ function MinVuesParVideoField({
               aria-label="Nombre minimum de vues par vidéo"
               type="number"
               min={1}
-              step={50}
+              step={1}
               className="w-28"
               value={form.minVuesParVideo}
               onChange={(e) =>

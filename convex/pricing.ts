@@ -3330,6 +3330,9 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
       montantFixe: number;
       nbVideosCible: number;
       tauxCPM: number;
+      /** Conditions de vues figées (0 = aucune) — elles changent ce que paie le fixe. */
+      seuilVuesFixe: number;
+      minVuesParVideo: number;
       /** Devise FIGÉE de cette génération (résolue) — 465 $ ne se lit pas 465 €. */
       currency: string | null;
       count: number;
@@ -3350,13 +3353,20 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
       const live = pricings.find((p) => p._id === snap.pricingId);
       if (!live) continue; // pricing supprimé : hors périmètre de la comparaison
       const snapCurrency = resolvePayCurrency(snap.currency, project?.payCurrency);
+      // Les CONDITIONS de vues en font partie : ajouter un minimum par vidéo à
+      // un barème déjà attribué laisse ses vidéos sans minimum, et c'est ici
+      // que l'écran doit le dire (puis « Appliquer à des vidéos déjà attribuées »).
+      const seuil = snap.seuilVuesFixe ?? 0;
+      const min = snap.minVuesParVideo ?? 0;
       const same =
         snap.montantFixe === live.montantFixe &&
         snap.nbVideosCible === live.nbVideosCible &&
         snap.tauxCPM === live.tauxCPM &&
+        seuil === (live.seuilVuesFixe ?? 0) &&
+        min === (live.minVuesParVideo ?? 0) &&
         snapCurrency === pricingPayCurrency(live, project);
       if (same) continue;
-      const key = `${snap.montantFixe}|${snap.nbVideosCible}|${snap.tauxCPM}|${snapCurrency ?? ""}`;
+      const key = `${snap.montantFixe}|${snap.nbVideosCible}|${snap.tauxCPM}|${seuil}|${min}|${snapCurrency ?? ""}`;
       let gens = byPricing.get(snap.pricingId);
       if (!gens) {
         gens = new Map();
@@ -3368,6 +3378,8 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
           montantFixe: snap.montantFixe,
           nbVideosCible: snap.nbVideosCible,
           tauxCPM: snap.tauxCPM,
+          seuilVuesFixe: seuil,
+          minVuesParVideo: min,
           currency: snapCurrency,
           count: 0,
           sample: [],
@@ -3398,6 +3410,8 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
             montantFixe: p.montantFixe,
             nbVideosCible: p.nbVideosCible,
             tauxCPM: p.tauxCPM,
+            seuilVuesFixe: p.seuilVuesFixe ?? 0,
+            minVuesParVideo: p.minVuesParVideo ?? 0,
             currency: pricingPayCurrency(p, project),
           },
           driftCount: gens.reduce((s, g) => s + g.count, 0),
