@@ -214,6 +214,43 @@ function BonusVideoRef({ video }: { video: BonusVideo | undefined }) {
   );
 }
 
+/** Les vidéos d'un barème restées sous le minimum de vues par vidéo. */
+function UnderMinimumList({
+  count,
+  min,
+  rows,
+  videos,
+}: {
+  count: number;
+  min: number;
+  rows: { assignmentId: string; totalViews: number }[];
+  videos: BonusVideo[];
+}) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
+  const titleOf = new Map(videos.map((v) => [v.assignmentId, v.title]));
+  return (
+    <div className="mt-1 space-y-1.5 rounded-md bg-amber-50 px-3 py-2" data-testid="fixe-under-min">
+      <p className="text-xs font-semibold text-amber-900">
+        {t("paiements.fixeMin.title", { count, views: fmtViews(min, loc) })}
+      </p>
+      {rows.map((r) => (
+        <div key={r.assignmentId} className="flex justify-between gap-3 text-xs">
+          <span className="min-w-0 truncate text-slate-700">
+            {titleOf.get(r.assignmentId) ?? ""}
+          </span>
+          <span className="shrink-0 font-semibold tabular-nums text-amber-900">
+            {t("paiements.fixeMin.views", { views: fmtViews(r.totalViews, loc) })}
+          </span>
+        </div>
+      ))}
+      <p className="text-[11px] leading-relaxed text-amber-900/80">
+        {t("paiements.fixeMin.rule", { views: fmtViews(min, loc) })}
+      </p>
+    </div>
+  );
+}
+
 /** Sous les bonus vidéo : la grille qui les a produits (« Mon contrat »). */
 function SeeGridLink() {
   const t = useTranslations("portal");
@@ -312,6 +349,19 @@ function PricingBreakdown({
                   </p>
                 )}
               </div>
+            )}
+            {/* MINIMUM DE VUES PAR VIDÉO — les vidéos qui n'ont pas touché leur
+                fixe, nommées : un fixe manquant sans la vidéo qui l'explique
+                serait invérifiable. */}
+            {(g.videosSousMinimum ?? 0) > 0 && (
+              <UnderMinimumList
+                count={g.videosSousMinimum ?? 0}
+                min={g.minVuesParVideo ?? 0}
+                rows={b.perAssignment.filter(
+                  (a) => a.pricingId === g.pricingId && a.sousMinimum === true,
+                )}
+                videos={videos}
+              />
             )}
           </div>
         ))

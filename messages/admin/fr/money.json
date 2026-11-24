@@ -752,6 +752,7 @@
     "termsFixed": "fixe {amount} pour {videos} vidéos",
     "termsCpm": "CPM {amount}",
     "termsThreshold": "fixe conditionné à {views} vues",
+    "termsMinPerVideo": "minimum {views} vues par vidéo",
     "currencyMismatch": "{name} est payée en {creatorCurrency}, ce barème est en {pricingCurrency} : ses vidéos ne peuvent pas passer dessus.",
     "noVideos": "Aucune vidéo de cette créatrice sur cette plage de jours.",
     "noPricing": "Sans barème",

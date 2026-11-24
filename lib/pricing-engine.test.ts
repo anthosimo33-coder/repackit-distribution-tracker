@@ -9,6 +9,8 @@ import {
   promoVideoCost,
   evaluateVideoBonus,
   videoBonusAmount,
+  isUnderVideoMinimum,
+  missionFixedPrice,
   type VideoBonusGrid,
   type PricingSnapshot,
   type PayoutItem,
@@ -223,6 +225,152 @@ describe("seuil de vues conditionnant le FIXE", () => {
     expect(dur.fixed).toBe(0);
     expect(souple.fixeBloque).toBe(false);
     expect(souple.fixed).toBe(233.33);
+  });
+});
+
+/**
+ * MINIMUM DE VUES PAR VIDÉO — « une vidéo doit faire au moins 200 vues pour
+ * être payée à son prix ».
+ *
+ * Jeu à la FORME de la production : barème FR au fixe seul, 240 € pour 30
+ * vidéos (8 €/vidéo), minimum 200 ; vues irrégulières (143, 87, 12 431…), et un
+ * barème mixte à CPM décimal (1,1) pour le CPM qui reste dû.
+ */
+describe("minimum de vues PAR VIDÉO sur le fixe", () => {
+  const FR: PricingSnapshot = {
+    pricingId: "p-fr-8",
+    currency: "eur",
+    montantFixe: 240,
+    nbVideosCible: 30,
+    tauxCPM: 0,
+    minVuesParVideo: 200,
+    seuilBonusVues: 0,
+    montantBonus: 0,
+  };
+  const vid = (
+    id: string,
+    totalViews: number,
+    snapshot: PricingSnapshot = FR,
+    extra: Partial<PayoutItem> = {},
+  ): PayoutItem => ({ assignmentId: id, snapshot, totalViews, ...extra });
+
+  it("une vidéo SOUS le minimum ne touche pas son fixe ; les autres, si", () => {
+    const r = computeMonthlyPayout([
+      vid("ok-1", 12_431),
+      vid("sous-143", 143),
+      vid("ok-2", 2_870),
+      vid("sous-87", 87),
+    ]);
+    expect(r.fixedTotal).toBe(16); // 2 × 8 €, pas 4 × 8 €
+    const par = new Map(r.perAssignment.map((a) => [a.assignmentId, a]));
+    expect(par.get("sous-143")!.fixed).toBe(0);
+    expect(par.get("sous-143")!.sousMinimum).toBe(true);
+    expect(par.get("sous-87")!.fixed).toBe(0);
+    // Présence : les vidéos au-dessus portent bien leur fixe et ne sont pas marquées.
+    expect(par.get("ok-1")!.fixed).toBe(8);
+    expect(par.get("ok-1")!.sousMinimum).toBe(false);
+    expect(r.perPricing[0].videosSousMinimum).toBe(2);
+    expect(r.perPricing[0].videoCount).toBe(4); // publiées : toutes
+    expect(r.perPricing[0].minVuesParVideo).toBe(200);
+  });
+
+  it("la frontière : 199 vues = sous le minimum, 200 vues = fixe dû", () => {
+    const r = computeMonthlyPayout([vid("a199", 199), vid("a200", 200)]);
+    const par = new Map(r.perAssignment.map((a) => [a.assignmentId, a]));
+    expect(par.get("a199")!.fixed).toBe(0);
+    expect(par.get("a200")!.fixed).toBe(8);
+  });
+
+  it("une vidéo sous le minimum NE PREND PAS de place dans le forfait", () => {
+    // 32 vidéos pour un contrat de 30 : les 2 premières (dans l'ordre des
+    // documents) sont sous le minimum. Les 30 autres doivent être payées — si
+    // les vidéos sous le minimum consommaient le budget, les 2 dernières
+    // tomberaient à zéro et le total resterait 240 € mais sur les mauvaises vidéos.
+    const jeu = [
+      vid("sous-1", 143),
+      vid("sous-2", 0),
+      ...Array.from({ length: 30 }, (_, i) => vid(`ok-${i}`, 1_000 + i * 37)),
+    ];
+    const r = computeMonthlyPayout(jeu);
+    expect(r.fixedTotal).toBe(240);
+    const derniere = r.perAssignment.find((a) => a.assignmentId === "ok-29")!;
+    expect(derniere.fixed).toBe(8);
+  });
+
+  it("le minimum ne touche QUE le fixe — le CPM reste dû sur les vues", () => {
+    const MIXTE: PricingSnapshot = { ...FR, montantFixe: 150, tauxCPM: 1.1 };
+    const r = computeMonthlyPayout([vid("sous", 143, MIXTE)]);
+    expect(r.fixedTotal).toBe(0);
+    expect(r.cpmTotal).toBe(0.16); // 143 × 1,1 / 1000
+  });
+
+  it("sous le minimum, un barème au FIXE SEUL n'achète aucune vue", () => {
+    const r = computeMonthlyPayout([vid("sous", 143)]);
+    expect(r.perAssignment[0].billedViews).toBe(0);
+    // Présence : au-dessus, la vidéo forfaitaire achète toutes ses vues.
+    expect(computeMonthlyPayout([vid("ok", 2_870)]).perAssignment[0].billedViews).toBe(2_870);
+  });
+
+  it("une vidéo NON MESURÉE n'est pas jugée : elle touche son fixe", () => {
+    const r = computeMonthlyPayout([vid("pas-relevee", 0, FR, { viewsUnmeasured: true })]);
+    expect(r.fixedTotal).toBe(8);
+    expect(r.perAssignment[0].sousMinimum).toBe(false);
+    // La même vidéo, mesurée à 0 vue, est bien sous le minimum.
+    expect(computeMonthlyPayout([vid("mesuree", 0)]).fixedTotal).toBe(0);
+  });
+
+  it("aucun minimum (absent ou 0) : STRICTEMENT le comportement d'avant", () => {
+    const jeu = [vid("a", 143), vid("b", 87), vid("c", 12_431)];
+    const sans = { ...FR, minVuesParVideo: undefined };
+    const zero = { ...FR, minVuesParVideo: 0 };
+    for (const snap of [sans, zero]) {
+      const r = computeMonthlyPayout(jeu.map((it) => ({ ...it, snapshot: snap })));
+      expect(r.fixedTotal).toBe(24);
+      expect(r.perPricing[0].videosSousMinimum).toBe(0);
+      expect(r.perAssignment.every((a) => !a.sousMinimum)).toBe(true);
+    }
+  });
+
+  it("deux générations qui ne diffèrent QUE par le minimum : deux budgets", () => {
+    const AVANT: PricingSnapshot = { ...FR, minVuesParVideo: undefined };
+    const r = computeMonthlyPayout([
+      ...Array.from({ length: 3 }, (_, i) => vid(`avant-${i}`, 150, AVANT)),
+      ...Array.from({ length: 3 }, (_, i) => vid(`apres-${i}`, 150)),
+    ]);
+    expect(r.perPricing).toHaveLength(2);
+    // Les vidéos d'avant le minimum gardent leur fixe ; celles d'après non.
+    expect(r.fixedTotal).toBe(24);
+    const apres = r.perPricing.find((g) => g.minVuesParVideo === 200)!;
+    expect(apres.fixed).toBe(0);
+    expect(apres.videosSousMinimum).toBe(3);
+  });
+
+  it("estimation de mission : 0 € de fixe sous le minimum, 8 € à partir de 200", () => {
+    expect(estimateMissionEarnings(FR, 150).fixed).toBe(0);
+    expect(estimateMissionEarnings(FR, 200).fixed).toBe(8);
+    // Le PRIX de la mission, lui, reste 8 € — c'est ce que la fiche annonce.
+    expect(missionFixedPrice(FR)).toBe(8);
+  });
+
+  it("isUnderVideoMinimum : seul point de décision, identique côté convex (A6)", () => {
+    const cas: [number, boolean][] = [[0, false], [143, false], [199, false], [200, false], [0, true]];
+    for (const [views, unmeasured] of cas) {
+      expect(convexPricing.isUnderVideoMinimum(FR, views, unmeasured)).toBe(
+        isUnderVideoMinimum(FR, views, unmeasured),
+      );
+    }
+    expect(isUnderVideoMinimum(FR, 199)).toBe(true);
+    expect(isUnderVideoMinimum(FR, 200)).toBe(false);
+    expect(isUnderVideoMinimum({ minVuesParVideo: undefined }, 0)).toBe(false);
+  });
+
+  it("coût ENGAGÉ : le minimum est neutralisé comme le seuil du mois", () => {
+    const jeu = [vid("sous", 143), vid("ok", 2_870)];
+    const base = computeMonthlyPayout(jeu);
+    expect(base.total).toBe(8);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const eng = convexPricing.engageOf(jeu as any, base as any);
+    expect(eng.total).toBe(16);
   });
 });
 
@@ -776,6 +924,20 @@ describe("parité lib/ ↔ convex/ du moteur de paie (règle A6)", () => {
       pricingId: "p-c", montantFixe: 700, nbVideosCible: 60, tauxCPM: 0,
       seuilVuesFixe: 100_000, seuilBonusVues: 0, montantBonus: 0,
     }) },
+    { nom: "minimum par vidéo, vidéos sous et au-dessus", items: [
+      ...items(3, 143, {
+        pricingId: "p-min", montantFixe: 240, nbVideosCible: 30, tauxCPM: 1.1,
+        minVuesParVideo: 200, seuilBonusVues: 0, montantBonus: 0,
+      }, "sous"),
+      ...items(31, 4_210, {
+        pricingId: "p-min", montantFixe: 240, nbVideosCible: 30, tauxCPM: 1.1,
+        minVuesParVideo: 200, seuilBonusVues: 0, montantBonus: 0,
+      }, "ok"),
+      { assignmentId: "non-mesuree", totalViews: 0, viewsUnmeasured: true, snapshot: {
+        pricingId: "p-min", montantFixe: 240, nbVideosCible: 30, tauxCPM: 1.1,
+        minVuesParVideo: 200, seuilBonusVues: 0, montantBonus: 0,
+      } },
+    ] },
     { nom: "cycle mixte inversé", items: [
       ...items(12, 2_000, NOUVEAU, "neuf"),
       ...items(7, 10_000, ANCIEN, "vieux"),

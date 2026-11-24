@@ -617,7 +617,12 @@
         "unlocked": "Meta atingida: o fixo do mês está garantido."
       },
       "seeGrid": "Ver minha tabela",
-      "videoBonusCarriedHint": "Vídeo de um ciclo já pago: este nível foi atingido depois do pagamento, por isso é pago neste ciclo."
+      "videoBonusCarriedHint": "Vídeo de um ciclo já pago: este nível foi atingido depois do pagamento, por isso é pago neste ciclo.",
+      "fixeMin": {
+        "title": "{count, plural, one {# vídeo com menos de {views} visualizações — sem fixo} other {# vídeos com menos de {views} visualizações — sem fixo}}",
+        "views": "{views} visualizações",
+        "rule": "Um vídeo recebe o fixo a partir de {views} visualizações (todas as plataformas somadas, nos primeiros 30 dias)."
+      }
     },
     "videos": {
       "trackingActive": "Acompanhamento ativo",
@@ -977,7 +982,9 @@
         "seuil": "Liberado a partir de {views} visualizações acumuladas nos seus vídeos do ciclo.",
         "progress": "{done} / {target} neste ciclo",
         "earned": "{amount} garantidos",
-        "locked": "{done} / {target} visualizações para liberar"
+        "locked": "{done} / {target} visualizações para liberar",
+        "minPerVideo": "Cada vídeo precisa de pelo menos {views} visualizações para receber o fixo.",
+        "underMin": "{count, plural, one {# vídeo abaixo do mínimo de visualizações, sem fixo} other {# vídeos abaixo do mínimo de visualizações, sem fixo}}"
       },
       "cpm": {
         "label": "Suas visualizações",

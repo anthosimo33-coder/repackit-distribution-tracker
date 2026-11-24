@@ -54,6 +54,7 @@ export function memeSnapshot(a: PricingSnapshot, b: PricingSnapshot): boolean {
     a.nbVideosCible === b.nbVideosCible &&
     a.tauxCPM === b.tauxCPM &&
     (a.seuilVuesFixe ?? 0) === (b.seuilVuesFixe ?? 0) &&
+    (a.minVuesParVideo ?? 0) === (b.minVuesParVideo ?? 0) &&
     a.seuilBonusVues === b.seuilBonusVues &&
     a.montantBonus === b.montantBonus &&
     (a.currency ?? null) === (b.currency ?? null)

@@ -58,6 +58,8 @@ function sameSnapshot(a: PricingSnapshot, b: PricingSnapshot): boolean {
     // diffèrent que par elle ne sont PAS le même, sinon la migration croirait
     // n'avoir rien à réécrire là où le fixe peut passer à zéro.
     (a.seuilVuesFixe ?? 0) === (b.seuilVuesFixe ?? 0) &&
+    // Le minimum par vidéo aussi : il fait passer des fixes à zéro.
+    (a.minVuesParVideo ?? 0) === (b.minVuesParVideo ?? 0) &&
     a.seuilBonusVues === b.seuilBonusVues &&
     a.montantBonus === b.montantBonus &&
     (a.currency ?? null) === (b.currency ?? null)
@@ -66,7 +68,9 @@ function sameSnapshot(a: PricingSnapshot, b: PricingSnapshot): boolean {
 
 /** Forme courte lisible dans le rapport et les logs. */
 function brief(s: PricingSnapshot): string {
-  const cond = s.seuilVuesFixe ? ` · fixe conditionné à ${s.seuilVuesFixe} vues` : "";
+  const cond =
+    (s.seuilVuesFixe ? ` · fixe conditionné à ${s.seuilVuesFixe} vues` : "") +
+    (s.minVuesParVideo ? ` · minimum ${s.minVuesParVideo} vues par vidéo` : "");
   const cur = s.currency ? ` ${s.currency.toUpperCase()}` : "";
   return `fixe ${s.montantFixe}${cur}/${s.nbVideosCible} vidéos · CPM ${s.tauxCPM}${cond}`;
 }

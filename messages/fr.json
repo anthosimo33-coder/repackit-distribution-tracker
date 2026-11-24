@@ -617,7 +617,12 @@
         "unlocked": "Seuil atteint — le fixe du mois est acquis."
       },
       "seeGrid": "Voir ma grille",
-      "videoBonusCarriedHint": "Vidéo d'un cycle déjà payé : ce palier a été atteint après le paiement, il est réglé sur ce cycle."
+      "videoBonusCarriedHint": "Vidéo d'un cycle déjà payé : ce palier a été atteint après le paiement, il est réglé sur ce cycle.",
+      "fixeMin": {
+        "title": "{count, plural, one {# vidéo sous {views} vues — fixe non dû} other {# vidéos sous {views} vues — fixe non dû}}",
+        "views": "{views} vues",
+        "rule": "Une vidéo touche son fixe à partir de {views} vues (plateformes additionnées, sur ses 30 premiers jours)."
+      }
     },
     "videos": {
       "trackingActive": "Suivi actif",
@@ -977,7 +982,9 @@
         "seuil": "Débloqué à partir de {views} vues cumulées sur tes vidéos du cycle.",
         "progress": "{done} / {target} ce cycle",
         "earned": "{amount} acquis",
-        "locked": "{done} / {target} vues pour débloquer"
+        "locked": "{done} / {target} vues pour débloquer",
+        "minPerVideo": "Chaque vidéo doit faire au moins {views} vues pour toucher son fixe.",
+        "underMin": "{count, plural, one {# vidéo sous le minimum de vues, fixe non dû} other {# vidéos sous le minimum de vues, fixe non dû}}"
       },
       "cpm": {
         "label": "Tes vues",

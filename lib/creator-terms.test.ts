@@ -29,6 +29,7 @@ const JULIETTE: Terms = {
   nbVideosCible: 60,
   tauxCPM: 0,
   seuilVuesFixe: 0,
+  minVuesParVideo: 0,
   plafondParVideo: 150,
   videoBonus: GRILLE,
   hasCumulTiers: false,
@@ -58,8 +59,31 @@ describe("Mon contrat — position du cycle", () => {
       fixed: 186.67,
       groupViews: 391_216,
       fixeBloque: false,
+      videosSousMinimum: 0,
     });
     expect(p.otherTerms).toBe(false);
+  });
+
+  it("minimum de vues par vidéo : compte les vidéos sous la barre, sur CE contrat seulement", () => {
+    const AVEC_MIN: Terms = { ...JULIETTE, minVuesParVideo: 200 };
+    const p = termsPosition(AVEC_MIN, {
+      perPricing: [
+        groupe({ minVuesParVideo: 200, videosSousMinimum: 2, videoCount: 18 }),
+        // Snapshot d'avant le minimum : autres termes, ses vidéos n'entrent pas ici.
+        groupe({ videoCount: 4, fixed: 46.67 }),
+      ],
+      perAssignment: [],
+      videoBonuses: [],
+    });
+    expect(p.fixe.videosSousMinimum).toBe(2);
+    expect(p.fixe.videoCount).toBe(18);
+    expect(p.otherTerms).toBe(true);
+    // Contrat sans minimum : le groupe qui en porte un n'est pas le sien.
+    expect(termsPosition(JULIETTE, {
+      perPricing: [groupe({ minVuesParVideo: 200, videosSousMinimum: 2 })],
+      perAssignment: [],
+      videoBonuses: [],
+    }).fixe.videosSousMinimum).toBe(0);
   });
 
   it("met à part les vidéos payées sur d'autres termes (ancien barème OU ancien snapshot)", () => {
@@ -166,6 +190,12 @@ describe("Mon contrat — règles rappelées", () => {
     expect(
       termsRules({ ...JULIETTE, videoBonus: null }),
     ).toEqual(["paidEvery30"]);
+  });
+
+  it("fixe seul AVEC minimum par vidéo : les vues comptent, leurs règles aussi", () => {
+    expect(
+      termsRules({ ...JULIETTE, videoBonus: null, minVuesParVideo: 200 }),
+    ).toEqual(["platformsAdd", "window30", "paidEvery30"]);
   });
 
   it("paliers cumulables / paliers sur le cumul de vues", () => {

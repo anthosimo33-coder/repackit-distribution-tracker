@@ -34,7 +34,7 @@ import {
 } from "@/components/scripts/ScriptDestinationZones";
 import { formatPlannedDay } from "@/lib/calendar-status";
 import { formatMissionDate } from "@/components/portal/MissionListItem";
-import { estimateMissionEarnings } from "@/lib/pricing-engine";
+import { missionFixedPrice } from "@/lib/pricing-engine";
 import { formatMoney } from "@/lib/format-rate";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useTranslations } from "next-intl";
@@ -96,7 +96,7 @@ export default function AssignmentDetailScreen({
           const a = data.assignment;
           const perVideo =
             argent && a.pricingSnapshot
-              ? estimateMissionEarnings(a.pricingSnapshot, 0).fixed
+              ? missionFixedPrice(a.pricingSnapshot)
               : 0;
           return (
             <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">

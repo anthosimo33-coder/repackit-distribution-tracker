@@ -137,6 +137,7 @@ async function toCreatorVideo(
       hasMetrics,
       payWindowClosed: windowClosed,
       viewsOutsideWindow: outside,
+      unmeasuredPayablePosts,
     } = await assignmentViewsAndMetrics(ctx, a);
     // Gain par vidéo — MÊME moteur cappé que Mes paiements (plafond 150 réutilisé).
     // Warmup : posts warmup EXCLUS de la paie → gain sur les seules vues PAYABLES ;
@@ -149,6 +150,9 @@ async function toCreatorVideo(
               assignmentId: a._id,
               snapshot: a.pricingSnapshot,
               totalViews: payableViews,
+              // Même règle que la paie : une vidéo non mesurée n'est pas jugée
+              // par le minimum de vues par vidéo.
+              ...(unmeasuredPayablePosts > 0 ? { viewsUnmeasured: true } : {}),
             },
           ]).total
         : computeEarnings(a.rateSnapshot, payableViews).total;

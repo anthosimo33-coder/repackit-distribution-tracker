@@ -16,6 +16,8 @@ export type Terms = {
   nbVideosCible: number;
   tauxCPM: number;
   seuilVuesFixe: number;
+  /** Vues qu'UNE vidéo doit faire pour toucher son fixe. 0 = aucun minimum. */
+  minVuesParVideo: number;
   plafondParVideo: number;
   videoBonus: VideoBonusGrid | null;
   hasCumulTiers: boolean;
@@ -32,6 +34,9 @@ export type CycleBreakdown = {
     fixed: number;
     groupViews: number;
     fixeBloque: boolean;
+    /** Absents sur un cycle d'avant le minimum par vidéo ⇒ 0. */
+    minVuesParVideo?: number;
+    videosSousMinimum?: number;
   }[];
   perAssignment: { assignmentId: string; pricingId: string }[];
   videoBonuses: { assignmentId: string; views: number; montant: number }[];
@@ -44,7 +49,14 @@ export function fixePerVideo(t: Pick<Terms, "montantFixe" | "nbVideosCible">): n
 
 export type TermsPosition = {
   /** Fixe du cycle SUR CE CONTRAT. */
-  fixe: { videoCount: number; fixed: number; groupViews: number; fixeBloque: boolean };
+  fixe: {
+    videoCount: number;
+    fixed: number;
+    groupViews: number;
+    fixeBloque: boolean;
+    /** Vidéos du cycle sous le minimum de vues par vidéo (fixe non dû). */
+    videosSousMinimum: number;
+  };
   /** La vidéo du cycle la plus haut dans la grille de bonus (null = aucune n'a franchi de palier). */
   bestVideo: { assignmentId: string; views: number } | null;
   /**
@@ -66,13 +78,15 @@ export function termsPosition(t: Terms, b: CycleBreakdown): TermsPosition {
     g.pricingId === t.pricingId &&
     g.montantFixe === t.montantFixe &&
     g.nbVideosCible === t.nbVideosCible &&
-    g.seuilVuesFixe === t.seuilVuesFixe;
+    g.seuilVuesFixe === t.seuilVuesFixe &&
+    (g.minVuesParVideo ?? 0) === t.minVuesParVideo;
   const mine = b.perPricing.filter(isThis);
   const fixe = {
     videoCount: mine.reduce((s, g) => s + g.videoCount, 0),
     fixed: Math.round(mine.reduce((s, g) => s + g.fixed, 0) * 100) / 100,
     groupViews: mine.reduce((s, g) => s + g.groupViews, 0),
     fixeBloque: mine.some((g) => g.fixeBloque),
+    videosSousMinimum: mine.reduce((s, g) => s + (g.videosSousMinimum ?? 0), 0),
   };
   // La grille est lue sur le barème de CHAQUE vidéo : ne garder que les vidéos
   // de ce contrat. Sans `perAssignment` (cycle gelé), on ne sait pas trier, et
@@ -142,7 +156,11 @@ export type TermsRule =
  */
 export function termsRules(t: Terms): TermsRule[] {
   const paidOnViews =
-    t.tauxCPM > 0 || t.videoBonus !== null || t.seuilVuesFixe > 0 || t.hasCumulTiers;
+    t.tauxCPM > 0 ||
+    t.videoBonus !== null ||
+    t.seuilVuesFixe > 0 ||
+    t.minVuesParVideo > 0 ||
+    t.hasCumulTiers;
   const rules: TermsRule[] = [];
   if (paidOnViews) rules.push("platformsAdd", "window30");
   if (t.videoBonus !== null || t.hasCumulTiers) rules.push("warmupNoBonus");

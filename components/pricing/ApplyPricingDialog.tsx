@@ -114,6 +114,9 @@ export function ApplyPricingDialog({
       ...(x.seuilVuesFixe > 0
         ? [t("termsThreshold", { views: new Intl.NumberFormat(locale).format(x.seuilVuesFixe) })]
         : []),
+      ...(x.minVuesParVideo > 0
+        ? [t("termsMinPerVideo", { views: new Intl.NumberFormat(locale).format(x.minVuesParVideo) })]
+        : []),
     ].join(" · ");
   const dayText = (day: string) =>
     new Date(`${day}T12:00:00Z`).toLocaleDateString(locale, {

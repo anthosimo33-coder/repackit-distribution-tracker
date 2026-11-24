@@ -90,7 +90,8 @@ function FixeBlock({ terms, position }: { terms: Terms; position: TermsPosition 
   const t = useTranslations("portal.contrat");
   const loc = useIntlLocale();
   const money = useMoney(terms.currency);
-  const done = position?.fixe.videoCount ?? 0;
+  // Les vidéos sous le minimum de vues ne prennent pas de place dans le forfait.
+  const done = (position?.fixe.videoCount ?? 0) - (position?.fixe.videosSousMinimum ?? 0);
   const pct = Math.min(100, Math.round((done / Math.max(1, terms.nbVideosCible)) * 100));
   return (
     <Block label={t("fixe.label")} testId="terms-fixe">
@@ -110,6 +111,11 @@ function FixeBlock({ terms, position }: { terms: Terms; position: TermsPosition 
           {t("fixe.seuil", { views: terms.seuilVuesFixe.toLocaleString(loc) })}
         </p>
       )}
+      {terms.minVuesParVideo > 0 && (
+        <p className="text-sm text-slate-500" data-testid="terms-min-per-video">
+          {t("fixe.minPerVideo", { views: terms.minVuesParVideo.toLocaleString(loc) })}
+        </p>
+      )}
       {position && (
         <div className="space-y-1 pt-1">
           <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
@@ -126,6 +132,11 @@ function FixeBlock({ terms, position }: { terms: Terms; position: TermsPosition 
                 : t("fixe.earned", { amount: formatMoney(position.fixe.fixed, terms.currency, loc) })}
             </span>
           </div>
+          {position.fixe.videosSousMinimum > 0 && (
+            <p className="text-xs text-amber-800">
+              {t("fixe.underMin", { count: position.fixe.videosSousMinimum })}
+            </p>
+          )}
         </div>
       )}
     </Block>
@@ -222,7 +233,13 @@ export default function ContratScreen() {
       : live
         ? termsPosition(pricing, live.pricingBreakdown)
         : {
-            fixe: { videoCount: 0, fixed: 0, groupViews: 0, fixeBloque: pricing.seuilVuesFixe > 0 },
+            fixe: {
+              videoCount: 0,
+              fixed: 0,
+              groupViews: 0,
+              fixeBloque: pricing.seuilVuesFixe > 0,
+              videosSousMinimum: 0,
+            },
             bestVideo: null,
             otherTerms: false,
           };

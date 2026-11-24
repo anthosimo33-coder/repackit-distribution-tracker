@@ -5,7 +5,7 @@ import { useMutation } from "convex/react";
 import { celebrate } from "@/lib/celebrate";
 import { haptic } from "@/lib/haptics";
 import { suggestedPostUrl } from "@/lib/clipboard-post-url";
-import { estimateMissionEarnings } from "@/lib/pricing-engine";
+import { missionFixedPrice } from "@/lib/pricing-engine";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -249,7 +249,7 @@ export function AssignmentActions({
       // Le moment de fierté de la mission : il se CÉLÈBRE (confettis, vibration,
       // gain par vidéo) au lieu d'un toast qui passe inaperçu.
       const perVideo = assignment.pricingSnapshot
-        ? estimateMissionEarnings(assignment.pricingSnapshot, 0).fixed
+        ? missionFixedPrice(assignment.pricingSnapshot)
         : null;
       celebrate({
         kind: "published",

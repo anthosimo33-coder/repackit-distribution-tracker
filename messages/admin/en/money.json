@@ -752,6 +752,7 @@
     "termsFixed": "fixed {amount} for {videos} videos",
     "termsCpm": "CPM {amount}",
     "termsThreshold": "fixed pay requires {views} views",
+    "termsMinPerVideo": "at least {views} views per video",
     "currencyMismatch": "{name} is paid in {creatorCurrency}, this pay grid is in {pricingCurrency}: their videos can’t move to it.",
     "noVideos": "No video from this creator in this date range.",
     "noPricing": "No pay grid",
