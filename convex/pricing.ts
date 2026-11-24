@@ -85,6 +85,13 @@ export type PricingSnapshot = {
    * ABSOLU, jamais pro-raté, et il ne touche QUE le fixe.
    */
   seuilVuesFixe?: number;
+  /**
+   * MINIMUM DE VUES PAR VIDÉO — 0 ou absent = aucun. Réplique de
+   * lib/pricing-engine (A6) : sous la barre, la vidéo ne touche pas son fixe et
+   * ne consomme rien du budget ; le CPM reste dû. Une vidéo non mesurée n'est
+   * pas jugée.
+   */
+  minVuesParVideo?: number;
   // legacy v1 (ignorés par le moteur v2 ; conservés sur les snapshots existants).
   seuilBonusVues: number;
   montantBonus: number;
@@ -100,6 +107,11 @@ type PayoutItem = {
    * dans lib/pricing-engine.
    */
   periodViews?: number;
+  /**
+   * Un post rémunéré de la vidéo sans mesure ⇒ le minimum par vidéo ne la juge
+   * pas (réplique A6, cf lib/pricing-engine.PayoutItem.viewsUnmeasured).
+   */
+  viewsUnmeasured?: boolean;
 };
 
 export type PerPricing = {
@@ -122,6 +134,10 @@ export type PerPricing = {
    * « 0 sur 700 — seuil non atteint », pas afficher un contrat à zéro.
    */
   fixeBloque: boolean;
+  /** Minimum de vues par vidéo (0 = aucun). */
+  minVuesParVideo: number;
+  /** Vidéos du groupe sous le minimum (comptées dans `videoCount`). */
+  videosSousMinimum: number;
 };
 
 export interface MonthlyPayout {
@@ -139,6 +155,8 @@ export interface MonthlyPayout {
     fixed: number;
     /** Vues réellement FACTURÉES — cf lib/pricing-engine.PerAssignment. */
     billedViews: number;
+    /** Sous le minimum de vues par vidéo : fixe non dû. */
+    sousMinimum: boolean;
   }[];
 }
 
@@ -150,6 +168,16 @@ export function assignmentCpm(snapshot: PricingSnapshot, totalViews: number): nu
 function fixePerVideo(snapshot: PricingSnapshot): number {
   if (!(snapshot.nbVideosCible > 0)) return 0;
   return snapshot.montantFixe / snapshot.nbVideosCible;
+}
+
+/** RÉPLIQUE de lib/pricing-engine.isUnderVideoMinimum (A6, DOIT rester identique). */
+export function isUnderVideoMinimum(
+  snapshot: Pick<PricingSnapshot, "minVuesParVideo">,
+  views: number,
+  viewsUnmeasured = false,
+): boolean {
+  const min = Math.max(0, snapshot.minVuesParVideo ?? 0);
+  return min > 0 && !viewsUnmeasured && min > Math.max(0, views);
 }
 
 // ─── Warmup — RÉPLIQUE de lib/pricing-engine.payableAssignmentViews (A6) ──────
@@ -222,6 +250,8 @@ function payoutGroupKey(s: PricingSnapshot): string {
     s.tauxCPM,
     s.seuilVuesFixe ?? 0,
     s.currency ?? "",
+    // Le minimum par vidéo décide qui puise dans le budget du groupe (A6).
+    s.minVuesParVideo ?? 0,
   ].join("|");
 }
 
@@ -275,8 +305,13 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     let fixedRaw = 0;
     let groupCpm = 0;
     let fixedOverflow = 0;
+    let videosSousMinimum = 0;
     for (const it of groupItems) {
-      const perVideo = fixePerVideo(it.snapshot);
+      // Minimum de vues par vidéo (RÉPLIQUE lib/pricing-engine) : sous la barre,
+      // part fixe nulle AVANT le budget — la vidéo ne prend pas de place.
+      const sousMinimum = isUnderVideoMinimum(it.snapshot, it.totalViews, it.viewsUnmeasured);
+      if (sousMinimum) videosSousMinimum += 1;
+      const perVideo = sousMinimum ? 0 : fixePerVideo(it.snapshot);
       const fixedShare = Math.min(perVideo, Math.max(0, remainingFixe));
       remainingFixe -= fixedShare;
       fixedRaw += fixedShare;
@@ -306,6 +341,7 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
         // vidéos à 1,666…. L'appelant arrondit quand il agrège.
         fixed: fixedShare - (excess - cpmOverflow),
         billedViews: Math.round(Math.min(views, billableViews)),
+        sousMinimum,
       });
     }
     const fixed = round2(round2(fixedRaw) - fixedOverflow);
@@ -327,6 +363,8 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       seuilVuesFixe,
       groupViews,
       fixeBloque,
+      minVuesParVideo: Math.max(0, groupSnapshot.minVuesParVideo ?? 0),
+      videosSousMinimum,
     });
     fixedTotal = round2(fixedTotal + fixed);
     cpmTotal = round2(cpmTotal + groupCpm);
@@ -1998,13 +2036,14 @@ export function engageOf(items: PayoutItem[], base: MonthlyPayout): {
       perAssignment,
     };
   };
-  if (!base.perPricing.some((g) => g.fixeBloque)) {
+  // Les DEUX conditions de vues : le seuil du mois et le minimum par vidéo.
+  if (!base.perPricing.some((g) => g.fixeBloque || g.videosSousMinimum > 0)) {
     return { total: base.total, ...facturees(base) };
   }
   const sansSeuil = computeMonthlyPayout(
     items.map((it) => ({
       ...it,
-      snapshot: { ...it.snapshot, seuilVuesFixe: undefined },
+      snapshot: { ...it.snapshot, seuilVuesFixe: undefined, minVuesParVideo: undefined },
     })),
   );
   return { total: sansSeuil.total, ...facturees(sansSeuil) };
@@ -2149,6 +2188,7 @@ export async function computeLivePricingBreakdown(
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
       totalViews: settledViews ?? payableViews,
+      ...(nonMesures > 0 ? { viewsUnmeasured: true } : {}),
       ...(seuilPresent
         ? {
             periodViews: await payableViewsAsOf(ctx, a, periodEndMs!, viewsCache),
@@ -2306,6 +2346,7 @@ export async function computeCyclePricingBreakdown(
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
       totalViews: payableViews,
+      ...(nonMesures > 0 ? { viewsUnmeasured: true } : {}),
       ...(seuilPresent
         ? { periodViews: await payableViewsAsOf(ctx, a, cycleEnd, viewsCache) }
         : {}),
@@ -2447,6 +2488,12 @@ export async function buildPricingSnapshot(
     ...(pricing.seuilVuesFixe !== undefined && pricing.seuilVuesFixe > 0
       ? { seuilVuesFixe: pricing.seuilVuesFixe }
       : {}),
+    // Le minimum par vidéo aussi : c'est une condition du contrat de la vidéo.
+    // Absent du snapshot quand le barème n'en a pas ⇒ snapshots identiques à
+    // ceux d'avant, aucun groupe de paie scindé.
+    ...(pricing.minVuesParVideo !== undefined && pricing.minVuesParVideo > 0
+      ? { minVuesParVideo: pricing.minVuesParVideo }
+      : {}),
     // legacy v1 sur le snapshot (ignorés par le moteur v2) — défaut 0.
     seuilBonusVues: pricing.seuilBonusVues ?? 0,
     montantBonus: pricing.montantBonus ?? 0,
@@ -2488,6 +2535,8 @@ type PricingInput = {
   tauxCPM: number;
   /** Seuil de vues conditionnant le fixe. 0 = aucune condition. */
   seuilVuesFixe?: number;
+  /** Minimum de vues par vidéo pour toucher le fixe. 0 = aucun. */
+  minVuesParVideo?: number;
   bonusTiers?: BonusTier[];
   bonusTemplateId?: Id<"bonusTemplates"> | null;
   /** Grille de bonus PAR VIDÉO. `null` = la retirer ; absente = ne pas y toucher. */
@@ -2548,6 +2597,23 @@ function validatePricingFields(args: PricingInput): PricingInput {
       );
     }
   }
+  // MINIMUM DE VUES PAR VIDÉO — mêmes règles que le seuil du mois : entier ≥ 0,
+  // 0 normalisé en absence, et refusé sur un barème sans fixe (il ne
+  // conditionnerait rien).
+  if (args.minVuesParVideo !== undefined) {
+    if (!Number.isFinite(args.minVuesParVideo) || args.minVuesParVideo < 0) {
+      throw err(
+        ERR.PRICING_VIEW_THRESHOLD_INVALID,
+        "minVuesParVideo doit être un nombre ≥ 0.",
+      );
+    }
+    if (args.minVuesParVideo > 0 && args.montantFixe <= 0) {
+      throw new ConvexError(
+        "Le minimum de vues par vidéo ne conditionne que le FIXE : ce barème n'en a pas. " +
+          "Renseigne un montant fixe, ou désactive le minimum.",
+      );
+    }
+  }
   validateBonusTiers(args.bonusTiers ?? []);
   const videoBonus =
     args.videoBonus === undefined || args.videoBonus === null
@@ -2560,6 +2626,10 @@ function validatePricingFields(args: PricingInput): PricingInput {
     seuilVuesFixe:
       args.seuilVuesFixe !== undefined && args.seuilVuesFixe > 0
         ? Math.round(args.seuilVuesFixe)
+        : undefined,
+    minVuesParVideo:
+      args.minVuesParVideo !== undefined && args.minVuesParVideo > 0
+        ? Math.round(args.minVuesParVideo)
         : undefined,
   };
 }
@@ -2671,6 +2741,7 @@ const PRICING_ARGS = {
   nbVideosCible: v.number(),
   tauxCPM: v.number(),
   seuilVuesFixe: v.optional(v.number()),
+  minVuesParVideo: v.optional(v.number()),
   bonusTiers: v.optional(v.array(BONUS_TIER_VALIDATOR)),
   // Provenance de l'échelle — traçabilité seule (cf schema). `null` la coupe
   // explicitement : une échelle repartie de zéro ne doit pas continuer à se
@@ -2967,6 +3038,8 @@ export const listPricings = permissionQuery("pricing.manage")({
         // 0 plutôt qu'`undefined` : l'écran teste `> 0`, et deux formes pour
         // « aucune condition » finiraient par diverger à l'affichage.
         seuilVuesFixe: p.seuilVuesFixe ?? 0,
+        // Même convention : 0 = aucun minimum.
+        minVuesParVideo: p.minVuesParVideo ?? 0,
         bonusTiers: p.bonusTiers,
         // legacy v1 — `tiersOf` en a besoin pour rendre le seuil unique des
         // barèmes d'avant les paliers.

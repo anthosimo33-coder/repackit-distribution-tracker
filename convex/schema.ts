@@ -2864,6 +2864,11 @@ export default defineSchema({
          * strictement inchangé.
          */
         seuilVuesFixe: v.optional(v.number()),
+        /**
+         * Minimum de vues par vidéo pour toucher le fixe, FIGÉ comme le reste.
+         * Absent ⇒ aucun minimum, comportement strictement inchangé.
+         */
+        minVuesParVideo: v.optional(v.number()),
         seuilBonusVues: v.number(),
         montantBonus: v.number(),
       }),
@@ -3002,6 +3007,17 @@ export default defineSchema({
      * inchangés.
      */
     seuilVuesFixe: v.optional(v.number()),
+    /**
+     * MINIMUM DE VUES PAR VIDÉO pour toucher le fixe — absent = aucun.
+     *
+     * « Une vidéo doit faire au moins 200 vues pour être payée à son prix. »
+     * Chaque vidéo est jugée seule, sur ses vues payables (celles du CPM). Sous
+     * la barre, sa part fixe vaut 0 et elle ne prend pas de place dans le
+     * forfait ; le CPM et les bonus ne bougent pas. Une vidéo non mesurée n'est
+     * pas jugée. FIGÉ dans `pricingSnapshot` comme le reste du barème.
+     * Optional ⇒ 0 migration, barèmes existants inchangés.
+     */
+    minVuesParVideo: v.optional(v.number()),
     // LEGACY (pricing v1, seuil de bonus UNIQUE par vidéo) — conservés en
     // lecture pour les pricings/snapshots existants ; `tiersOf()` les convertit
     // en 1 palier cash. 0 migration.

@@ -35,6 +35,8 @@ export type CreatorTerms = {
     tauxCPM: number;
     /** Vues cumulées du cycle qui débloquent le fixe. 0 = aucune condition. */
     seuilVuesFixe: number;
+    /** Vues qu'UNE vidéo doit faire pour toucher son fixe. 0 = aucun minimum. */
+    minVuesParVideo: number;
     /** Plafond par vidéo, fixe + vues (hors bonus). */
     plafondParVideo: number;
     /** Grille de bonus PAR VIDÉO, paliers triés ; null = aucune. */
@@ -71,6 +73,7 @@ async function termsFor(
       nbVideosCible: Math.max(0, pricing.nbVideosCible),
       tauxCPM: Math.max(0, pricing.tauxCPM),
       seuilVuesFixe: Math.max(0, pricing.seuilVuesFixe ?? 0),
+      minVuesParVideo: Math.max(0, pricing.minVuesParVideo ?? 0),
       plafondParVideo: MAX_PAY_PER_VIDEO_EUR,
       videoBonus:
         tiers.length > 0

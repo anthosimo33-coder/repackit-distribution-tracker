@@ -122,6 +122,7 @@ function termes(s: PricingSnapshot, devise: string | null) {
     nbVideos: s.nbVideosCible,
     cpm: s.tauxCPM,
     ...(s.seuilVuesFixe ? { fixeConditionneA: `${s.seuilVuesFixe} vues` } : {}),
+    ...(s.minVuesParVideo ? { minimumVuesParVideo: s.minVuesParVideo } : {}),
     devise,
   };
 }

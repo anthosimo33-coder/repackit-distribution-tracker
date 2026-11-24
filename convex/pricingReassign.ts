@@ -236,6 +236,7 @@ const termes = (s: PricingSnapshot) => ({
   nbVideosCible: s.nbVideosCible,
   tauxCPM: s.tauxCPM,
   seuilVuesFixe: s.seuilVuesFixe ?? 0,
+  minVuesParVideo: s.minVuesParVideo ?? 0,
   currency: s.currency ?? null,
 });
 

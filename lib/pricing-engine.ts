@@ -50,6 +50,22 @@ export type PricingSnapshot = {
    * justifie de les suspendre parce qu'un forfait ne se déclenche pas.
    */
   seuilVuesFixe?: number;
+  /**
+   * MINIMUM DE VUES PAR VIDÉO — 0 ou absent = aucun minimum.
+   *
+   * « Une vidéo doit faire au moins 200 vues pour toucher son fixe. » Chaque
+   * vidéo est jugée SEULE, sur ses vues payables (les mêmes que le CPM :
+   * plateformes additionnées, fenêtre J+30). Sous le minimum, sa part fixe vaut
+   * ZÉRO et elle ne consomme RIEN du budget `montantFixe` : la vidéo suivante
+   * prend la place (« 240 € pour 30 vidéos » = 30 vidéos qui passent la barre).
+   *
+   * ⚠️ IL NE TOUCHE QUE LE FIXE, comme `seuilVuesFixe` : le CPM paie la vue, il
+   * reste dû sur les vues de la vidéo, et les bonus ne bougent pas.
+   *
+   * ⚠️ UNE VIDÉO NON MESURÉE N'EST PAS JUGÉE (cf PayoutItem.viewsUnmeasured) :
+   * on ne refuse pas un fixe sur une ignorance.
+   */
+  minVuesParVideo?: number;
   // LEGACY v1 (seuil unique par vidéo) — conservés sur les snapshots existants,
   // PLUS utilisés par le moteur v2 (le bonus est désormais à paliers cumulés).
   seuilBonusVues?: number;
@@ -76,6 +92,15 @@ export type PayoutItem = {
    * de période gardent exactement le comportement d'avant.
    */
   periodViews?: number;
+  /**
+   * Au moins un post RÉMUNÉRÉ de la vidéo n'a PAS de mesure (jamais relevé,
+   * collecte en échec, compteur masqué — cf convex/collectAvailability).
+   *
+   * Le minimum par vidéo ne la juge PAS : ses vues connues ne sont qu'une
+   * partie de ses vues réelles, et la règle de la paie est « on signale, on paie
+   * quand même ». Absent ⇒ mesurée, jugée normalement.
+   */
+  viewsUnmeasured?: boolean;
 };
 
 export type PerPricing = {
@@ -98,6 +123,14 @@ export type PerPricing = {
    * « 0 sur 700 — seuil non atteint », pas afficher un contrat à zéro.
    */
   fixeBloque: boolean;
+  /** Minimum de vues par vidéo (0 = aucun). */
+  minVuesParVideo: number;
+  /**
+   * Vidéos du groupe SOUS le minimum : part fixe nulle, aucune place prise dans
+   * le budget. Comptées dans `videoCount` (elles sont publiées) — l'écran dit
+   * « 24 payées sur 26 », jamais « 24 publiées ».
+   */
+  videosSousMinimum: number;
 };
 
 export type PerAssignment = {
@@ -139,6 +172,8 @@ export type PerAssignment = {
    * division par zéro : `tauxCPM = 0` ne passe pas par la branche qui divise.
    */
   billedViews: number;
+  /** Sous le minimum de vues par vidéo : fixe non dû (cf PricingSnapshot.minVuesParVideo). */
+  sousMinimum: boolean;
 };
 
 export interface MonthlyPayout {
@@ -174,6 +209,34 @@ function fixePerVideo(snapshot: PricingSnapshot): number {
   return snapshot.montantFixe / snapshot.nbVideosCible;
 }
 
+/**
+ * La vidéo est-elle SOUS le minimum de vues de son barème ? Faux sans minimum,
+ * et faux sur une vidéo non mesurée (cf PayoutItem.viewsUnmeasured). Point de
+ * décision UNIQUE du minimum — le moteur, l'estimation et les écrans le lisent
+ * tous ici. SOURCE UNIQUE (pure, testée Vitest) — RÉPLIQUÉE dans
+ * convex/pricing.ts (règle A6).
+ */
+export function isUnderVideoMinimum(
+  snapshot: Pick<PricingSnapshot, "minVuesParVideo">,
+  views: number,
+  viewsUnmeasured = false,
+): boolean {
+  const min = Math.max(0, snapshot.minVuesParVideo ?? 0);
+  // Écrit `min > vues` et non `vues < min` : le détecteur i18n prend le `<`
+  // pour une ouverture de balise (même piège que le seuil du fixe).
+  return min > 0 && !viewsUnmeasured && min > Math.max(0, views);
+}
+
+/**
+ * PRIX d'une mission, tel que le contrat l'annonce : la part fixe d'UNE vidéo,
+ * sans condition de vues. À distinguer d'`estimateMissionEarnings(snapshot, 0)`,
+ * qui répond « que touche une vidéo à 0 vue ? » — 0 si le barème exige un
+ * minimum, ce qui n'est pas le prix de la mission.
+ */
+export function missionFixedPrice(snapshot: PricingSnapshot): number {
+  return round2(fixePerVideo(snapshot));
+}
+
 export interface MissionEstimate {
   /** Part FIXE par vidéo (montantFixe / nbVideosCible). */
   fixed: number;
@@ -196,7 +259,9 @@ export function estimateMissionEarnings(
   snapshot: PricingSnapshot,
   views: number,
 ): MissionEstimate {
-  const fixed = round2(fixePerVideo(snapshot));
+  // Sous le minimum de vues par vidéo, la part fixe n'est pas due : même point
+  // de décision que computeMonthlyPayout (isUnderVideoMinimum).
+  const fixed = isUnderVideoMinimum(snapshot, views) ? 0 : round2(fixePerVideo(snapshot));
   const cpm = assignmentCpm(snapshot, views);
   const total = round2(fixed + cpm);
   if (total <= MAX_PAY_PER_VIDEO_EUR) return { fixed, cpm, total };
@@ -319,6 +384,10 @@ function payoutGroupKey(s: PricingSnapshot): string {
     s.tauxCPM,
     s.seuilVuesFixe ?? 0,
     s.currency ?? "",
+    // LE MINIMUM PAR VIDÉO AUSSI : il décide quelles vidéos puisent dans le
+    // budget fixe du groupe. Deux générations qui ne diffèrent que par lui ne
+    // partagent pas un budget.
+    s.minVuesParVideo ?? 0,
   ].join("|");
 }
 
@@ -378,9 +447,18 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     let fixedRaw = 0;
     let groupCpm = 0;
     let fixedOverflow = 0;
+    let videosSousMinimum = 0;
     for (const it of groupItems) {
+      // ─── MINIMUM DE VUES PAR VIDÉO ───────────────────────────────────────
+      // Jugée SEULE, sur ses vues payables (l'assiette du CPM). Sous la barre,
+      // sa part fixe vaut 0 AVANT de toucher au budget : elle ne prend pas la
+      // place d'une vidéo qui, elle, passe le minimum. Tout le reste en découle
+      // comme pour un budget épuisé : plafond 150 $ sur le seul CPM, aucune vue
+      // « achetée » sur un barème au fixe seul.
+      const sousMinimum = isUnderVideoMinimum(it.snapshot, it.totalViews, it.viewsUnmeasured);
+      if (sousMinimum) videosSousMinimum += 1;
       // Part fixe de CETTE vidéo, lue sur SON snapshot (jamais celui du voisin).
-      const perVideo = fixePerVideo(it.snapshot);
+      const perVideo = sousMinimum ? 0 : fixePerVideo(it.snapshot);
       const fixedShare = Math.min(perVideo, Math.max(0, remainingFixe));
       remainingFixe -= fixedShare;
       fixedRaw += fixedShare;
@@ -423,6 +501,7 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
         // vidéos à 1,666…. L'appelant arrondit quand il agrège.
         fixed: fixedShare - (excess - cpmOverflow),
         billedViews: Math.round(Math.min(views, billableViews)),
+        sousMinimum,
       });
     }
     // Arrondi AU NIVEAU DU GROUPE, comme avant : à snapshots homogènes (le cas
@@ -448,6 +527,8 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       seuilVuesFixe,
       groupViews,
       fixeBloque,
+      minVuesParVideo: Math.max(0, groupSnapshot.minVuesParVideo ?? 0),
+      videosSousMinimum,
     });
     fixedTotal = round2(fixedTotal + fixed);
     cpmTotal = round2(cpmTotal + groupCpm);
