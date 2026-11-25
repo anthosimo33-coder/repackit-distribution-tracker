@@ -45,10 +45,13 @@ import { requirePermission } from "./functions";
 import { cellTimeMs, runHogQL, type PosthogTarget } from "./posthogApi";
 import { windowCacheKey, windowCacheTtlMs } from "./windowCacheTtl";
 import {
+  abExperimentsQuery,
   buildQueries,
+  pickCurrentAbExperiment,
   shapeAbArms,
   shapeAbOffers,
   shapeAbPurchases,
+  shapeAbExperimentCandidates,
   shapeAbVariants,
   shapeActivation,
   shapeCheckoutReliability,
@@ -348,12 +351,8 @@ export async function computeWindowedAnalytics(
     // forcé) : sans elles, choisir une période changerait la POPULATION en même
     // temps que la fenêtre, et l'écart se lirait comme un effet de la période.
     const internalCfg = internalAccountsFor(proj.slug);
-    const Q = buildQueries(
-      notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS),
-      internalMarkerHogQL(internalCfg),
-      window,
-      windowOnFirstSub,
-    );
+    const notCounted =
+      notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS);
     // Une requête en erreur ne doit pas passer pour un résultat VIDE : un
     // entonnoir à zéro et un entonnoir non mesuré se ressemblent à l'écran, et
     // seul le second doit faire échouer l'appel.
@@ -390,6 +389,19 @@ export async function computeWindowedAnalytics(
     };
     let lots: unknown[][][];
     try {
+      // L'expérience A/B courante D'ABORD, choisie comme au cron (cf
+      // abExperimentCte) : les quatre requêtes A/B de la volée la reçoivent en
+      // dur, la même pour toutes, et la même que celle du cache horaire.
+      const abExperiment = pickCurrentAbExperiment(
+        shapeAbExperimentCandidates(await run(abExperimentsQuery(notCounted))()),
+      );
+      const Q = buildQueries(
+        notCounted,
+        internalMarkerHogQL(internalCfg),
+        window,
+        windowOnFirstSub,
+        abExperiment,
+      );
       lots = await parLots(
         [
           run(Q.funnelGlobal),
