@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import {
   useAction,
   useMutation,
@@ -131,7 +132,15 @@ export function useProjectMutation<
     fn({ ...args, projectId } as any);
 }
 
-/** Idem useProjectMutation pour les ACTIONS scopées projet (ex. Radar tendances). */
+/**
+ * Idem useProjectMutation pour les ACTIONS scopées projet (ex. Radar tendances).
+ *
+ * ⚠️ IDENTITÉ STABLE (useCallback). Une action coûte : un appelant qui la met
+ * dans les dépendances d'un effet doit pouvoir compter sur une fonction qui ne
+ * change qu'avec le projet. Le 25/11/2026, une fonction neuve à chaque rendu
+ * relançait le recalcul PostHog de l'onglet Parcours toutes les ~0,6 s (145
+ * appels en 2 min en prod, tout en 429).
+ */
 export function useProjectAction<Action extends FunctionReference<"action">>(
   action: Action,
 ): (
@@ -139,7 +148,10 @@ export function useProjectAction<Action extends FunctionReference<"action">>(
 ) => Promise<FunctionReturnType<Action>> {
   const projectId = useProjectId();
   const fn = useAction(action);
-  return (args) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    fn({ ...args, projectId } as any);
+  return useCallback(
+    (args: WithoutProject<FunctionArgs<Action>>) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fn({ ...args, projectId } as any),
+    [fn, projectId],
+  );
 }

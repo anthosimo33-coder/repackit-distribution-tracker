@@ -26,6 +26,7 @@ import {
 import {
   HubCardHeader,
   HubNotice,
+  RecalculRetryButton,
   ColLabel,
   SampleBadge,
   pct,
@@ -116,7 +117,7 @@ export function SanteProduitTab({
         <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
           <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
           Les chiffres ci-dessous portent donc sur toute la profondeur, pas sur la
-          période choisie.
+          période choisie. <RecalculRetryButton onClick={windowed.retry} />
         </HubNotice>
       ) : null}
       {windowed.data?.stale === true && windowed.data.cachedAt !== null ? (

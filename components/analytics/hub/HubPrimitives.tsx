@@ -321,6 +321,23 @@ export function CorrelationNote({ className }: { className?: string }) {
   );
 }
 
+/**
+ * « Réessayer » du bandeau d'échec du recalcul sur la période. C'est la SEULE
+ * relance d'une même période (cf useWindowedAnalytics) : relancer seul après un
+ * échec, c'est la boucle du 25/11/2026, qui saturait PostHog.
+ */
+export function RecalculRetryButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="font-medium underline underline-offset-2 hover:no-underline"
+    >
+      Réessayer
+    </button>
+  );
+}
+
 /** Bandeau d'avertissement (limite d'attribution, donnée partielle…). */
 export function HubNotice({
   children,
