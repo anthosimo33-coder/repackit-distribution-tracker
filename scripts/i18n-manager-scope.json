@@ -90,6 +90,7 @@
     "components/admin/AssignmentsCalendar.tsx",
     "components/admin/AssignmentsFilters.tsx",
     "components/admin/BrickSparkline.tsx",
+    "components/admin/CancelDue.tsx",
     "components/admin/ChosenComboPicker.tsx",
     "components/admin/DeletedVideosScreen.tsx",
     "components/admin/EditBrickTextDialog.tsx",

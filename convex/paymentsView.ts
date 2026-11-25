@@ -21,9 +21,12 @@ export type LignePaiement = {
   creatorName: string;
   creatorPaymentMethod: string | null;
   creatorPaymentDetails: string | null;
-  status: "accruing" | "paid";
+  /** `cancelled` = dû effacé (cf convex/payments `cancelCycleDue`) : vaut 0, se range avec les réglés. */
+  status: "accruing" | "paid" | "cancelled";
   cycleStart: number;
   paidAt: number | null;
+  /** Le dû effacé : sa date range le cycle parmi les réglés. Absent des rows d'avant le champ. */
+  cancellation?: { at: number } | null;
   remainingDue: number;
   totalDue: number;
   /** Devise du cycle (cf convex/payCurrency) — tous ses montants y sont. */
@@ -42,13 +45,14 @@ export const ORPHAN_KEY_PREFIX = "orphan:";
 
 /**
  * Un cycle est marquable EN MASSE s'il est dû ET rattaché à un créateur vivant.
+ * Un dû effacé ne l'est pas : il vaut 0 et se rétablit avant de se payer.
  *
  * Les rows orphelines sont exclues : markCyclePaid ré-ancre la fenêtre sur
  * creators.firstPostAt, qui n'existe plus pour un créateur supprimé (la mutation
  * rejetterait « Créateur introuvable »). Elles gardent leur bouton unitaire.
  */
 export function isBulkPayable(p: Pick<LignePaiement, "status" | "key">): boolean {
-  return p.status !== "paid" && !p.key.startsWith(ORPHAN_KEY_PREFIX);
+  return p.status === "accruing" && !p.key.startsWith(ORPHAN_KEY_PREFIX);
 }
 
 /** Les cycles OUVERTS d'une créatrice, réunis : c'est l'unité du virement. */
@@ -70,13 +74,13 @@ export type GroupeCreatrice<T extends LignePaiement> = {
  * Regroupe les cycles OUVERTS par créatrice, du plus gros reste au plus petit
  * (puis par nom). Sépare celles qui ont quelque chose à recevoir de celles à
  * zéro, compte les cycles dus, et date le plus vieux (jours entiers écoulés
- * depuis son début). Les cycles payés sortent à part, du plus récent au plus
- * ancien.
+ * depuis son début). Les cycles payés et les dûs effacés sortent à part, du
+ * plus récent au plus ancien (date du paiement, ou de l'effacement).
  */
 export function regrouperPaiements<T extends LignePaiement>(rows: readonly T[], now: number) {
   const m = new Map<string, GroupeCreatrice<T>>();
   for (const p of rows) {
-    if (p.status === "paid") continue;
+    if (p.status !== "accruing") continue;
     // Clé = créatrice ET devise : un virement est dans UNE devise. Une
     // créatrice n'en a qu'une (cf convex/creatorPayCurrency) ; si une donnée y
     // échappait, ses deux restes s'afficheraient séparés plutôt qu'additionnés.
@@ -113,9 +117,10 @@ export function regrouperPaiements<T extends LignePaiement>(rows: readonly T[], 
   );
   const ageDuPlusVieux =
     debutsDus.length === 0 ? null : Math.floor((now - Math.min(...debutsDus)) / DAY_MS);
+  const regleLe = (p: T) => p.paidAt ?? p.cancellation?.at ?? 0;
   const reglees = rows
-    .filter((p) => p.status === "paid")
-    .sort((a, b) => (b.paidAt ?? 0) - (a.paidAt ?? 0));
+    .filter((p) => p.status === "paid" || p.status === "cancelled")
+    .sort((a, b) => regleLe(b) - regleLe(a));
   return {
     avecDu,
     aZero,

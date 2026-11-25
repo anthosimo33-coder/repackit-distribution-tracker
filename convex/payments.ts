@@ -615,7 +615,19 @@ export type CyclePayment = {
   cycleEnd: number;
   /** Clé stable = date de début ISO "YYYY-MM-DD" (cf cyclePeriodKey). */
   period: string;
-  status: "accruing" | "paid";
+  /**
+   * `cancelled` = DÛ EFFACÉ (cf `cancelCycleDue`) : rien n'est versé, rien
+   * n'est marqué payé, le cycle vaut 0 et ne suit plus les vues. Pas un statut
+   * de la row (elle reste `accruing`) : un statut de LECTURE, posé ici.
+   */
+  status: "accruing" | "paid" | "cancelled";
+  /**
+   * Le dû effacé — motif, auteur, montant, détail. `null` sur tout cycle qui ne
+   * l'est pas. L'espace créatrice n'en reçoit que la date (cf `pourLaCreatrice`).
+   */
+  cancellation: CycleCancellation | null;
+  /** Journal des effacements et rétablissements du cycle (admin seulement). */
+  cancellationLog: CycleCancellationLogEntry[];
   paidAt: number | null;
   lineItems: LineItem[];
   totalDue: number;
@@ -677,6 +689,82 @@ export type CyclePayment = {
    */
   mixedCurrency: boolean;
 };
+
+/** Un dû EFFACÉ, tel que l'écran Paiements le lit. */
+export type CycleCancellation = {
+  at: number;
+  reason: string;
+  /** Qui l'a effacé — son nom, sinon son e-mail ; `null` si introuvable. */
+  byName: string | null;
+  /** Ce que valait le cycle à l'effacement (acomptes non déduits). */
+  amount: number;
+  /** Ce qui restait à verser à l'effacement : l'argent qui ne sera pas versé. */
+  remaining: number;
+  /** Le détail effacé, gelé à l'effacement. */
+  lineItems: LineItem[];
+};
+
+/** Une ligne du journal d'effacement d'un cycle. */
+export type CycleCancellationLogEntry = {
+  kind: "cancel" | "restore";
+  at: number;
+  byName: string | null;
+  reason: string | null;
+  amount: number | null;
+};
+
+/** Noms des auteurs d'effacement, lus une fois par appel (un auteur efface souvent plusieurs cycles). */
+type UserNames = Map<string, string | null>;
+
+async function userNameOf(
+  ctx: QueryCtx,
+  id: Id<"users"> | undefined,
+  names: UserNames,
+): Promise<string | null> {
+  if (id === undefined) return null;
+  const known = names.get(id);
+  if (known !== undefined) return known;
+  const u = await ctx.db.get(id);
+  const name = u?.name?.trim() || u?.email || null;
+  names.set(id, name);
+  return name;
+}
+
+/** Le dû effacé et le journal d'une row, prêts pour l'écran. */
+async function cancellationViewOf(
+  ctx: QueryCtx,
+  row: Doc<"payments"> | undefined,
+  names: UserNames,
+): Promise<{
+  cancellation: CycleCancellation | null;
+  cancellationLog: CycleCancellationLogEntry[];
+}> {
+  const c = row?.cancellation;
+  const cancellationLog: CycleCancellationLogEntry[] = [];
+  for (const e of row?.cancellationLog ?? []) {
+    cancellationLog.push({
+      kind: e.kind,
+      at: e.at,
+      byName: await userNameOf(ctx, e.by, names),
+      reason: e.reason ?? null,
+      amount: e.amount ?? null,
+    });
+  }
+  return {
+    cancellation:
+      c === undefined
+        ? null
+        : {
+            at: c.at,
+            reason: c.reason,
+            byName: await userNameOf(ctx, c.by, names),
+            amount: c.amount,
+            remaining: c.remaining,
+            lineItems: c.lineItems,
+          },
+    cancellationLog,
+  };
+}
 
 /** Acomptes d'une row, prêts pour l'écran (sans l'auteur, qui ne s'affiche pas). */
 function advancesOf(
@@ -872,6 +960,8 @@ export async function cyclePaymentsForCreator(
         .map((r) => r.depositedAt)
     : [];
 
+  // Auteurs des effacements (journal compris), lus une fois pour tous ses cycles.
+  const userNames: UserNames = new Map();
   const legacyByCycle = new Map<number, LineItem[]>();
   for (const p of rows) {
     if (p.status === "paid") continue;
@@ -930,12 +1020,50 @@ export async function cyclePaymentsForCreator(
         canRevert: paid.revertedAt === undefined,
         currency: resolvePayCurrency(paid.currency, projectPay),
         mixedCurrency: false,
+        ...(await cancellationViewOf(ctx, paid, userNames)),
+        // Un cycle payé n'est pas effacé : son journal reste lisible, son dû non.
+        cancellation: null,
       });
       continue;
     }
     const openRow = rows.find(
       (r) => r.period === period && r.status !== "paid",
     );
+    // ─── DÛ EFFACÉ ───────────────────────────────────────────────────────────
+    // Le cycle vaut 0 et ne suit plus les vues : aucun calcul live, ce qui a
+    // été effacé se relit dans `cancellation`. Tout ce qui appartient à ce
+    // cycle (lignes legacy rangées ici par leur publication comprises) est
+    // effacé avec lui. Les acomptes, eux, ont été versés : ils restent lisibles.
+    if (openRow?.cancellation !== undefined) {
+      const effaceeEn = resolvePayCurrency(
+        openRow.cancellation.currency ?? openRow.currency,
+        projectPay,
+      );
+      out.push({
+        key: `${creatorId}:${k}`,
+        cycleIndex: k,
+        cycleStart: w.cycleStart,
+        cycleEnd: w.cycleEnd,
+        period,
+        status: "cancelled",
+        paidAt: null,
+        lineItems: [],
+        totalDue: 0,
+        pricingBreakdown: frozenBreakdownOf({ ...openRow, lineItems: [] }, effaceeEn),
+        rushCount: estTalent
+          ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
+          : null,
+        computedBeforePayWindow: false,
+        paymentId: openRow._id,
+        advances: advancesOf(openRow),
+        remainingDue: 0,
+        canRevert: false,
+        currency: effaceeEn,
+        mixedCurrency: false,
+        ...(await cancellationViewOf(ctx, openRow, userNames)),
+      });
+      continue;
+    }
     const legacyItems = legacyByCycle.get(k) ?? [];
     const legacyIds = new Set(
       legacyItems
@@ -998,16 +1126,42 @@ export async function cyclePaymentsForCreator(
       ),
       canRevert: false,
       ...cycleCurrency,
+      // Un cycle rétabli garde son journal : « effacé le…, rétabli le… ».
+      ...(await cancellationViewOf(ctx, openRow, userNames)),
     });
   }
   // Le filtre existe pour ne pas noyer l'écran Paiements sous des cycles vides.
   // Quand UN cycle a été demandé nommément, l'appelant sait ce qu'il veut : le
   // lui retirer parce qu'il est à zéro rendrait la fonction menteuse.
   if (onlyCycle !== undefined) return out;
+  // Un dû effacé vaut 0 mais reste une LIGNE : c'est la trace du geste et de
+  // son motif, et le seul endroit d'où le rétablir.
   return out.filter(
     (c) =>
-      c.cycleIndex === currentCycle || c.totalDue > 0 || c.lineItems.length > 0,
+      c.cycleIndex === currentCycle ||
+      c.totalDue > 0 ||
+      c.lineItems.length > 0 ||
+      c.status === "cancelled",
   );
+}
+
+/**
+ * Le cycle tel que l'ESPACE CRÉATRICE le reçoit : un dû effacé s'y lit
+ * « Annulé », sans le motif, sans l'auteur, sans le montant effacé, et sans le
+ * journal (arbitrage du 25/11/2026). Les queries de l'écran admin, elles,
+ * reçoivent tout.
+ */
+function pourLaCreatrice<T extends CyclePayment>(
+  c: T,
+): Omit<T, "cancellation" | "cancellationLog"> & {
+  cancellation: { at: number } | null;
+} {
+  const { cancellation, cancellationLog: _journal, ...reste } = c;
+  void _journal;
+  return {
+    ...reste,
+    cancellation: cancellation === null ? null : { at: cancellation.at },
+  };
 }
 
 // ─── Queries (P9) ────────────────────────────────────────────────────────────
@@ -1080,8 +1234,12 @@ async function projectPaymentPass(
       .collect()
   ).filter((p) => !liveIds.has(p.creatorId));
   const projectPay = resolvePayCurrency(null, project?.payCurrency);
+  const orphanNames: UserNames = new Map();
   for (const p of orphanRows) {
     const orphanCurrency = resolvePayCurrency(p.currency, projectPay);
+    // Une row orpheline peut porter un dû effacé : elle se lit alors comme
+    // celle d'une créatrice vivante (0, hors « À payer »).
+    const effacee = p.status !== "paid" && p.cancellation !== undefined;
     out.push({
       // Fenêtre synthétique (ancre perdue avec la fiche) : juste pour l'affichage.
       key: `orphan:${p._id}`,
@@ -1089,13 +1247,14 @@ async function projectPaymentPass(
       cycleStart: p.createdAt,
       cycleEnd: p.createdAt + CYCLE_LENGTH_MS,
       period: p.period,
-      status: (p.status === "paid" ? "paid" : "accruing") as
+      status: (p.status === "paid" ? "paid" : effacee ? "cancelled" : "accruing") as
         | "paid"
-        | "accruing",
+        | "accruing"
+        | "cancelled",
       paidAt: p.paidAt ?? null,
-      lineItems: p.lineItems,
-      totalDue: p.totalDue,
-      pricingBreakdown: frozenBreakdownOf(p, orphanCurrency),
+      lineItems: effacee ? [] : p.lineItems,
+      totalDue: effacee ? 0 : p.totalDue,
+      pricingBreakdown: frozenBreakdownOf(effacee ? { ...p, lineItems: [] } : p, orphanCurrency),
       // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
       // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
       rushCount: null as number | null,
@@ -1108,12 +1267,13 @@ async function projectPaymentPass(
       paymentId: p._id,
       advances: advancesOf(p),
       remainingDue:
-        p.status === "paid"
+        p.status === "paid" || effacee
           ? 0
           : Math.max(0, round2(p.totalDue - advancedTotalOf(p))),
       canRevert: p.status === "paid" && p.revertedAt === undefined,
       currency: orphanCurrency,
       mixedCurrency: false,
+      ...(await cancellationViewOf(ctx, p, orphanNames)),
       rate: payCurrencyFactor(orphanCurrency, project) ?? 1,
       creatorId: p.creatorId,
       creatorName: p.creatorNameSnapshot ?? "—",
@@ -1231,7 +1391,9 @@ function dueTotalOfRows(
   const parDevise = new Map<string | null, number>();
   let dueTotal = 0;
   for (const p of rows) {
-    if (p.status === "paid") continue;
+    // Payé ou effacé : plus rien à verser (un effacé vaut 0, mais compterait
+    // sinon une devise à « 0 » dans le détail).
+    if (p.status !== "accruing") continue;
     parDevise.set(p.currency, round2((parDevise.get(p.currency) ?? 0) + p.remainingDue));
     dueTotal += p.remainingDue * (payCurrencyFactor(p.currency, project) ?? 1);
   }
@@ -1363,22 +1525,30 @@ async function withBonusVideos(
 export const getMyPayments = creatorQuery({
   args: {},
   handler: async (ctx) =>
-    withBonusVideos(
-      ctx,
-      ctx.creatorId,
-      await cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
-    ),
+    (
+      await withBonusVideos(
+        ctx,
+        ctx.creatorId,
+        await cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+      )
+    ).map(pourLaCreatrice),
 });
 
-/** ADMIN view-as — cycles/gains du créateur ciblé (lecture seule, scopé projet). */
+/**
+ * ADMIN view-as — cycles/gains du créateur ciblé (lecture seule, scopé projet).
+ * Ce qu'ELLE voit, donc filtré comme pour elle : un dû effacé n'y montre pas
+ * son motif.
+ */
 export const getPaymentsAsAdmin = adminViewAsMoneyQuery({
   args: {},
   handler: async (ctx) =>
-    withBonusVideos(
-      ctx,
-      ctx.creatorId,
-      await cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
-    ),
+    (
+      await withBonusVideos(
+        ctx,
+        ctx.creatorId,
+        await cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+      )
+    ).map(pourLaCreatrice),
 });
 
 /**
@@ -1675,6 +1845,14 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     const existingRows = rows.filter((p) => p.period === period);
     if (existingRows.some((p) => p.status === "paid")) {
       return { ok: true, alreadyPaid: true };
+    }
+    // Un dû EFFACÉ ne se paie pas : le rétablir d'abord, c'est un geste à part
+    // (cf cancelCycleDue / restoreCycleDue).
+    if (existingRows.some((p) => p.cancellation !== undefined)) {
+      throw err(
+        ERR.PAYMENT_DUE_CANCELLED,
+        "Ce dû a été effacé : rétablis-le avant de le payer ou d'y verser un acompte.",
+      );
     }
     // Matérialise les paliers franchis AVANT le gel (Guard A intra-cycle).
     await syncBonusUnlocks(ctx, ctx.projectId, creatorId);
@@ -1988,6 +2166,250 @@ async function cycleWindowOfPayment(
   return { cycleStart: p.createdAt, cycleEnd: p.createdAt + CYCLE_LENGTH_MS };
 }
 
+// ─── EFFACER LE DÛ D'UN CYCLE (et le rétablir) ───────────────────────────────
+
+/** Motif d'effacement : au plus ce nombre de caractères (le reste est coupé). */
+const CANCEL_REASON_MAX = 1000;
+
+/**
+ * Ce que vaut un cycle OUVERT à cet instant, calculé comme l'écran le calcule
+ * (`cyclePaymentsForCreator`, branche « en cours ») : lignes legacy rangées
+ * dans ce cycle par leur publication + barème live. Rend aussi le détail, prêt
+ * à être gelé. Ne lit pas `cancellation` : sur un cycle effacé, c'est ce qu'il
+ * vaudrait s'il était rétabli.
+ */
+async function cycleDueNow(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  creator: Doc<"creators">,
+  anchor: number,
+  cycleIndex: number,
+  rows: Doc<"payments">[],
+  now: number,
+): Promise<{ totalDue: number; lineItems: LineItem[]; currency: string | null }> {
+  const currentCycle = calcCycle(anchor, now).cycleIndex;
+  const assignments = (
+    await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+      .collect()
+  ).filter((a) => a.projectId === projectId);
+  const cycleOfAssignment = new Map(
+    assignments.map((a) => [a._id, cycleIndexOf(anchor, assignmentPublishedAt(a))]),
+  );
+  const legacy: LineItem[] = [];
+  for (const r of rows) {
+    if (r.status === "paid") continue;
+    for (const li of r.lineItems) {
+      const cyc = li.assignmentId ? cycleOfAssignment.get(li.assignmentId) : undefined;
+      if ((cyc ?? currentCycle) === cycleIndex) legacy.push(li);
+    }
+  }
+  const legacyIds = new Set(
+    legacy
+      .filter((li) => li.assignmentId !== undefined)
+      .map((li) => li.assignmentId as string),
+  );
+  const breakdown = await computeCyclePricingBreakdown(
+    ctx,
+    projectId,
+    creator._id,
+    anchor,
+    cycleIndex,
+    legacyIds,
+    undefined,
+    undefined,
+    rows,
+  );
+  const project = await ctx.db.get(projectId);
+  const period = cyclePeriodKey(cycleWindow(anchor, cycleIndex).cycleStart);
+  const openRow = rows.find((r) => r.period === period && r.status !== "paid");
+  const { currency } = cycleCurrencyOf({
+    breakdown,
+    hasLegacyItems: legacy.length > 0,
+    rowCurrency: openRow?.currency,
+    projectPay: resolvePayCurrency(null, project?.payCurrency),
+    creatorCurrency: creatorPayCurrency(creator, project),
+  });
+  return {
+    totalDue: round2(recomputeTotal(legacy) + breakdown.total),
+    lineItems: [...legacy, ...frozenLineItemsFromBreakdown(breakdown)],
+    currency,
+  };
+}
+
+/** La créatrice, son ancre et ses rows du projet — refuse ce qui n'est pas un cycle à elle. */
+async function cycleTarget(
+  ctx: QueryCtx & { projectId: Id<"projects">; userId: Id<"users"> },
+  creatorId: Id<"creators">,
+  cycleIndex: number,
+  now: number,
+) {
+  const creator = await ctx.db.get(creatorId);
+  if (!creator || creator.projectId !== ctx.projectId) {
+    throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
+  }
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
+  const anchor = payAnchorOf(creator);
+  if (anchor === undefined) {
+    throw err(ERR.NO_PAY_CYCLE, "Aucun cycle : ce créateur n'a ni publication ni date d'activation.");
+  }
+  // Un cycle À VENIR n'a encore rien à effacer : on efface ce qui a couru.
+  if (
+    !Number.isInteger(cycleIndex) ||
+    cycleIndex < 0 ||
+    cycleIndex > calcCycle(anchor, now).cycleIndex
+  ) {
+    throw err(ERR.CYCLE_INVALID, "Cycle invalide.");
+  }
+  const period = cyclePeriodKey(cycleWindow(anchor, cycleIndex).cycleStart);
+  const rows = (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((p) => p.projectId === ctx.projectId);
+  return { creator, anchor, period, rows };
+}
+
+/**
+ * EFFACER LE DÛ d'un cycle — on ne le paiera pas, et il n'est pas marqué payé.
+ *
+ * Né d'une séparation (25/11/2026) : une créatrice manque à une clause de son
+ * contrat, on ne la paie pas. « Marquer payé » à 0 mentirait (un e-mail « tu as
+ * été payée » partirait, la Compta croirait l'argent sorti). Arbitrages du
+ * fondateur : CYCLE PAR CYCLE, MOTIF OBLIGATOIRE, RÉTABLIR À TOUT MOMENT,
+ * rentabilité INCHANGÉE (le coût reste ce qu'elle a gagné), AUCUN E-MAIL.
+ *
+ * Ce que fait le geste : la row de la période reçoit `cancellation` (motif,
+ * auteur, montant, détail gelé) et une ligne de journal. Le cycle vaut 0, sort
+ * de « À payer », du total dû et de la trésorerie de la Compta. Un cycle EN
+ * COURS est effacé tout entier : ce que ses vidéos rapporteraient ensuite est
+ * effacé avec lui. Les acomptes déjà versés restent versés.
+ *
+ * MÊME garde que `markCyclePaid` : si l'écran montrait un autre montant que
+ * celui du moment, rien n'est effacé et les deux montants sont rendus.
+ */
+export const cancelCycleDue = permissionMutation("payments.manage")({
+  args: {
+    creatorId: v.id("creators"),
+    cycleIndex: v.number(),
+    reason: v.string(),
+    /** Le montant que l'écran a MONTRÉ (`totalDue`) — cf markCyclePaid. */
+    expectedTotalDue: v.optional(v.number()),
+  },
+  handler: async (ctx, { creatorId, cycleIndex, reason, expectedTotalDue }) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidatePayCaches(ctx, ctx.projectId);
+    const motif = reason.trim().slice(0, CANCEL_REASON_MAX);
+    if (motif.length === 0) {
+      throw err(ERR.CANCEL_REASON_REQUIRED, "Un motif est obligatoire pour effacer un dû.");
+    }
+    const now = Date.now();
+    const { creator, anchor, period, rows } = await cycleTarget(
+      ctx,
+      creatorId,
+      cycleIndex,
+      now,
+    );
+    const existingRows = rows.filter((p) => p.period === period);
+    if (existingRows.some((p) => p.status === "paid")) {
+      throw err(
+        ERR.PAYMENT_ALREADY_PAID,
+        "Ce cycle est déjà payé : s'il n'a pas été versé, annule d'abord le paiement.",
+      );
+    }
+    if (existingRows.some((p) => p.cancellation !== undefined)) {
+      return { ok: true as const, alreadyCancelled: true };
+    }
+    const due = await cycleDueNow(ctx, ctx.projectId, creator, anchor, cycleIndex, rows, now);
+    if (expectedTotalDue !== undefined && round2(expectedTotalDue) !== due.totalDue) {
+      return {
+        ok: false as const,
+        alreadyCancelled: false,
+        amountChanged: { seen: round2(expectedTotalDue), current: due.totalDue },
+      };
+    }
+    const row = await getOrCreatePayment(ctx, {
+      projectId: ctx.projectId,
+      creatorId,
+      period,
+      now,
+    });
+    const remaining = Math.max(0, round2(due.totalDue - advancedTotalOf(row)));
+    await ctx.db.patch(row._id, {
+      cancellation: {
+        at: now,
+        by: ctx.userId,
+        reason: motif,
+        amount: due.totalDue,
+        remaining,
+        ...(due.currency !== null ? { currency: due.currency } : {}),
+        lineItems: due.lineItems,
+      },
+      cancellationLog: [
+        ...(row.cancellationLog ?? []),
+        { kind: "cancel" as const, at: now, by: ctx.userId, reason: motif, amount: due.totalDue },
+      ],
+    });
+    return {
+      ok: true as const,
+      alreadyCancelled: false,
+      amount: due.totalDue,
+      remaining,
+    };
+  },
+});
+
+/**
+ * RÉTABLIR un dû effacé — à tout moment, autant de fois qu'il le faut, chaque
+ * geste au journal. Le cycle redevient dû et se RECALCULE en direct : il revient
+ * au montant qu'il vaut maintenant (vues gagnées entre-temps comprises), pas à
+ * celui de l'effacement. Aucun e-mail, comme pour l'effacement.
+ */
+export const restoreCycleDue = permissionMutation("payments.manage")({
+  args: { id: v.id("payments") },
+  handler: async (ctx, { id }) => {
+    await invalidatePayCaches(ctx, ctx.projectId);
+    const p = await ctx.db.get(id);
+    if (!p || p.projectId !== ctx.projectId) {
+      throw err(ERR.PAYMENT_NOT_FOUND, "Paiement introuvable.");
+    }
+    if (p.cancellation === undefined) {
+      throw err(ERR.PAYMENT_NOT_CANCELLED, "Ce cycle n'a pas de dû effacé à rétablir.");
+    }
+    // Une fiche supprimée n'a plus de portée de créatrices : seul le projet garde.
+    if ((await ctx.db.get(p.creatorId)) !== null) {
+      await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, p.creatorId);
+    }
+    const now = Date.now();
+    await ctx.db.patch(id, {
+      cancellation: undefined,
+      cancellationLog: [
+        ...(p.cancellationLog ?? []),
+        { kind: "restore" as const, at: now, by: ctx.userId, amount: p.cancellation.amount },
+      ],
+    });
+    return { ok: true as const };
+  },
+});
+
+/**
+ * Ce que vaudrait un cycle effacé s'il était rétabli maintenant — la ligne
+ * « Vaut aujourd'hui » de la fenêtre « Rétablir ». Lue à l'ouverture de la
+ * fenêtre seulement (un seul cycle calculé).
+ */
+export const restoreCycleDuePreview = permissionQuery("payments.manage")({
+  args: { creatorId: v.id("creators"), cycleIndex: v.number() },
+  handler: async (ctx, { creatorId, cycleIndex }) => {
+    const now = Date.now();
+    const { creator, anchor, rows } = await cycleTarget(ctx, creatorId, cycleIndex, now);
+    const due = await cycleDueNow(ctx, ctx.projectId, creator, anchor, cycleIndex, rows, now);
+    return { totalDue: due.totalDue, currency: due.currency };
+  },
+});
+
 /**
  * ACOMPTE — enregistre un versement PARTIEL sur un cycle encore ouvert.
  *
@@ -2039,6 +2461,12 @@ export const recordAdvance = permissionMutation("payments.manage")({
       throw err(
         ERR.PAYMENT_ALREADY_PAID,
         "Ce cycle est déjà soldé : un acompte n'a plus d'objet.",
+      );
+    }
+    if (row.cancellation !== undefined) {
+      throw err(
+        ERR.PAYMENT_DUE_CANCELLED,
+        "Ce dû a été effacé : rétablis-le avant de le payer ou d'y verser un acompte.",
       );
     }
     // L'acompte est versé dans la devise de la CRÉATRICE, et la row la retient :
@@ -2120,6 +2548,12 @@ export const markPaymentPaid = permissionMutation("payments.manage")({
       throw new ConvexError("Paiement introuvable.");
     }
     if (p.status === "paid") return { ok: true, alreadyPaid: true };
+    if (p.cancellation !== undefined) {
+      throw err(
+        ERR.PAYMENT_DUE_CANCELLED,
+        "Ce dû a été effacé : rétablis-le avant de le payer ou d'y verser un acompte.",
+      );
+    }
     // Matérialise les paliers franchis AVANT le gel (Guard A intra-période :
     // un palier juste franchi de cette période est attribué puis gelé).
     await syncBonusUnlocks(ctx, p.projectId, p.creatorId);
@@ -2254,6 +2688,8 @@ export const markPeriodPaid = permissionMutation("payments.manage")({
     let marked = 0;
     for (const p of payments) {
       if (p.status === "paid") continue;
+      // Un dû effacé reste effacé : le marquage en masse ne le paie pas.
+      if (p.cancellation !== undefined) continue;
       await syncBonusUnlocks(ctx, p.projectId, p.creatorId);
       const frozen = await frozenPricingLineItems(ctx, p);
       const lineItems = [...p.lineItems, ...frozen.items];

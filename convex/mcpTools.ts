@@ -1133,7 +1133,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "paiements",
     title: "Paiements des créatrices",
     description:
-      "Ce qui est dû aux créatrices, comme l'écran Paiements (même regroupement) : le total à verser, le nombre de créatrices et de cycles dus, l'ancienneté du plus vieux cycle dû ; par créatrice, le reste à verser et chaque cycle (début et clôture à la minute, heure de Paris — un cycle court 30 × 24 h depuis l'heure du 1er post, pas jusqu'à minuit —, valeur, acomptes, reste, détail fixe / CPM / paliers / primes de défi, posts pas encore mesurés) ; celles à zéro ; les derniers cycles réglés. Montants dans la devise de paie. Le moyen de paiement est donné par son type seulement, jamais ses coordonnées.",
+      "Ce qui est dû aux créatrices, comme l'écran Paiements (même regroupement) : le total à verser, le nombre de créatrices et de cycles dus, l'ancienneté du plus vieux cycle dû ; par créatrice, le reste à verser et chaque cycle (début et clôture à la minute, heure de Paris — un cycle court 30 × 24 h depuis l'heure du 1er post, pas jusqu'à minuit —, valeur, acomptes, reste, détail fixe / CPM / paliers / primes de défi, posts pas encore mesurés) ; celles à zéro ; les derniers cycles réglés (payés, ou dû effacé avec son motif). Montants dans la devise de paie. Le moyen de paiement est donné par son type seulement, jamais ses coordonnées.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2771,9 +2771,22 @@ export function jarviaServer(
           // jour) disait fini un cycle qui courait encore jusqu'à l'après-midi.
           du: instantParis(c.cycleStart),
           au: instantParis(c.cycleEnd),
-          statut: c.status === "paid" ? "payé" : "en cours",
+          statut: c.status === "paid" ? "payé" : c.status === "cancelled" ? "dû effacé" : "en cours",
           devise: c.currency,
           valeur: c.totalDue,
+          // Dû EFFACÉ (geste de l'écran Paiements) : ce qu'il valait, ce qui
+          // n'a pas été versé, le motif. `valeur` et `resteAVerser` y valent 0.
+          ...(c.cancellation
+            ? {
+                effacement: {
+                  le: instantParis(c.cancellation.at),
+                  par: c.cancellation.byName,
+                  motif: c.cancellation.reason,
+                  valaitALEffacement: c.cancellation.amount,
+                  nonVerse: c.cancellation.remaining,
+                },
+              }
+            : {}),
           ...(c.advances.length > 0
             ? { acomptes: arrondi(c.advances.reduce((s, a) => s + a.amount, 0)) }
             : {}),
@@ -2824,7 +2837,11 @@ export function jarviaServer(
                 derniersReglements: vue.reglees
                   .filter((p) => garder(p.creatorName))
                   .slice(0, limite)
-                  .map((p) => ({ createatrice: p.creatorName, payeLe: jour(p.paidAt), ...cycle(p) })),
+                  .map((p) => ({
+                    createatrice: p.creatorName,
+                    ...(p.status === "cancelled" ? {} : { payeLe: jour(p.paidAt) }),
+                    ...cycle(p),
+                  })),
               }
             : {}),
           lecture: [
@@ -2832,6 +2849,7 @@ export function jarviaServer(
             "Un cycle en cours peut encore monter : une vidéo est rémunérée jusqu'à J+30 après publication. « postsPayablesSansMesure » = posts qui compteront mais dont les vues ne sont pas encore relevées.",
             "Bonus par vidéo : payer un cycle gèle le bonus de ses vidéos tel qu'il est ce jour-là. Un palier franchi APRÈS ce paiement n'est pas perdu : l'écart est reporté sur le premier cycle non payé qui suit (« dontBonusReporte », une ligne par vidéo). « videosAuBonusEncoreOuvert » = vidéos d'un cycle à payer dont le bonus peut encore monter — leur suite se réglera au cycle suivant.",
             "Chaque montant est dans la devise de SA créatrice (« devise » du cycle) : une créatrice n'est payée que dans une devise, mais un projet peut en mêler plusieurs. Les totaux (« aVerser », « totalSurLHistorique ») sont donc donnés PAR DEVISE, jamais additionnés.",
+            "« dû effacé » = cycle qu'on ne paiera pas, effacé depuis l'écran Paiements avec un motif (rien n'est versé ni marqué payé) : il vaut 0, sort de « aVerser » et figure parmi « derniersReglements », avec « effacement » (date, auteur, motif, valeur au moment de l'effacement, montant non versé). Il se rétablit depuis l'écran ; la rentabilité n'en tient pas compte (coût = ce qui a été gagné).",
           ],
         });
       }

@@ -221,12 +221,12 @@ export default function ContratScreen() {
   const contracts = useMyContracts(project.projectId);
   const [now] = useState(() => Date.now());
 
-  // Cycle EN COURS — même choix que « Mes paiements ». Un cycle déjà payé n'a
-  // plus de breakdown par barème : pas de position plutôt qu'une fausse.
+  // Cycle EN COURS — même choix que « Mes paiements ». Un cycle déjà payé, ou
+  // annulé, n'a plus de breakdown par barème : pas de position plutôt qu'une fausse.
   const cycle =
     payments?.find((p) => now >= p.cycleStart && now < p.cycleEnd) ?? payments?.[0] ?? null;
   const pricing = terms?.pricing ?? null;
-  const live = cycle && cycle.status !== "paid" ? cycle : null;
+  const live = cycle && cycle.status === "accruing" ? cycle : null;
   const position: TermsPosition | null =
     pricing === null
       ? null
