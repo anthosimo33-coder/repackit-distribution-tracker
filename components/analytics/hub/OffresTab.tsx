@@ -51,6 +51,7 @@ import {
 import {
   HubCardHeader,
   HubNotice,
+  RecalculRetryButton,
   disputeDeadlineLabel,
   dash,
   pct,
@@ -505,7 +506,8 @@ export function OffresTab({
       {windowed.error !== null ? (
         <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
           <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
-          Les chiffres PostHog ci-dessous portent donc sur toute la profondeur.
+          Les chiffres PostHog ci-dessous portent donc sur toute la profondeur.{" "}
+          <RecalculRetryButton onClick={windowed.retry} />
         </HubNotice>
       ) : null}
       {/* Chiffres servis depuis le cache serveur APRÈS un refus de PostHog
