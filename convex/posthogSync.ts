@@ -2912,6 +2912,370 @@ export function shapeCheckoutReliability(rows: unknown[][]): CheckoutReliability
 }
 
 /**
+ * Tous les agrégats d'UN projet, prêts pour `upsertPosthogCache`. Sorti de
+ * `runHourlySync` pour être testé sans action Convex : ce qui s'y câble (quelle
+ * expérience A/B lisent les requêtes `ab*`) se vérifie sur le SQL envoyé.
+ */
+export async function collectProjectEntries(
+  slug: string,
+  apiKey: string,
+  target: PosthogTarget,
+): Promise<CacheEntry[]> {
+  // A4 — requêtes construites AVEC l'exclusion interne de CE projet (une
+  // seule source : convex/internalAccounts). `QUERIES` est donc local au
+  // projet, pas un const de module.
+  const internalCfg = internalAccountsFor(slug);
+  // Deux exclusions cumulées, même fenêtre que les requêtes : les comptes
+  // internes (A4) et les sessions dont le bras d'A/B a été FORCÉ en QA.
+  // Une session forcée n'est pas du trafic : la compter fausserait autant
+  // la répartition des bras que les taux de conversion.
+  const notCounted =
+    notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS);
+  // L'expérience A/B courante, choisie UNE fois pour toute la synchro (cf
+  // abExperimentCte). Sans elle, les requêtes `ab*` ne sont pas lancées :
+  // leur cache garde la dernière valeur connue, marquée en erreur, plutôt
+  // que des chiffres sur un test qui ne serait pas le bon.
+  const abCandidates = await runHogQL(apiKey, target, abExperimentsQuery(notCounted));
+  const abError =
+    abCandidates.error !== null ? `abExperiment: ${abCandidates.error}` : null;
+  const abExperiment =
+    abCandidates.error === null
+      ? pickCurrentAbExperiment(shapeAbExperimentCandidates(abCandidates.rows))
+      : null;
+  const collectAb = <T,>(
+    key: string,
+    query: string,
+    shape: (rows: unknown[][]) => T,
+  ): Promise<CacheEntry> =>
+    abError !== null
+      ? Promise.resolve({ key, error: abError })
+      : collect(key, apiKey, target, query, shape);
+  const QUERIES = buildQueries(
+    notCounted,
+    internalMarkerHogQL(internalCfg),
+    DEFAULT_WINDOW,
+    undefined,
+    abExperiment,
+  );
+
+  return [
+    await collect(
+      POSTHOG_CACHE_KEYS.overview,
+      apiKey,
+      target,
+      QUERIES.overview,
+      (rows): OverviewPayload => ({
+        daily: rows
+          .map((r) => ({
+            ts: cellTimeMs(r, 0),
+            visitors: cellNum(r, 1),
+            signups: cellNum(r, 2),
+            checkouts: cellNum(r, 3),
+            subs: cellNum(r, 4),
+          }))
+          .filter((d): d is OverviewPayload["daily"][number] => d.ts !== null),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.subsByMembership,
+      apiKey,
+      target,
+      QUERIES.subsByMembership,
+      (rows): SubsByMembershipPayload => ({
+        rows: rows.map((r) => ({
+          day: cellStr(r, 0),
+          membershipId: cellStr(r, 1),
+          persons: cellNum(r, 2),
+        })),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelGlobal,
+      apiKey,
+      target,
+      QUERIES.funnelGlobal,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelSequential,
+      apiKey,
+      target,
+      QUERIES.funnelSequential,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelSource,
+      apiKey,
+      target,
+      QUERIES.funnelSource,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelCountry,
+      apiKey,
+      target,
+      QUERIES.funnelCountry,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.countryPersons,
+      apiKey,
+      target,
+      QUERIES.countryPersons,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.serverSideSplit,
+      apiKey,
+      target,
+      QUERIES.serverSideSplit,
+      shapeServerSideSplit,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.countryDaily,
+      apiKey,
+      target,
+      QUERIES.countryDaily,
+      shapeCountryDaily,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelLanguage,
+      apiKey,
+      target,
+      QUERIES.funnelLanguage,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.timeToValue,
+      apiKey,
+      target,
+      QUERIES.timeToValue,
+      (rows): TimeToValuePayload => {
+        const r = rows[0] ?? [];
+        return {
+          steps: TTV_STEP_KEYS.map((k, i) => {
+            const median = cellNum(r, i * 3);
+            const p90 = cellNum(r, i * 3 + 1);
+            const n = cellNum(r, i * 3 + 2);
+            // Quantiles rendus en SECONDES par HogQL → ms. n = 0 ⇒ pas de
+            // mesure (et non « 0 seconde »).
+            return {
+              key: k,
+              medianMs: n > 0 ? median * 1000 : null,
+              p90Ms: n > 0 ? p90 * 1000 : null,
+              n,
+            };
+          }),
+        };
+      },
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.paywall,
+      apiKey,
+      target,
+      QUERIES.paywall,
+      shapeConversion,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.paywallById,
+      apiKey,
+      target,
+      QUERIES.paywallById,
+      // Colonne 3 = début de fenêtre (première émission de paywall_id),
+      // identique sur chaque ligne → on la lit une fois.
+      (rows): ConversionPayload => ({
+        ...shapeConversion(rows),
+        startMs: rows.length > 0 ? cellTimeMs(rows[0], 3) : null,
+      }),
+    ),
+    await collectAb(POSTHOG_CACHE_KEYS.abArms, QUERIES.abArms, shapeAbArms),
+    await collectAb(POSTHOG_CACHE_KEYS.abPurchases, QUERIES.abPurchases, shapeAbPurchases),
+    await collectAb(POSTHOG_CACHE_KEYS.abOffers, QUERIES.abOffers, shapeAbOffers),
+    await collectAb(POSTHOG_CACHE_KEYS.abPersonArms, QUERIES.abPersonArms, shapeAbPersonArms),
+    await collectAb(POSTHOG_CACHE_KEYS.abFlippers, QUERIES.abFlippers, shapeAbFlippers),
+    await collect(
+      POSTHOG_CACHE_KEYS.sources,
+      apiKey,
+      target,
+      QUERIES.sources,
+      (rows): ConversionPayload => ({
+        // n = inscrits, converted = abonnés → taux d'abonnement par source.
+        rows: rows.map((r) => ({
+          key: cellStr(r, 0),
+          n: cellNum(r, 1),
+          converted: cellNum(r, 2),
+        })),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.cohorts,
+      apiKey,
+      target,
+      QUERIES.cohorts,
+      (rows): CohortsPayload => {
+        const bySegment = new Map<
+          string,
+          { cohort: string; size: number; retainedByWeek: number[] }[]
+        >();
+        for (const r of rows) {
+          const cohort = cellStr(r, 0);
+          const segment = cellStr(r, 1);
+          const size = cellNum(r, 2);
+          const retainedByWeek = Array.from(
+            { length: RETENTION_WEEKS },
+            (_, k) => cellNum(r, 3 + k),
+          );
+          const list = bySegment.get(segment) ?? [];
+          list.push({ cohort, size, retainedByWeek });
+          bySegment.set(segment, list);
+        }
+        return {
+          segments: [...bySegment.entries()].map(([key, cohorts]) => ({
+            key,
+            cohorts,
+          })),
+        };
+      },
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.predictors,
+      apiKey,
+      target,
+      QUERIES.predictors,
+      (rows): PredictorsPayload => {
+        const r = rows[0] ?? [];
+        return {
+          total: cellNum(r, 0),
+          totalConverted: cellNum(r, 1),
+          behaviors: PREDICTOR_KEYS.map((k, i) => ({
+            key: k,
+            n: cellNum(r, 2 + i * 2),
+            converted: cellNum(r, 3 + i * 2),
+          })),
+        };
+      },
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.instrumentation,
+      apiKey,
+      target,
+      QUERIES.instrumentation,
+      shapeInstrumentation,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.checkoutReliability,
+      apiKey,
+      target,
+      QUERIES.checkoutReliability,
+      shapeCheckoutReliability,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.checkoutCauses,
+      apiKey,
+      target,
+      QUERIES.checkoutCauses,
+      (rows): CheckoutCausesPayload => ({
+        rows: rows.map((r) => ({ cause: cellStr(r, 0), n: cellNum(r, 1) })),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.searchResults,
+      apiKey,
+      target,
+      QUERIES.searchResults,
+      shapeSearchResults,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.scanReliability,
+      apiKey,
+      target,
+      QUERIES.scanReliability,
+      shapeScanReliability,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.scanLatency,
+      apiKey,
+      target,
+      QUERIES.scanLatency,
+      shapeScanLatency,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.scanCost,
+      apiKey,
+      target,
+      QUERIES.scanCost,
+      shapeScanCost,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.friction,
+      apiKey,
+      target,
+      QUERIES.friction,
+      shapeFriction,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.frictionByStep,
+      apiKey,
+      target,
+      QUERIES.frictionByStep,
+      shapeFrictionByStep,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.activation,
+      apiKey,
+      target,
+      QUERIES.activation,
+      shapeActivation,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.abVariants,
+      apiKey,
+      target,
+      QUERIES.abVariants,
+      shapeAbVariants,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.freePlan,
+      apiKey,
+      target,
+      QUERIES.freePlan,
+      shapeFreePlan,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.cancelFlow,
+      apiKey,
+      target,
+      QUERIES.cancelFlow,
+      shapeCancelFlow,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.cancelServer,
+      apiKey,
+      target,
+      QUERIES.cancelServer,
+      shapeCancelServer,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.firstSearchAfterPay,
+      apiKey,
+      target,
+      QUERIES.firstSearchAfterPay,
+      shapeFirstSearchAfterPay,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.internalExcluded,
+      apiKey,
+      target,
+      QUERIES.internalExcluded,
+      (rows): InternalExcludedPayload => {
+        const r = rows[0] ?? [];
+        return { persons: cellNum(r, 0), totalPersons: cellNum(r, 1) };
+      },
+    ),
+  ];
+}
+
+/**
  * Sync horaire de TOUS les projets configurés (ou d'un seul, pour le bouton
  * « Actualiser »). Une clé d'env absente ⇒ projet SAUTÉ (log clair, pas de
  * throw) ; une requête en échec ⇒ agrégat marqué en erreur, les autres passent.
@@ -2941,358 +3305,7 @@ export const runHourlySync = internalAction({
         host: proj.host,
       };
 
-      // A4 — requêtes construites AVEC l'exclusion interne de CE projet (une
-      // seule source : convex/internalAccounts). `QUERIES` est donc local au
-      // projet, pas un const de module.
-      const internalCfg = internalAccountsFor(proj.slug);
-      // Deux exclusions cumulées, même fenêtre que les requêtes : les comptes
-      // internes (A4) et les sessions dont le bras d'A/B a été FORCÉ en QA.
-      // Une session forcée n'est pas du trafic : la compter fausserait autant
-      // la répartition des bras que les taux de conversion.
-      const notCounted =
-        notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS);
-      // L'expérience A/B courante, choisie UNE fois pour toute la synchro (cf
-      // abExperimentCte). Sans elle, les requêtes `ab*` ne sont pas lancées :
-      // leur cache garde la dernière valeur connue, marquée en erreur, plutôt
-      // que des chiffres sur un test qui ne serait pas le bon.
-      const abCandidates = await runHogQL(apiKey, target, abExperimentsQuery(notCounted));
-      const abError =
-        abCandidates.error !== null ? `abExperiment: ${abCandidates.error}` : null;
-      const abExperiment =
-        abCandidates.error === null
-          ? pickCurrentAbExperiment(shapeAbExperimentCandidates(abCandidates.rows))
-          : null;
-      const collectAb = <T,>(
-        key: string,
-        query: string,
-        shape: (rows: unknown[][]) => T,
-      ): Promise<CacheEntry> =>
-        abError !== null
-          ? Promise.resolve({ key, error: abError })
-          : collect(key, apiKey, target, query, shape);
-      const QUERIES = buildQueries(
-        notCounted,
-        internalMarkerHogQL(internalCfg),
-        DEFAULT_WINDOW,
-        undefined,
-        abExperiment,
-      );
-
-      const entries: CacheEntry[] = [
-        await collect(
-          POSTHOG_CACHE_KEYS.overview,
-          apiKey,
-          target,
-          QUERIES.overview,
-          (rows): OverviewPayload => ({
-            daily: rows
-              .map((r) => ({
-                ts: cellTimeMs(r, 0),
-                visitors: cellNum(r, 1),
-                signups: cellNum(r, 2),
-                checkouts: cellNum(r, 3),
-                subs: cellNum(r, 4),
-              }))
-              .filter((d): d is OverviewPayload["daily"][number] => d.ts !== null),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.subsByMembership,
-          apiKey,
-          target,
-          QUERIES.subsByMembership,
-          (rows): SubsByMembershipPayload => ({
-            rows: rows.map((r) => ({
-              day: cellStr(r, 0),
-              membershipId: cellStr(r, 1),
-              persons: cellNum(r, 2),
-            })),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelGlobal,
-          apiKey,
-          target,
-          QUERIES.funnelGlobal,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelSequential,
-          apiKey,
-          target,
-          QUERIES.funnelSequential,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelSource,
-          apiKey,
-          target,
-          QUERIES.funnelSource,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelCountry,
-          apiKey,
-          target,
-          QUERIES.funnelCountry,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.countryPersons,
-          apiKey,
-          target,
-          QUERIES.countryPersons,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.serverSideSplit,
-          apiKey,
-          target,
-          QUERIES.serverSideSplit,
-          shapeServerSideSplit,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.countryDaily,
-          apiKey,
-          target,
-          QUERIES.countryDaily,
-          shapeCountryDaily,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelLanguage,
-          apiKey,
-          target,
-          QUERIES.funnelLanguage,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.timeToValue,
-          apiKey,
-          target,
-          QUERIES.timeToValue,
-          (rows): TimeToValuePayload => {
-            const r = rows[0] ?? [];
-            return {
-              steps: TTV_STEP_KEYS.map((k, i) => {
-                const median = cellNum(r, i * 3);
-                const p90 = cellNum(r, i * 3 + 1);
-                const n = cellNum(r, i * 3 + 2);
-                // Quantiles rendus en SECONDES par HogQL → ms. n = 0 ⇒ pas de
-                // mesure (et non « 0 seconde »).
-                return {
-                  key: k,
-                  medianMs: n > 0 ? median * 1000 : null,
-                  p90Ms: n > 0 ? p90 * 1000 : null,
-                  n,
-                };
-              }),
-            };
-          },
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.paywall,
-          apiKey,
-          target,
-          QUERIES.paywall,
-          shapeConversion,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.paywallById,
-          apiKey,
-          target,
-          QUERIES.paywallById,
-          // Colonne 3 = début de fenêtre (première émission de paywall_id),
-          // identique sur chaque ligne → on la lit une fois.
-          (rows): ConversionPayload => ({
-            ...shapeConversion(rows),
-            startMs: rows.length > 0 ? cellTimeMs(rows[0], 3) : null,
-          }),
-        ),
-        await collectAb(POSTHOG_CACHE_KEYS.abArms, QUERIES.abArms, shapeAbArms),
-        await collectAb(POSTHOG_CACHE_KEYS.abPurchases, QUERIES.abPurchases, shapeAbPurchases),
-        await collectAb(POSTHOG_CACHE_KEYS.abOffers, QUERIES.abOffers, shapeAbOffers),
-        await collectAb(POSTHOG_CACHE_KEYS.abPersonArms, QUERIES.abPersonArms, shapeAbPersonArms),
-        await collectAb(POSTHOG_CACHE_KEYS.abFlippers, QUERIES.abFlippers, shapeAbFlippers),
-        await collect(
-          POSTHOG_CACHE_KEYS.sources,
-          apiKey,
-          target,
-          QUERIES.sources,
-          (rows): ConversionPayload => ({
-            // n = inscrits, converted = abonnés → taux d'abonnement par source.
-            rows: rows.map((r) => ({
-              key: cellStr(r, 0),
-              n: cellNum(r, 1),
-              converted: cellNum(r, 2),
-            })),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.cohorts,
-          apiKey,
-          target,
-          QUERIES.cohorts,
-          (rows): CohortsPayload => {
-            const bySegment = new Map<
-              string,
-              { cohort: string; size: number; retainedByWeek: number[] }[]
-            >();
-            for (const r of rows) {
-              const cohort = cellStr(r, 0);
-              const segment = cellStr(r, 1);
-              const size = cellNum(r, 2);
-              const retainedByWeek = Array.from(
-                { length: RETENTION_WEEKS },
-                (_, k) => cellNum(r, 3 + k),
-              );
-              const list = bySegment.get(segment) ?? [];
-              list.push({ cohort, size, retainedByWeek });
-              bySegment.set(segment, list);
-            }
-            return {
-              segments: [...bySegment.entries()].map(([key, cohorts]) => ({
-                key,
-                cohorts,
-              })),
-            };
-          },
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.predictors,
-          apiKey,
-          target,
-          QUERIES.predictors,
-          (rows): PredictorsPayload => {
-            const r = rows[0] ?? [];
-            return {
-              total: cellNum(r, 0),
-              totalConverted: cellNum(r, 1),
-              behaviors: PREDICTOR_KEYS.map((k, i) => ({
-                key: k,
-                n: cellNum(r, 2 + i * 2),
-                converted: cellNum(r, 3 + i * 2),
-              })),
-            };
-          },
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.instrumentation,
-          apiKey,
-          target,
-          QUERIES.instrumentation,
-          shapeInstrumentation,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.checkoutReliability,
-          apiKey,
-          target,
-          QUERIES.checkoutReliability,
-          shapeCheckoutReliability,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.checkoutCauses,
-          apiKey,
-          target,
-          QUERIES.checkoutCauses,
-          (rows): CheckoutCausesPayload => ({
-            rows: rows.map((r) => ({ cause: cellStr(r, 0), n: cellNum(r, 1) })),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.searchResults,
-          apiKey,
-          target,
-          QUERIES.searchResults,
-          shapeSearchResults,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.scanReliability,
-          apiKey,
-          target,
-          QUERIES.scanReliability,
-          shapeScanReliability,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.scanLatency,
-          apiKey,
-          target,
-          QUERIES.scanLatency,
-          shapeScanLatency,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.scanCost,
-          apiKey,
-          target,
-          QUERIES.scanCost,
-          shapeScanCost,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.friction,
-          apiKey,
-          target,
-          QUERIES.friction,
-          shapeFriction,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.frictionByStep,
-          apiKey,
-          target,
-          QUERIES.frictionByStep,
-          shapeFrictionByStep,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.activation,
-          apiKey,
-          target,
-          QUERIES.activation,
-          shapeActivation,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.abVariants,
-          apiKey,
-          target,
-          QUERIES.abVariants,
-          shapeAbVariants,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.freePlan,
-          apiKey,
-          target,
-          QUERIES.freePlan,
-          shapeFreePlan,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.cancelFlow,
-          apiKey,
-          target,
-          QUERIES.cancelFlow,
-          shapeCancelFlow,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.cancelServer,
-          apiKey,
-          target,
-          QUERIES.cancelServer,
-          shapeCancelServer,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.firstSearchAfterPay,
-          apiKey,
-          target,
-          QUERIES.firstSearchAfterPay,
-          shapeFirstSearchAfterPay,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.internalExcluded,
-          apiKey,
-          target,
-          QUERIES.internalExcluded,
-          (rows): InternalExcludedPayload => {
-            const r = rows[0] ?? [];
-            return { persons: cellNum(r, 0), totalPersons: cellNum(r, 1) };
-          },
-        ),
-      ];
+      const entries = await collectProjectEntries(proj.slug, apiKey, target);
 
       await ctx.runMutation(internal.posthogSync.upsertPosthogCache, {
         projectId: proj._id,
