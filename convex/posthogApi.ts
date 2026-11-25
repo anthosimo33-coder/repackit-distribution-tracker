@@ -14,8 +14,10 @@
  * transite (cf contrainte « aucun handle Instagram de cible »).
  *
  * Réf. API : POST https://{eu|us}.posthog.com/api/projects/{id}/query/
- *   body { query: { kind: "HogQLQuery", query: "SELECT …" } }
- *   auth `Bearer <personal API key>` — réponse { results: [][], columns: [] }.
+ *   body { query: { kind: "HogQLQuery", query: "SELECT …" }, refresh: "async" }
+ *   auth `Bearer <personal API key>`. Réponse : 200 { results: [][], columns: [] }
+ *   si PostHog a un résultat frais en cache, sinon 202 { query_status } à
+ *   interroger par GET …/query/{query_status.id}/ (cf runHogQLOnce).
  */
 
 /** Région d'hébergement du projet PostHog (→ base d'URL de l'API). */
@@ -68,11 +70,48 @@ async function readPosthogError(res: Response): Promise<string> {
 export const RETRY_429_DELAYS_MS = [2_000, 6_000] as const;
 
 /**
+ * ⚠️ MODE ASYNCHRONE — pourquoi on n'utilise plus le mode bloquant par défaut.
+ *
+ * En mode bloquant, PostHog coupe toute requête après 10 s d'EXÉCUTION
+ * (`max_execution_time=10` dans le SQL ClickHouse qu'il rend) et répond 504
+ * « Query has hit the max execution time ». En mode async, la même requête a
+ * droit à 600 s. Mesuré sur la prod le 25/11/2026 : `abArms` sortait en 504 à
+ * 10,7 s en bloquant et passait en 12,1 s en async, `abPurchases` en 13,8 s ;
+ * sur les requêtes qui passent dans les deux modes, les résultats sont
+ * identiques. Les requêtes A/B parcourent les 90 jours d'events (3,8 M) : elles
+ * avaient franchi la limite une à une, et la volée par période de l'onglet
+ * Parcours échouait en entier.
+ *
+ * `refresh: "async"` (et non `force_async`) garde le cache de PostHog, comme le
+ * faisait le mode bloquant par défaut : un résultat encore frais revient
+ * directement (200), sans interrogation.
+ */
+const REFRESH = "async";
+
+/**
+ * Attentes entre deux interrogations de l'état d'une requête async (la
+ * dernière se répète). Courtes au début : la plupart des requêtes du hub
+ * finissent en 3 à 8 s. Pas plus serrées : PostHog plafonne le projet à 240
+ * appels par minute, et une volée lance 23 requêtes.
+ */
+export const POLL_DELAYS_MS = [500, 1_000, 1_500, 2_000] as const;
+
+/**
+ * Budget d'attente d'UNE requête async. Le cron horaire enchaîne ses requêtes
+ * une à une dans une seule action (76 à 190 s mesurées le 25/11), plafonnée à
+ * 10 min par Convex : sans budget, une requête emballée — qui a droit à 600 s
+ * chez PostHog — emporterait tout le cron. Au-delà, la requête est ANNULÉE chez
+ * PostHog, pour libérer l'une des trois places simultanées du projet.
+ */
+export const ASYNC_BUDGET_MS = 60_000;
+
+/**
  * Exécute UNE requête HogQL et retourne ses lignes. Ne throw JAMAIS : toute
- * erreur (réseau, 401 clé invalide, 429 rate limit, JSON illisible) revient dans
- * `error` avec `rows: []` — l'appelant décide de garder la valeur cachée
- * précédente. Un 429 est retenté (cf RETRY_429_DELAYS_MS) avant d'être rendu.
- * `fetchImpl` et `sleep` sont injectables pour les tests.
+ * erreur (réseau, 401 clé invalide, 429 rate limit, JSON illisible, échec de la
+ * requête, budget dépassé) revient dans `error` avec `rows: []` — l'appelant
+ * décide de garder la valeur cachée précédente. Un 429 à la SOUMISSION est
+ * retenté (cf RETRY_429_DELAYS_MS) avant d'être rendu. `fetchImpl` et `sleep`
+ * sont injectables pour les tests.
  */
 export async function runHogQL(
   apiKey: string,
@@ -86,7 +125,13 @@ export async function runHogQL(
   const sleep =
     opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let attempt = 0; ; attempt++) {
-    const res = await runHogQLOnce(apiKey, target, query, opts.fetchImpl ?? fetch);
+    const res = await runHogQLOnce(
+      apiKey,
+      target,
+      query,
+      opts.fetchImpl ?? fetch,
+      sleep,
+    );
     const delay = RETRY_429_DELAYS_MS[attempt];
     if (res.error !== RATE_LIMITED || delay === undefined) return res;
     await sleep(delay);
@@ -95,51 +140,15 @@ export async function runHogQL(
 
 const RATE_LIMITED = "rate_limited (429)";
 
-async function runHogQLOnce(
-  apiKey: string,
-  target: PosthogTarget,
-  query: string,
-  fetchImpl: typeof fetch,
-): Promise<HogQLResult> {
-  const url = `${baseUrl(target.host)}/api/projects/${encodeURIComponent(
-    target.posthogProjectId,
-  )}/query/`;
+const echec = (error: string): HogQLResult => ({ rows: [], columns: [], error });
 
-  let res: Response;
-  try {
-    res = await fetchImpl(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
-    });
-  } catch (e) {
-    return {
-      rows: [],
-      columns: [],
-      error: `network: ${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
-  if (res.status === 429) {
-    return { rows: [], columns: [], error: RATE_LIMITED };
-  }
-  if (!res.ok) {
-    return { rows: [], columns: [], error: await readPosthogError(res) };
-  }
-  let json: unknown;
-  try {
-    json = await res.json();
-  } catch {
-    return {
-      rows: [],
-      columns: [],
-      error: "réponse PostHog illisible (JSON invalide)",
-    };
-  }
-  const body = asRecord(json);
+const networkError = (e: unknown): HogQLResult =>
+  echec(`network: ${e instanceof Error ? e.message : String(e)}`);
+
+const ILLISIBLE = "réponse PostHog illisible (JSON invalide)";
+
+/** Lignes et colonnes d'un corps de résultat HogQL (`{ results, columns }`). */
+function rowsOf(body: Record<string, unknown> | undefined): HogQLResult {
   const results = body?.results;
   const columns = body?.columns;
   return {
@@ -151,6 +160,116 @@ async function runHogQLOnce(
       : [],
     error: null,
   };
+}
+
+async function runHogQLOnce(
+  apiKey: string,
+  target: PosthogTarget,
+  query: string,
+  fetchImpl: typeof fetch,
+  sleep: (ms: number) => Promise<void>,
+): Promise<HogQLResult> {
+  const url = `${baseUrl(target.host)}/api/projects/${encodeURIComponent(
+    target.posthogProjectId,
+  )}/query/`;
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: { kind: "HogQLQuery", query }, refresh: REFRESH }),
+    });
+  } catch (e) {
+    return networkError(e);
+  }
+  if (res.status === 429) return echec(RATE_LIMITED);
+  if (!res.ok) return echec(await readPosthogError(res));
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return echec(ILLISIBLE);
+  }
+  const body = asRecord(json);
+  const status = asRecord(body?.query_status);
+  // Pas de `query_status` : PostHog a servi un résultat frais de son cache.
+  if (!status) return rowsOf(body);
+  if (status.complete === true || status.error === true) {
+    return fromStatus(status, res.status);
+  }
+  if (typeof status.id !== "string" || status.id === "") {
+    return echec("réponse PostHog sans identifiant de requête async");
+  }
+  return pollUntilDone(`${url}${encodeURIComponent(status.id)}/`, headers, fetchImpl, sleep);
+}
+
+/** Résultat d'un `query_status` terminé : ses lignes, ou le message de PostHog. */
+function fromStatus(status: Record<string, unknown>, httpStatus: number): HogQLResult {
+  if (status.error === true) {
+    const msg = status.error_message ?? status.error_code;
+    return echec(
+      `HTTP ${httpStatus}: ${typeof msg === "string" && msg !== "" ? msg : "échec de la requête"}`,
+    );
+  }
+  return rowsOf(asRecord(status.results));
+}
+
+/**
+ * Interroge l'état d'une requête async jusqu'à son résultat, son échec ou la fin
+ * du budget. Un 429 ici ne RESOUMET pas la requête (elle tourne déjà) : on
+ * attend, et on réinterroge.
+ */
+async function pollUntilDone(
+  statusUrl: string,
+  headers: Record<string, string>,
+  fetchImpl: typeof fetch,
+  sleep: (ms: number) => Promise<void>,
+): Promise<HogQLResult> {
+  let waited = 0;
+  for (let i = 0; ; i++) {
+    const delay = POLL_DELAYS_MS[Math.min(i, POLL_DELAYS_MS.length - 1)];
+    if (waited + delay > ASYNC_BUDGET_MS) {
+      try {
+        await fetchImpl(statusUrl, { method: "DELETE", headers });
+      } catch {
+        // Annulation au mieux : PostHog l'arrêtera de toute façon à 600 s.
+      }
+      return echec(
+        `délai dépassé : la requête tournait encore chez PostHog après ${
+          ASYNC_BUDGET_MS / 1000
+        } s (annulée)`,
+      );
+    }
+    await sleep(delay);
+    waited += delay;
+
+    let res: Response;
+    try {
+      res = await fetchImpl(statusUrl, { method: "GET", headers });
+    } catch (e) {
+      return networkError(e);
+    }
+    if (res.status === 429) continue;
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      return echec(res.ok ? ILLISIBLE : `HTTP ${res.status} ${res.statusText}`.trim());
+    }
+    const status = asRecord(asRecord(json)?.query_status);
+    if (!status) {
+      return echec(res.ok ? ILLISIBLE : `HTTP ${res.status} ${res.statusText}`.trim());
+    }
+    if (status.complete === true || status.error === true) {
+      return fromStatus(status, res.status);
+    }
+  }
 }
 
 // ─── Coerceurs de cellules ───────────────────────────────────────────────────
