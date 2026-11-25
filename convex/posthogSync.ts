@@ -188,26 +188,134 @@ function dedupedTimestamps(event: string, extra = ""): string {
 export const DEFAULT_WINDOW = `timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`;
 
 /**
- * EXPÉRIENCE COURANTE — les requêtes d'A/B test se bornent à l'`experiment_id`
- * le plus récent, pas à « toute émission d'`experiment_variant` sur 90 jours ».
- * Sans cette borne, une personne passée de `paywall_ab_2026_08` à `…_v2` (les
- * bras sont RE-TIRÉS à chaque nouvelle expérience) comptait comme instable :
- * mesuré en prod le 22/08, 52 personnes écartées dont ~24 par ce seul artefact.
- * Le début de fenêtre affiché par la carte devient celui de l'expérience EN
- * COURS (2026-08-08 10:18:56) au lieu de celui de la précédente (03/08 15:02). *
- * ⚠️ CETTE CTE NE SUIT PAS LE SÉLECTEUR DE PÉRIODE, délibérément. Elle répond à
- * « quelle expérience tourne, et depuis quand » — deux faits qui ne dépendent
- * pas de la période qu'on regarde. La borner à sept jours ferait désigner comme
- * « expérience courante » celle qui a émis en dernier DANS ces sept jours, et
- * `ab_start` deviendrait le début de la fenêtre au lieu du début du test : tous
- * les compteurs « depuis le début du test » se recaleraient sur une date fausse.
+ * EXPÉRIENCE COURANTE — les requêtes d'A/B test se bornent à UN `experiment_id`,
+ * pas à « toute émission d'`experiment_variant` sur 90 jours ». Sans cette
+ * borne, une personne passée de `paywall_ab_2026_08` à `…_v2` (les bras sont
+ * RE-TIRÉS à chaque nouvelle expérience) comptait comme instable : mesuré en
+ * prod le 22/08, 52 personnes écartées dont ~24 par ce seul artefact.
+ *
+ * QUEL `experiment_id` : celui du test de PAYWALL lancé le plus récemment
+ * (choix du user, 25/11/2026), désigné en TypeScript par
+ * `pickCurrentAbExperiment` sur les lignes de `abExperimentsQuery`, puis écrit
+ * EN DUR dans les six requêtes `ab*` d'un même calcul.
+ *
+ * ⚠️ AVANT, la CTE prenait `argMax(experiment_id, timestamp)` : l'id du DERNIER
+ * event reçu. Or plusieurs expériences émettent en même temps — les assignés
+ * d'un test fini gardent leur id, et les relances de paiement
+ * (`reprise_refus_*`, `relance_renouvellement_*`) en portent un aussi. Mesuré
+ * le 25/11/2026 : `abOffers` rendait 14 lignes à 12:46 UTC, 0 à 12:54 (le
+ * dernier event venait de `reprise_refus_2026_10`), `abArms` passait de 17 à
+ * 10 lignes. Chaque requête recalculant sa CTE à son heure, deux cartes d'une
+ * même synchro pouvaient même parler de deux tests différents.
+ *
+ * ⚠️ NE SUIT PAS LE SÉLECTEUR DE PÉRIODE, délibérément. Elle répond à « quelle
+ * expérience tourne, et depuis quand » — deux faits qui ne dépendent pas de la
+ * période qu'on regarde. `ab_start` borné à sept jours deviendrait le début de
+ * la fenêtre au lieu du début du test : tous les compteurs « depuis le début du
+ * test » se recaleraient sur une date fausse.
+ *
+ * `null` (aucun test de paywall dans les 90 jours) rend `'' AS ab_exp` : aucun
+ * event ne porte cet id, les cartes A/B sortent vides — ce que rendait l'ancien
+ * `argMax` sur zéro ligne.
  */
-const AB_EXPERIMENT_CTE = `(SELECT argMax(toString(properties.experiment_id), timestamp) FROM events
-      WHERE isNotNull(properties.experiment_id)
-        AND ${DEFAULT_WINDOW}) AS ab_exp,
+function abExperimentCte(experiment: string | null): string {
+  return `${hogStringLiteral(experiment ?? "")} AS ab_exp,
      (SELECT min(timestamp) FROM events
       WHERE toString(properties.experiment_id) = ab_exp
         AND ${DEFAULT_WINDOW}) AS ab_start`;
+}
+
+/**
+ * Littéral de chaîne HogQL. L'`experiment_id` vient des events, donc de l'app :
+ * échappé plutôt que filtré, pour qu'un id inattendu ne fasse pas désigner en
+ * silence le test précédent.
+ */
+function hogStringLiteral(s: string): string {
+  return `'${s.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * Borne basse du balayage des CANDIDATS : `experiment_id` n'existe pas avant le
+ * 03/08/2026 17:02 UTC (cf convex/analyticsContract). Une borne glissante de
+ * 90 jours rognerait la 1re émission des tests plus vieux que la fenêtre :
+ * tous sortiraient à « il y a 90 jours », à quelques secondes près, et le choix
+ * redeviendrait le hasard qu'on corrige — dès que le test en cours aurait 90
+ * jours. Le balayage reste léger : `paywall_viewed` seul.
+ */
+const AB_EXPERIMENTS_SINCE = "2026-08-03 00:00:00";
+
+/**
+ * CANDIDATS à l'expérience courante : chaque `experiment_id` porté par un
+ * `paywall_viewed`, avec sa PREMIÈRE émission. Seul `paywall_viewed` compte :
+ * il écarte les relances de paiement (`reprise_refus_*` sur
+ * `payment_recovery_assigned`, `relance_renouvellement_*` sur
+ * `renewal_recovery_*`), qui ne sont pas des tests de paywall. Mêmes exclusions
+ * que les requêtes A/B (`notCounted` : internes, sessions à bras forcé) : un
+ * test répété en QA avant son lancement ne devient pas « courant » pour autant.
+ *
+ * Ne sont candidats que les tests vus sur les 90 jours du cron (`HAVING`),
+ * comme avant : un test sans paywall depuis trois mois n'est plus en cours.
+ */
+export function abExperimentsQuery(notCounted: string): string {
+  return `
+SELECT toString(properties.experiment_id) AS experiment,
+  min(timestamp) AS first_seen,
+  max(timestamp) AS last_seen,
+  count() AS paywalls
+FROM events
+WHERE event = 'paywall_viewed'
+  AND timestamp >= toDateTime('${AB_EXPERIMENTS_SINCE}', 'UTC')
+  AND isNotNull(properties.experiment_id)${notCounted}
+GROUP BY experiment
+HAVING experiment != '' AND max(timestamp) >= now() - INTERVAL ${WINDOW_DAYS} DAY
+ORDER BY first_seen DESC
+LIMIT 100`;
+}
+
+/** Une ligne de `abExperimentsQuery`. */
+export interface AbExperimentCandidate {
+  experiment: string;
+  firstSeenMs: number;
+  lastSeenMs: number;
+  paywalls: number;
+}
+
+export function shapeAbExperimentCandidates(
+  rows: unknown[][],
+): AbExperimentCandidate[] {
+  const out: AbExperimentCandidate[] = [];
+  for (const r of rows) {
+    const firstSeenMs = cellTimeMs(r, 1);
+    const lastSeenMs = cellTimeMs(r, 2);
+    if (firstSeenMs === null || lastSeenMs === null) continue;
+    out.push({ experiment: cellStr(r, 0), firstSeenMs, lastSeenMs, paywalls: cellNum(r, 3) });
+  }
+  return out;
+}
+
+/**
+ * L'expérience que montrent les cartes A/B : le test de paywall dont la
+ * PREMIÈRE émission est la plus tardive — le dernier LANCÉ, pas celui qui a
+ * émis en dernier. Ne change donc qu'au lancement d'un nouveau test.
+ * Égalité (improbable à la milliseconde) : l'id le plus grand, pour que deux
+ * calculs sur les mêmes lignes désignent toujours le même.
+ */
+export function pickCurrentAbExperiment(
+  candidates: readonly AbExperimentCandidate[],
+): string | null {
+  let best: AbExperimentCandidate | null = null;
+  for (const c of candidates) {
+    if (c.experiment === "" || c.experiment === "null") continue;
+    if (
+      best === null ||
+      c.firstSeenMs > best.firstSeenMs ||
+      (c.firstSeenMs === best.firstSeenMs && c.experiment > best.experiment)
+    ) {
+      best = c;
+    }
+  }
+  return best?.experiment ?? null;
+}
 
 /** Vrai si l'event porte un bras DE L'EXPÉRIENCE COURANTE. */
 const AB_ARMED = `isNotNull(properties.experiment_variant) AND toString(properties.experiment_id) = ab_exp`;
@@ -1021,9 +1129,16 @@ export function buildQueries(
    * silence le jour où le prédicat change de forme.
    */
   windowOnFirstSub?: string,
+  /**
+   * L'`experiment_id` que lisent les six requêtes `ab*`, choisi AVANT par
+   * `pickCurrentAbExperiment` (cf abExperimentCte). Omis ou `null` : aucun test
+   * de paywall, les cartes A/B sortent vides — jamais un id deviné ici.
+   */
+  abExperiment: string | null = null,
 ) {
   const WINDOW = window;
   const fenetree = window !== DEFAULT_WINDOW;
+  const AB_EXPERIMENT_CTE = abExperimentCte(abExperiment);
 
   /**
    * ⚠️ LES REQUÊTES D'A/B TEST NE SE FENÊTRENT PAS COMME LES AUTRES.
@@ -2797,6 +2912,370 @@ export function shapeCheckoutReliability(rows: unknown[][]): CheckoutReliability
 }
 
 /**
+ * Tous les agrégats d'UN projet, prêts pour `upsertPosthogCache`. Sorti de
+ * `runHourlySync` pour être testé sans action Convex : ce qui s'y câble (quelle
+ * expérience A/B lisent les requêtes `ab*`) se vérifie sur le SQL envoyé.
+ */
+export async function collectProjectEntries(
+  slug: string,
+  apiKey: string,
+  target: PosthogTarget,
+): Promise<CacheEntry[]> {
+  // A4 — requêtes construites AVEC l'exclusion interne de CE projet (une
+  // seule source : convex/internalAccounts). `QUERIES` est donc local au
+  // projet, pas un const de module.
+  const internalCfg = internalAccountsFor(slug);
+  // Deux exclusions cumulées, même fenêtre que les requêtes : les comptes
+  // internes (A4) et les sessions dont le bras d'A/B a été FORCÉ en QA.
+  // Une session forcée n'est pas du trafic : la compter fausserait autant
+  // la répartition des bras que les taux de conversion.
+  const notCounted =
+    notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS);
+  // L'expérience A/B courante, choisie UNE fois pour toute la synchro (cf
+  // abExperimentCte). Sans elle, les requêtes `ab*` ne sont pas lancées :
+  // leur cache garde la dernière valeur connue, marquée en erreur, plutôt
+  // que des chiffres sur un test qui ne serait pas le bon.
+  const abCandidates = await runHogQL(apiKey, target, abExperimentsQuery(notCounted));
+  const abError =
+    abCandidates.error !== null ? `abExperiment: ${abCandidates.error}` : null;
+  const abExperiment =
+    abCandidates.error === null
+      ? pickCurrentAbExperiment(shapeAbExperimentCandidates(abCandidates.rows))
+      : null;
+  const collectAb = <T,>(
+    key: string,
+    query: string,
+    shape: (rows: unknown[][]) => T,
+  ): Promise<CacheEntry> =>
+    abError !== null
+      ? Promise.resolve({ key, error: abError })
+      : collect(key, apiKey, target, query, shape);
+  const QUERIES = buildQueries(
+    notCounted,
+    internalMarkerHogQL(internalCfg),
+    DEFAULT_WINDOW,
+    undefined,
+    abExperiment,
+  );
+
+  return [
+    await collect(
+      POSTHOG_CACHE_KEYS.overview,
+      apiKey,
+      target,
+      QUERIES.overview,
+      (rows): OverviewPayload => ({
+        daily: rows
+          .map((r) => ({
+            ts: cellTimeMs(r, 0),
+            visitors: cellNum(r, 1),
+            signups: cellNum(r, 2),
+            checkouts: cellNum(r, 3),
+            subs: cellNum(r, 4),
+          }))
+          .filter((d): d is OverviewPayload["daily"][number] => d.ts !== null),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.subsByMembership,
+      apiKey,
+      target,
+      QUERIES.subsByMembership,
+      (rows): SubsByMembershipPayload => ({
+        rows: rows.map((r) => ({
+          day: cellStr(r, 0),
+          membershipId: cellStr(r, 1),
+          persons: cellNum(r, 2),
+        })),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelGlobal,
+      apiKey,
+      target,
+      QUERIES.funnelGlobal,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelSequential,
+      apiKey,
+      target,
+      QUERIES.funnelSequential,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelSource,
+      apiKey,
+      target,
+      QUERIES.funnelSource,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelCountry,
+      apiKey,
+      target,
+      QUERIES.funnelCountry,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.countryPersons,
+      apiKey,
+      target,
+      QUERIES.countryPersons,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.serverSideSplit,
+      apiKey,
+      target,
+      QUERIES.serverSideSplit,
+      shapeServerSideSplit,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.countryDaily,
+      apiKey,
+      target,
+      QUERIES.countryDaily,
+      shapeCountryDaily,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.funnelLanguage,
+      apiKey,
+      target,
+      QUERIES.funnelLanguage,
+      shapeFunnel,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.timeToValue,
+      apiKey,
+      target,
+      QUERIES.timeToValue,
+      (rows): TimeToValuePayload => {
+        const r = rows[0] ?? [];
+        return {
+          steps: TTV_STEP_KEYS.map((k, i) => {
+            const median = cellNum(r, i * 3);
+            const p90 = cellNum(r, i * 3 + 1);
+            const n = cellNum(r, i * 3 + 2);
+            // Quantiles rendus en SECONDES par HogQL → ms. n = 0 ⇒ pas de
+            // mesure (et non « 0 seconde »).
+            return {
+              key: k,
+              medianMs: n > 0 ? median * 1000 : null,
+              p90Ms: n > 0 ? p90 * 1000 : null,
+              n,
+            };
+          }),
+        };
+      },
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.paywall,
+      apiKey,
+      target,
+      QUERIES.paywall,
+      shapeConversion,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.paywallById,
+      apiKey,
+      target,
+      QUERIES.paywallById,
+      // Colonne 3 = début de fenêtre (première émission de paywall_id),
+      // identique sur chaque ligne → on la lit une fois.
+      (rows): ConversionPayload => ({
+        ...shapeConversion(rows),
+        startMs: rows.length > 0 ? cellTimeMs(rows[0], 3) : null,
+      }),
+    ),
+    await collectAb(POSTHOG_CACHE_KEYS.abArms, QUERIES.abArms, shapeAbArms),
+    await collectAb(POSTHOG_CACHE_KEYS.abPurchases, QUERIES.abPurchases, shapeAbPurchases),
+    await collectAb(POSTHOG_CACHE_KEYS.abOffers, QUERIES.abOffers, shapeAbOffers),
+    await collectAb(POSTHOG_CACHE_KEYS.abPersonArms, QUERIES.abPersonArms, shapeAbPersonArms),
+    await collectAb(POSTHOG_CACHE_KEYS.abFlippers, QUERIES.abFlippers, shapeAbFlippers),
+    await collect(
+      POSTHOG_CACHE_KEYS.sources,
+      apiKey,
+      target,
+      QUERIES.sources,
+      (rows): ConversionPayload => ({
+        // n = inscrits, converted = abonnés → taux d'abonnement par source.
+        rows: rows.map((r) => ({
+          key: cellStr(r, 0),
+          n: cellNum(r, 1),
+          converted: cellNum(r, 2),
+        })),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.cohorts,
+      apiKey,
+      target,
+      QUERIES.cohorts,
+      (rows): CohortsPayload => {
+        const bySegment = new Map<
+          string,
+          { cohort: string; size: number; retainedByWeek: number[] }[]
+        >();
+        for (const r of rows) {
+          const cohort = cellStr(r, 0);
+          const segment = cellStr(r, 1);
+          const size = cellNum(r, 2);
+          const retainedByWeek = Array.from(
+            { length: RETENTION_WEEKS },
+            (_, k) => cellNum(r, 3 + k),
+          );
+          const list = bySegment.get(segment) ?? [];
+          list.push({ cohort, size, retainedByWeek });
+          bySegment.set(segment, list);
+        }
+        return {
+          segments: [...bySegment.entries()].map(([key, cohorts]) => ({
+            key,
+            cohorts,
+          })),
+        };
+      },
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.predictors,
+      apiKey,
+      target,
+      QUERIES.predictors,
+      (rows): PredictorsPayload => {
+        const r = rows[0] ?? [];
+        return {
+          total: cellNum(r, 0),
+          totalConverted: cellNum(r, 1),
+          behaviors: PREDICTOR_KEYS.map((k, i) => ({
+            key: k,
+            n: cellNum(r, 2 + i * 2),
+            converted: cellNum(r, 3 + i * 2),
+          })),
+        };
+      },
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.instrumentation,
+      apiKey,
+      target,
+      QUERIES.instrumentation,
+      shapeInstrumentation,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.checkoutReliability,
+      apiKey,
+      target,
+      QUERIES.checkoutReliability,
+      shapeCheckoutReliability,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.checkoutCauses,
+      apiKey,
+      target,
+      QUERIES.checkoutCauses,
+      (rows): CheckoutCausesPayload => ({
+        rows: rows.map((r) => ({ cause: cellStr(r, 0), n: cellNum(r, 1) })),
+      }),
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.searchResults,
+      apiKey,
+      target,
+      QUERIES.searchResults,
+      shapeSearchResults,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.scanReliability,
+      apiKey,
+      target,
+      QUERIES.scanReliability,
+      shapeScanReliability,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.scanLatency,
+      apiKey,
+      target,
+      QUERIES.scanLatency,
+      shapeScanLatency,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.scanCost,
+      apiKey,
+      target,
+      QUERIES.scanCost,
+      shapeScanCost,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.friction,
+      apiKey,
+      target,
+      QUERIES.friction,
+      shapeFriction,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.frictionByStep,
+      apiKey,
+      target,
+      QUERIES.frictionByStep,
+      shapeFrictionByStep,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.activation,
+      apiKey,
+      target,
+      QUERIES.activation,
+      shapeActivation,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.abVariants,
+      apiKey,
+      target,
+      QUERIES.abVariants,
+      shapeAbVariants,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.freePlan,
+      apiKey,
+      target,
+      QUERIES.freePlan,
+      shapeFreePlan,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.cancelFlow,
+      apiKey,
+      target,
+      QUERIES.cancelFlow,
+      shapeCancelFlow,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.cancelServer,
+      apiKey,
+      target,
+      QUERIES.cancelServer,
+      shapeCancelServer,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.firstSearchAfterPay,
+      apiKey,
+      target,
+      QUERIES.firstSearchAfterPay,
+      shapeFirstSearchAfterPay,
+    ),
+    await collect(
+      POSTHOG_CACHE_KEYS.internalExcluded,
+      apiKey,
+      target,
+      QUERIES.internalExcluded,
+      (rows): InternalExcludedPayload => {
+        const r = rows[0] ?? [];
+        return { persons: cellNum(r, 0), totalPersons: cellNum(r, 1) };
+      },
+    ),
+  ];
+}
+
+/**
  * Sync horaire de TOUS les projets configurés (ou d'un seul, pour le bouton
  * « Actualiser »). Une clé d'env absente ⇒ projet SAUTÉ (log clair, pas de
  * throw) ; une requête en échec ⇒ agrégat marqué en erreur, les autres passent.
@@ -2826,364 +3305,7 @@ export const runHourlySync = internalAction({
         host: proj.host,
       };
 
-      // A4 — requêtes construites AVEC l'exclusion interne de CE projet (une
-      // seule source : convex/internalAccounts). `QUERIES` est donc local au
-      // projet, pas un const de module.
-      const internalCfg = internalAccountsFor(proj.slug);
-      const QUERIES = buildQueries(
-        // Deux exclusions cumulées, même fenêtre que les requêtes : les comptes
-        // internes (A4) et les sessions dont le bras d'A/B a été FORCÉ en QA.
-        // Une session forcée n'est pas du trafic : la compter fausserait autant
-        // la répartition des bras que les taux de conversion.
-        notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS),
-        internalMarkerHogQL(internalCfg),
-      );
-
-      const entries: CacheEntry[] = [
-        await collect(
-          POSTHOG_CACHE_KEYS.overview,
-          apiKey,
-          target,
-          QUERIES.overview,
-          (rows): OverviewPayload => ({
-            daily: rows
-              .map((r) => ({
-                ts: cellTimeMs(r, 0),
-                visitors: cellNum(r, 1),
-                signups: cellNum(r, 2),
-                checkouts: cellNum(r, 3),
-                subs: cellNum(r, 4),
-              }))
-              .filter((d): d is OverviewPayload["daily"][number] => d.ts !== null),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.subsByMembership,
-          apiKey,
-          target,
-          QUERIES.subsByMembership,
-          (rows): SubsByMembershipPayload => ({
-            rows: rows.map((r) => ({
-              day: cellStr(r, 0),
-              membershipId: cellStr(r, 1),
-              persons: cellNum(r, 2),
-            })),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelGlobal,
-          apiKey,
-          target,
-          QUERIES.funnelGlobal,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelSequential,
-          apiKey,
-          target,
-          QUERIES.funnelSequential,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelSource,
-          apiKey,
-          target,
-          QUERIES.funnelSource,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelCountry,
-          apiKey,
-          target,
-          QUERIES.funnelCountry,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.countryPersons,
-          apiKey,
-          target,
-          QUERIES.countryPersons,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.serverSideSplit,
-          apiKey,
-          target,
-          QUERIES.serverSideSplit,
-          shapeServerSideSplit,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.countryDaily,
-          apiKey,
-          target,
-          QUERIES.countryDaily,
-          shapeCountryDaily,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.funnelLanguage,
-          apiKey,
-          target,
-          QUERIES.funnelLanguage,
-          shapeFunnel,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.timeToValue,
-          apiKey,
-          target,
-          QUERIES.timeToValue,
-          (rows): TimeToValuePayload => {
-            const r = rows[0] ?? [];
-            return {
-              steps: TTV_STEP_KEYS.map((k, i) => {
-                const median = cellNum(r, i * 3);
-                const p90 = cellNum(r, i * 3 + 1);
-                const n = cellNum(r, i * 3 + 2);
-                // Quantiles rendus en SECONDES par HogQL → ms. n = 0 ⇒ pas de
-                // mesure (et non « 0 seconde »).
-                return {
-                  key: k,
-                  medianMs: n > 0 ? median * 1000 : null,
-                  p90Ms: n > 0 ? p90 * 1000 : null,
-                  n,
-                };
-              }),
-            };
-          },
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.paywall,
-          apiKey,
-          target,
-          QUERIES.paywall,
-          shapeConversion,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.paywallById,
-          apiKey,
-          target,
-          QUERIES.paywallById,
-          // Colonne 3 = début de fenêtre (première émission de paywall_id),
-          // identique sur chaque ligne → on la lit une fois.
-          (rows): ConversionPayload => ({
-            ...shapeConversion(rows),
-            startMs: rows.length > 0 ? cellTimeMs(rows[0], 3) : null,
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.abArms,
-          apiKey,
-          target,
-          QUERIES.abArms,
-          shapeAbArms,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.abPurchases,
-          apiKey,
-          target,
-          QUERIES.abPurchases,
-          shapeAbPurchases,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.abOffers,
-          apiKey,
-          target,
-          QUERIES.abOffers,
-          shapeAbOffers,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.abPersonArms,
-          apiKey,
-          target,
-          QUERIES.abPersonArms,
-          shapeAbPersonArms,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.abFlippers,
-          apiKey,
-          target,
-          QUERIES.abFlippers,
-          shapeAbFlippers,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.sources,
-          apiKey,
-          target,
-          QUERIES.sources,
-          (rows): ConversionPayload => ({
-            // n = inscrits, converted = abonnés → taux d'abonnement par source.
-            rows: rows.map((r) => ({
-              key: cellStr(r, 0),
-              n: cellNum(r, 1),
-              converted: cellNum(r, 2),
-            })),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.cohorts,
-          apiKey,
-          target,
-          QUERIES.cohorts,
-          (rows): CohortsPayload => {
-            const bySegment = new Map<
-              string,
-              { cohort: string; size: number; retainedByWeek: number[] }[]
-            >();
-            for (const r of rows) {
-              const cohort = cellStr(r, 0);
-              const segment = cellStr(r, 1);
-              const size = cellNum(r, 2);
-              const retainedByWeek = Array.from(
-                { length: RETENTION_WEEKS },
-                (_, k) => cellNum(r, 3 + k),
-              );
-              const list = bySegment.get(segment) ?? [];
-              list.push({ cohort, size, retainedByWeek });
-              bySegment.set(segment, list);
-            }
-            return {
-              segments: [...bySegment.entries()].map(([key, cohorts]) => ({
-                key,
-                cohorts,
-              })),
-            };
-          },
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.predictors,
-          apiKey,
-          target,
-          QUERIES.predictors,
-          (rows): PredictorsPayload => {
-            const r = rows[0] ?? [];
-            return {
-              total: cellNum(r, 0),
-              totalConverted: cellNum(r, 1),
-              behaviors: PREDICTOR_KEYS.map((k, i) => ({
-                key: k,
-                n: cellNum(r, 2 + i * 2),
-                converted: cellNum(r, 3 + i * 2),
-              })),
-            };
-          },
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.instrumentation,
-          apiKey,
-          target,
-          QUERIES.instrumentation,
-          shapeInstrumentation,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.checkoutReliability,
-          apiKey,
-          target,
-          QUERIES.checkoutReliability,
-          shapeCheckoutReliability,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.checkoutCauses,
-          apiKey,
-          target,
-          QUERIES.checkoutCauses,
-          (rows): CheckoutCausesPayload => ({
-            rows: rows.map((r) => ({ cause: cellStr(r, 0), n: cellNum(r, 1) })),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.searchResults,
-          apiKey,
-          target,
-          QUERIES.searchResults,
-          shapeSearchResults,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.scanReliability,
-          apiKey,
-          target,
-          QUERIES.scanReliability,
-          shapeScanReliability,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.scanLatency,
-          apiKey,
-          target,
-          QUERIES.scanLatency,
-          shapeScanLatency,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.scanCost,
-          apiKey,
-          target,
-          QUERIES.scanCost,
-          shapeScanCost,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.friction,
-          apiKey,
-          target,
-          QUERIES.friction,
-          shapeFriction,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.frictionByStep,
-          apiKey,
-          target,
-          QUERIES.frictionByStep,
-          shapeFrictionByStep,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.activation,
-          apiKey,
-          target,
-          QUERIES.activation,
-          shapeActivation,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.abVariants,
-          apiKey,
-          target,
-          QUERIES.abVariants,
-          shapeAbVariants,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.freePlan,
-          apiKey,
-          target,
-          QUERIES.freePlan,
-          shapeFreePlan,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.cancelFlow,
-          apiKey,
-          target,
-          QUERIES.cancelFlow,
-          shapeCancelFlow,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.cancelServer,
-          apiKey,
-          target,
-          QUERIES.cancelServer,
-          shapeCancelServer,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.firstSearchAfterPay,
-          apiKey,
-          target,
-          QUERIES.firstSearchAfterPay,
-          shapeFirstSearchAfterPay,
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.internalExcluded,
-          apiKey,
-          target,
-          QUERIES.internalExcluded,
-          (rows): InternalExcludedPayload => {
-            const r = rows[0] ?? [];
-            return { persons: cellNum(r, 0), totalPersons: cellNum(r, 1) };
-          },
-        ),
-      ];
+      const entries = await collectProjectEntries(proj.slug, apiKey, target);
 
       await ctx.runMutation(internal.posthogSync.upsertPosthogCache, {
         projectId: proj._id,
