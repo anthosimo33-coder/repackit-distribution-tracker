@@ -17,7 +17,7 @@ Décisions actées :
 ## Résumé (10 lignes)
 
 1. Il y a **22 cases à cocher**, qui couvrent les **212** fonctions d'administration (plus les liens publics de `content.share`, ajoutés après). Aucune fonction n'est restée sans case.
-2. Sur un manager type, **12 cases sont cochées** et **9 décochées**. Les décochées sont l'argent, les réglages système, la suppression d'une créatrice et les écrans historiques.
+2. Sur un manager type, **11 cases sont cochées** et **11 décochées**. Les décochées sont l'argent, les réglages système, la suppression d'une créatrice et les écrans historiques.
 3. Les cases sont rangées en **5 sections** — Créateurs, Production, Contenu, Argent, Système — et c'est ce regroupement que l'écran de gestion utilisera.
 4. **Toute la section Argent est décochée**, et ce n'est pas une liste à maintenir : un test vérifie qu'aucun bloc de cette section ne peut être coché par défaut.
 5. Le socle est **posé et vérifié** : un manager sans case cochée est refusé partout, une case cochée ouvre son bloc et pas celui d'à côté.
@@ -48,20 +48,19 @@ Décisions actées :
 | 11 | `tracker.manage` | Contenu | **Tracker et publications** | Saisir et corriger des relevés, gérer les publications, déclencher un relevé de vues, marquer un post comme chauffe. | ✓ | 15 | 🟠 Moyen — le drapeau « chauffe » décide si un post est payé (tracé, cf. §4) ; les synchros sont facturées. |
 | 12 | `content.analytics` | Contenu | **Performance des contenus** | Lire le Tracker, les KPI du Dashboard, les verdicts par script, les courbes de vues et le taux de publication à l'heure. | ✓ | 14 | 🟢 Faible — vues et engagement, jamais d'euros. |
 | 13 | `content.share` | Contenu | **Partager des dashboards** | Créer des liens publics vers une partie du Tracker, pour une marque ou une créatrice, et les révoquer. | ✗ | 4 | 🟠 Moyen — le lien sort les chiffres de l'app vers quelqu'un sans compte ; aucun montant n'y figure jamais, et un lien se révoque. |
-| 14 | `radar.use` | Contenu | **Radar** | Voir les signaux (les vidéos qui sortent du lot dans toutes les apps) et le budget de la veille, suivre des comptes TikTok. | ✓ | 11 | 🟠 Moyen — chaque synchro est **facturée à l'usage** (Apify). |
-| 15 | `conversations.use` | Contenu | **Conversations Instagram** | Créer, modifier et exporter des captures de conversations reproduites (DM Instagram, chat BLUSH), à l'écran ou par Claude. | ✗ | 5 | 🟢 Faible — brouillons de captures inventées, sans donnée de créatrice ni montant. |
-| 16 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
-| 17 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 11 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
-| 18 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
-| 19 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit, compta. | ✗ | 29 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
-| 20 | `challenges.money` | Argent | **Budget des Défis** | Créer et modifier un défi : objectif, récompense, budget et barème associé. | ✗ | 4 | 🔴 **Élevé** — fixe un budget et un barème, donc ce que le défi va coûter. |
-| 21 | `notifications.manage` | Système | **Notifications** | Choisir les alertes Telegram de l'équipe et leur destinataire. | ✗ | 2 | 🔴 **Élevé** — le digest transporte le **total dû**, et on peut rediriger les alertes. |
-| 22 | `project.settings` | Système | **Réglages du projet** | Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent. | ✗ | 6 | 🟠 Moyen — règles structurantes qui s'appliquent à toutes les créatrices. |
-| 23 | `legacy.access` | Système | **Écrans historiques** | Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore. | ✗ | 5 | 🟢 Faible — écrans hors menu, sans donnée financière. Décoché pour ne pas prolonger leur vie. |
+| 14 | `conversations.use` | Contenu | **Conversations Instagram** | Créer, modifier et exporter des captures de conversations reproduites (DM Instagram, chat BLUSH), à l'écran ou par Claude. | ✗ | 5 | 🟢 Faible — brouillons de captures inventées, sans donnée de créatrice ni montant. |
+| 15 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
+| 16 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 11 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
+| 17 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
+| 18 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit, compta. | ✗ | 29 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
+| 19 | `challenges.money` | Argent | **Budget des Défis** | Créer et modifier un défi : objectif, récompense, budget et barème associé. | ✗ | 4 | 🔴 **Élevé** — fixe un budget et un barème, donc ce que le défi va coûter. |
+| 20 | `notifications.manage` | Système | **Notifications** | Choisir les alertes Telegram de l'équipe et leur destinataire. | ✗ | 2 | 🔴 **Élevé** — le digest transporte le **total dû**, et on peut rediriger les alertes. |
+| 21 | `project.settings` | Système | **Réglages du projet** | Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent. | ✗ | 6 | 🟠 Moyen — règles structurantes qui s'appliquent à toutes les créatrices. |
+| 22 | `legacy.access` | Système | **Écrans historiques** | Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore. | ✗ | 5 | 🟢 Faible — écrans hors menu, sans donnée financière. Décoché pour ne pas prolonger leur vie. |
 
 `creators.pay_terms` **n'est plus vide** : le découpage de l'étape 3 lui a donné `getCreatorPayTerms` et `updateCreatorPayTerms`, extraites de `getCreator` et `updateCreator`. Avant lui, « gérer une créatrice » signifiait littéralement « modifier sa rémunération » — aucune permission ne pouvait séparer les deux.
 
-**23 blocs · 12 cochés · 11 décochés · 225 fonctions** — les 212 d'administration, plus les 4 fonctions financières nées du découpage (2 sur la fiche créatrice, 2 sur la grille d'un format), plus les 5 de la bibliothèque de conversations Instagram (octobre 2026). Elles ne sont PAS dans le baseline du cliquet : celui-ci compte ce qui reste à migrer, et elles sont déjà gardées par leur bloc.
+**22 blocs · 11 cochés · 11 décochés · 214 fonctions** — les 212 d'administration, plus les 4 fonctions financières nées du découpage (2 sur la fiche créatrice, 2 sur la grille d'un format), plus les 5 de la bibliothèque de conversations Instagram (octobre 2026), moins les 11 du bloc `radar.use`, retiré du catalogue avec le Radar (parti dans Kopycat le 20/11/2026). Elles ne sont PAS dans le baseline du cliquet : celui-ci compte ce qui reste à migrer, et elles sont déjà gardées par leur bloc.
 
 > ⚠️ Ce tableau et le module `convex/permissions.ts` sont **tenus alignés par un test**
 > (`scripts/check-permission-coverage.mjs`, porté par `pnpm test:unit`). Un bloc ajouté
@@ -70,7 +69,7 @@ Décisions actées :
 
 ### Les libellés reprennent le vocabulaire de l'app
 
-« Assignments », « Validation », « Rushes », « Pricings », « Paiements », « Inspirations », « Assets », « Radar », « Défis », « Comment ça marche » : ce sont les mots **exacts** du menu (`messages/fr.json`, clés `nav.item.*`), pas une traduction des noms techniques. La personne qui coche doit retrouver le mot qu'elle voit à l'écran. C'est pour ça que le bloc des missions s'appelle « Assignments et planning » et non « Missions » : l'app dit *Assignments*.
+« Assignments », « Validation », « Rushes », « Pricings », « Paiements », « Inspirations », « Assets », « Défis », « Comment ça marche » : ce sont les mots **exacts** du menu (`messages/fr.json`, clés `nav.item.*`), pas une traduction des noms techniques. La personne qui coche doit retrouver le mot qu'elle voit à l'écran. C'est pour ça que le bloc des missions s'appelle « Assignments et planning » et non « Missions » : l'app dit *Assignments*.
 
 ---
 
@@ -257,7 +256,7 @@ npx convex run memberPermissions:grantProjectManager \
   '{"email":"...","projectSlug":"snytch"}' --env-file <cible>
 ```
 
-Sans `permissions`, les **12 blocs cochés par défaut** sont appliqués. Pour un jeu précis :
+Sans `permissions`, les **11 blocs cochés par défaut** sont appliqués. Pour un jeu précis :
 
 ```bash
 npx convex run memberPermissions:setMemberPermissions \
@@ -284,7 +283,7 @@ npx convex run memberPermissions:describeMember \
 | Q3 | Défis scindés | **`challenges.run`** coché (10 fn) · **`challenges.money`** décoché (4 fn) ; `getChallenge` à projeter |
 | Q4 | Drapeau chauffe coché, mais tracé | reste dans `tracker.manage` ; **seconde table** requise — cf. §3.6 |
 | Q5 | `admin` = tout par défaut | acquis, c'est ce qui rend la migration inutile |
-| Q6 | Veille et synchros ouvertes | `radar.use` coché, `requestApifySync`/`requestYouTubeSync` dans `tracker.manage` coché |
+| Q6 | Veille et synchros ouvertes | `radar.use` coché (bloc retiré le 20/11/2026 avec le Radar), `requestApifySync`/`requestYouTubeSync` dans `tracker.manage` coché |
 | Q7 | Legacy conservé | **`legacy.access`** créé, décoché — marqueur du chantier de suppression |
 | Q8 | Notifications fermées | `notifications.manage` décoché ; le digest est un chantier séparé |
 | Q9 | Écran superadmin seul | étape 6 |
@@ -535,22 +534,6 @@ Le bloc ouvre la création de liens publics (`/s/<token>`). Ce que le lien montr
 | `listShares` | Q | publicShares | Liens du projet, ouvertures, statut |  |
 | `createShare` | M | publicShares | Crée un lien public |  |
 | `revokeShare` | M | publicShares | Révoque un lien |  |
-
-### `radar.use` — 11 fonctions
-
-| Fonction | T | Fichier | Ce qu'elle fait | |
-|---|---|---|---|---|
-| `addRadarAccount` | M | radar | Ajoute un compte à suivre |  |
-| `getRadarSearch` | Q | radar | Recherche d'outliers en cache |  |
-| `listRadarAccounts` | Q | radar | Comptes TikTok suivis en veille |  |
-| `listRadarVideos` | Q | radar | Mur de vidéos des comptes suivis |  |
-| `listTrendCountries` | Q | radar | Pays disponibles pour la veille |  |
-| `listTrendHashtags` | Q | radar | Hashtags tendance d'un pays |  |
-| `listTrendVideos` | Q | radar | Vidéos d'un hashtag tendance |  |
-| `removeRadarAccount` | M | radar | Retire un compte suivi |  |
-| `requestRadarAccountSync` | M | radar | Resynchronise un compte suivi |  |
-| `requestRadarSync` | M | radar | Resynchronise toute la veille |  |
-| `updateRadarAccountNote` | M | radar | Annote un compte suivi |  |
 
 ### `conversations.use` — 8 fonctions
 

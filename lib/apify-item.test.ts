@@ -2,7 +2,7 @@
  * Lecture des champs partagés d'un item TikTok (`convex/apifyItem.ts`).
  *
  * Les entrées ont la FORME d'une sortie réelle de `clockworks/tiktok-scraper` —
- * la même que celle qui sert de fixture à RADAR, puisque c'est le même acteur.
+ * relevée sur l'input profil de l'acteur (celui qu'employait l'ancien Radar).
  * Un item inventé de toutes pièces ne prouverait rien sur la lecture d'un
  * payload dont on veut justement vérifier qu'on l'interprète bien.
  */
@@ -15,7 +15,7 @@ import {
   parseInstagramProfile,
 } from "../convex/apifyItem";
 
-/** Item calqué sur la fixture RADAR (sortie réelle de l'acteur). */
+/** Item calqué sur une sortie réelle de l'acteur (input profil). */
 const itemReel = {
   id: "7655457745159720205",
   webVideoUrl: "https://www.tiktok.com/@charlidamelio/video/7655457745159720205",
@@ -103,7 +103,7 @@ describe("parseAuthorProfile — les abonnés servis avec chaque vidéo", () => 
   });
 
   it("lit les abonnés même quand following/heart manquent", () => {
-    // Cas ATTENDU : la fixture RADAR ne porte que `fans`. Si l'input postURLs
+    // Cas ATTENDU : la sortie input profil ne porte que `fans`. Si l'input postURLs
     // se comporte pareil, on veut quand même les abonnés.
     const partiel = {
       ...itemReel,

@@ -347,8 +347,9 @@ export function mcpPermissionQuery(permission: PermissionId) {
  * Domaines qu'une connexion MCP peut être autorisée à MODIFIER, chacun par son
  * propre interrupteur dans « Connecter Claude » : la Compta, les missions
  * (assigner, replanifier, abandonner), les scripts (briques des campagnes), les
- * publications (lien collé en secours, chauffe), la veille et la bibliothèque
- * (comptes suivis, inspirations), les messages aux créatrices (le coach : un
+ * publications (lien collé en secours, chauffe), la bibliothèque d'inspirations
+ * (clé `veille`, gardée depuis le départ du Radar : elle est enregistrée dans les
+ * connexions), les messages aux créatrices (le coach : un
  * email, qui ne se reprend pas), les conversations Instagram, et les barèmes des
  * vidéos déjà attribuées (de l'argent : un interrupteur à lui).
  */

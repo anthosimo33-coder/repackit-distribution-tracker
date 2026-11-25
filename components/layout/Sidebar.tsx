@@ -26,7 +26,6 @@ import {
   LogOutIcon,
   MessageCircleHeartIcon,
   MessagesSquareIcon,
-  RadarIcon,
   ReceiptTextIcon,
   TrophyIcon,
   UserPlusIcon,
@@ -327,15 +326,6 @@ export function Sidebar({
       : []),
   ];
 
-  // VEILLE — Radar : module séparé de veille TikTok (admin only).
-  const veilleItems = [
-    {
-      icon: RadarIcon,
-      label: t("item.radar"),
-      ...item(projectPath("/radar")),
-    },
-  ];
-
   // OUTILS — liens externes configurés PAR PROJET (project.sidebarLinks). Vide
   // pour les projets qui n'en ont pas (ex. RepackIt) → la section ne s'affiche
   // pas. Chaque lien ouvre son URL dans un nouvel onglet. href = URL externe
@@ -396,7 +386,7 @@ export function Sidebar({
       )}
 
       {/* Sections nav */}
-      {/* `space-y-4` et non 6 : sept en-têtes au lieu de cinq, à blanc constant,
+      {/* `space-y-4` et non 6 : six en-têtes au lieu de cinq, à blanc constant,
           poussaient les deux derniers groupes sous la ligne de flottaison. Le
           gain de lisibilité du découpage se paierait alors en défilement. */}
       <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
@@ -414,9 +404,6 @@ export function Sidebar({
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label={t("section.argent")}>
           {argentItems.filter(visible).map(renderItem)}
-        </SidebarSection>
-        <SidebarSection collapsed={collapsed} label={t("section.veille")}>
-          {veilleItems.filter(visible).map(renderItem)}
         </SidebarSection>
         {/* `administrationItems` passe par `visible` comme les autres :
             « Notifications » a son bloc, l'entrée superadmin n'en a pas et

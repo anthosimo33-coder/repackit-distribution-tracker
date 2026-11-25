@@ -67,7 +67,6 @@ test.describe("Sidebar — nav regroupée (sans Archives)", () => {
       "CRÉATEURS",
       "CONTENU",
       "ARGENT",
-      "VEILLE",
       "ADMINISTRATION",
     ];
     const groupeDe = (entree: string) => {

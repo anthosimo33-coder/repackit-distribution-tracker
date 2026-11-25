@@ -10,7 +10,6 @@
       "pilotage": "Operações",
       "createurs": "Criadores",
       "contenu": "Conteúdo",
-      "veille": "Radar",
       "outils": "Ferramentas",
       "administration": "Administração",
       "production": "Produção",
@@ -36,7 +35,6 @@
       "inspirations": "Inspirações",
       "assets": "Recursos",
       "guide": "Como funciona",
-      "radar": "Radar",
       "defis": "Desafios",
       "equipe": "Funções e permissões",
       "maRemuneration": "Meus ganhos",
@@ -1508,9 +1506,6 @@
     "ERR_PUBLISHED_AT_IN_FUTURE": "A data de publicação não pode estar no futuro.",
     "ERR_PUBLISH_ACCOUNT_REQUIRED": "Escolha pelo menos uma conta de publicação.",
     "ERR_PUBLISH_BEFORE_APPROVAL": "Você só pode publicar depois que seu vídeo for validado.",
-    "ERR_RADAR_ACCOUNT_ALREADY_FOLLOWED": "@{handle} já é seguido.",
-    "ERR_RADAR_ACCOUNT_NOT_FOUND": "Conta do Radar não encontrada neste projeto.",
-    "ERR_RADAR_HANDLE_INVALID": "Usuário do TikTok inválido. Cole um @, um usuário ou uma URL de perfil (tiktok.com/@conta).",
     "ERR_RATE_INVALID": "A tarifa precisa ser um número ≥ 0.",
     "ERR_REF_TAKEN_BY_CREATOR": "A ref “{next}” já pertence a {name}. Uma ref só pode pertencer a uma pessoa.",
     "ERR_REF_TAKEN_BY_INFLUENCER": "A ref “{next}” está declarada para a influenciadora {name}. Uma ref só pode pertencer a uma pessoa.",
@@ -1534,7 +1529,6 @@
     "ERR_SCREENREC_TITLE_REQUIRED": "ScreenRecorder: título obrigatório (3-200 caracteres).",
     "ERR_SCRIPT_COMBO_MISSING": "Combo de roteiro ausente: materialização impossível.",
     "ERR_SCRIPT_LOCKED_PUBLISHED": "O roteiro não pode mais ser alterado: o post já foi publicado.",
-    "ERR_SEARCH_KEYWORD_REQUIRED": "Digite uma palavra-chave para pesquisar.",
     "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campanha não encontrada no projeto.",
     "ERR_SHARE_CREATOR_REQUIRED": "Escolha a criadora que vai receber este link.",
     "ERR_SHARE_EXPIRY_INVALID": "Expiração inválida: de 1 a 365 dias.",
@@ -1666,12 +1660,7 @@
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Imagem recusada: JPEG, PNG ou WebP de no máximo 8 MB.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Intervalo de dias inválido: dias AAAA-MM-DD, o primeiro antes do último.",
     "ERR_PRICING_REASSIGN_STALE": "A lista mudou desde a pré-visualização: {found} vídeo(s) para passar para esta tabela em vez de {expected}. Nada foi alterado: revise a pré-visualização.",
-    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} não é uma criadora parceira: publicar sem validação é só para elas.",
-    "ERR_RADAR_APP_INVALID": "Dê um nome ao app e pelo menos um padrão de 3 caracteres.",
-    "ERR_RADAR_APP_ALREADY_FOLLOWED": "O app “{name}” já é acompanhado.",
-    "ERR_RADAR_APP_PATTERN_TAKEN": "O padrão “{pattern}” já faz parte de “{name}”, um app acompanhado: escolha um mais preciso ou adicione a conta a esse app.",
-    "ERR_RADAR_APP_NOT_FOUND": "App não encontrado.",
-    "ERR_RADAR_TRACKED_FULL": "Já são {max} contas acompanhadas: pause algumas antes."
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} não é uma criadora parceira: publicar sem validação é só para elas."
   },
   "calendar": {
     "weekday": {

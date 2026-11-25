@@ -236,10 +236,6 @@ export const ERR = {
   URL_CANNOT_BE_EMPTY: "ERR_URL_CANNOT_BE_EMPTY",
   INSPIRATION_NOT_FOUND: "ERR_INSPIRATION_NOT_FOUND",
   FOLDER_NAME_TOO_LONG_CHARS: "ERR_FOLDER_NAME_TOO_LONG_CHARS",
-  RADAR_ACCOUNT_NOT_FOUND: "ERR_RADAR_ACCOUNT_NOT_FOUND",
-  RADAR_HANDLE_INVALID: "ERR_RADAR_HANDLE_INVALID",
-  RADAR_ACCOUNT_ALREADY_FOLLOWED: "ERR_RADAR_ACCOUNT_ALREADY_FOLLOWED",
-  SEARCH_KEYWORD_REQUIRED: "ERR_SEARCH_KEYWORD_REQUIRED",
   RUSH_NOT_REJECTABLE: "ERR_RUSH_NOT_REJECTABLE",
   REJECTION_REASON_TOO_LONG: "ERR_REJECTION_REASON_TOO_LONG",
   PERSON_NAMES_REQUIRED: "ERR_PERSON_NAMES_REQUIRED",
@@ -418,15 +414,6 @@ export const ERR = {
   PRICING_REASSIGN_STALE: "ERR_PRICING_REASSIGN_STALE",
   /** Publier sans validation : réservé aux créatrices partenaires (paramètre `name`). */
   VIDEO_REVIEW_SKIP_PARTNER_ONLY: "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY",
-  /** Radar, ajouter une app : il faut un nom et au moins un motif de 3 caractères. */
-  RADAR_APP_INVALID: "ERR_RADAR_APP_INVALID",
-  /** Radar, ajouter une app : une app de ce nom est déjà suivie (paramètre `name`). */
-  RADAR_APP_ALREADY_FOLLOWED: "ERR_RADAR_APP_ALREADY_FOLLOWED",
-  /** Radar, ajouter une app : un motif est contenu dans ceux d'une app déjà suivie (paramètres `pattern`, `name`). */
-  RADAR_APP_PATTERN_TAKEN: "ERR_RADAR_APP_PATTERN_TAKEN",
-  RADAR_APP_NOT_FOUND: "ERR_RADAR_APP_NOT_FOUND",
-  /** Radar : le plafond de comptes suivis est atteint (paramètre `max`). */
-  RADAR_TRACKED_FULL: "ERR_RADAR_TRACKED_FULL",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

@@ -84,8 +84,8 @@ test.describe("Rôles multiples — le geste qui débloque la promotion interne"
       role: "manager",
     });
     expect(res.roles).toEqual(["manager", "creator"]);
-    // Les 12 blocs par défaut, frontière argent appliquée (règle de #154).
-    expect(res.permissions).toHaveLength(12);
+    // Les 11 blocs par défaut, frontière argent appliquée (règle de #154).
+    expect(res.permissions).toHaveLength(11);
     expect(res.permissions).not.toContain("payments.manage");
 
     // ── ESPACE 1 — l'app interne répond ──────────────────────────────────────
@@ -375,7 +375,7 @@ test.describe("Rôle d'équipe — l'échange administrateur ⇄ manager", () =>
     });
     expect(res.roles).toEqual(["manager"]);
     // Un manager sans aucun droit n'ouvrirait rien : le socle est reposé.
-    expect(res.permissions).toHaveLength(12);
+    expect(res.permissions).toHaveLength(11);
     expect(res.permissions).not.toContain("payments.manage");
 
     // Et ce n'est pas qu'une ligne en base : l'app interne lui répond, bornée.
@@ -472,7 +472,7 @@ test.describe("Rôle d'équipe — l'échange administrateur ⇄ manager", () =>
       membershipId: (await membre(email)).membershipId,
       role: "manager",
     });
-    expect(ajout.permissions).toHaveLength(12);
+    expect(ajout.permissions).toHaveLength(11);
   });
 
   test("reposer le rôle qu'il porte déjà ne LUI REND PAS des droits retirés", async () => {
@@ -789,10 +789,10 @@ test.describe("Ajouter un membre d'équipe — le geste et ses refus", () => {
     expect(res.accountCreated).toBe(true);
     expect(res.link?.token).toBeTruthy();
 
-    // Sa ligne : manager, socle par défaut (12, sans Argent).
+    // Sa ligne : manager, socle par défaut (11, sans Argent).
     const ligne = await membre(email);
     expect(ligne.roles).toEqual(["manager"]);
-    expect(ligne.effective).toHaveLength(12);
+    expect(ligne.effective).toHaveLength(11);
     expect(ligne.effective).not.toContain("payments.manage");
 
     // ── Il choisit son mot de passe par le lien, puis se connecte ───────────
@@ -828,7 +828,8 @@ test.describe("Ajouter un membre d'équipe — le geste et ses refus", () => {
     expect(ajouts.map((l) => l.permission)).toEqual(
       expect.arrayContaining(["membre du projet", "role:manager", "creators.read"]),
     );
-    expect(ajouts).toHaveLength(14);
+    // Membre, rôle et les 11 blocs par défaut du manager (12 jusqu'au 20/11/2026 : « radar.use » est parti avec le Radar).
+    expect(ajouts).toHaveLength(13);
     expect(ajouts.every((l) => l.actor === E2E_EMAIL)).toBe(true);
   });
 

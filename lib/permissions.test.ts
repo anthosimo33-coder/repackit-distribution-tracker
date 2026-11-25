@@ -15,9 +15,9 @@ import {
  * usages n'ont aucune raison de rester alignés tout seuls — d'où ces tests.
  */
 describe("catalogue de permissions", () => {
-  it("porte 23 blocs, sans doublon d'identifiant", () => {
-    expect(PERMISSION_CATALOGUE).toHaveLength(23);
-    expect(new Set(PERMISSION_IDS).size).toBe(23);
+  it("porte 22 blocs, sans doublon d'identifiant", () => {
+    expect(PERMISSION_CATALOGUE).toHaveLength(22);
+    expect(new Set(PERMISSION_IDS).size).toBe(22);
   });
 
   it("garde la liste d'objets et la liste de littéraux ALIGNÉES", () => {
@@ -42,13 +42,13 @@ describe("catalogue de permissions", () => {
     }
   });
 
-  it("coche 12 blocs par défaut, et AUCUN de la section Argent", () => {
+  it("coche 11 blocs par défaut, et AUCUN de la section Argent", () => {
     const cochés = PERMISSION_CATALOGUE.filter((b) => b.defaultForManager);
-    expect(cochés).toHaveLength(12);
+    expect(cochés).toHaveLength(11);
     // La frontière argent, exprimée comme une propriété plutôt qu'une liste :
     // ajouter un bloc à « Argent » le rend décoché sans qu'on ait à y penser.
     expect(cochés.filter((b) => b.section === "Argent")).toEqual([]);
-    expect(defaultManagerPermissions()).toHaveLength(12);
+    expect(defaultManagerPermissions()).toHaveLength(11);
   });
 });
 

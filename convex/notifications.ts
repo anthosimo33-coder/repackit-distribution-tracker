@@ -1437,13 +1437,12 @@ export const runDailyDigest = internalAction({
   },
 });
 
-// ─── Wrapper ACTION admin-only (idiome LOCAL, cf convex/radar.ts:101) ────────
+// ─── Wrapper ACTION admin-only (idiome LOCAL) ────────────────────────────────
 
 /**
  * Vérifie le rôle admin DEPUIS UNE ACTION (qui n'a pas d'accès db direct).
- * Jumeau de `radar.requireAdminForRadarAction` — même règle que
- * requireProjectAdmin. Local au module, comme Radar l'a établi, pour ne pas
- * toucher functions.ts.
+ * Même règle que requireProjectAdmin. Local au module, pour ne pas toucher
+ * functions.ts.
  */
 export const requireAdminForNotifyAction = internalQuery({
   args: { userId: v.id("users"), projectId: v.id("projects") },
@@ -1458,8 +1457,8 @@ export const requireAdminForNotifyAction = internalQuery({
         q.eq("userId", userId).eq("projectId", projectId),
       )
       .first();
-    // ⚠️ MÊME SITE INVISIBLE que dans convex/radar.ts : wrapper d'action local,
-    // hors de la cascade de convex/functions.ts, qui lisait le scalaire.
+    // ⚠️ SITE INVISIBLE : wrapper d'action local, hors de la cascade de
+    // convex/functions.ts, qui lisait le scalaire.
     return hasRole(membership, "admin");
   },
 });

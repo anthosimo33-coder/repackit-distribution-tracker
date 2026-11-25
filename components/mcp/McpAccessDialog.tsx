@@ -379,7 +379,8 @@ function Contenu() {
                       {l.project ? ` · ${l.project.name}` : ""}
                     </p>
                   </div>
-                  {l.project ? (
+                  {/* Une ligne du Radar (parti le 20/11/2026) n'a plus d'écran où mener. */}
+                  {l.project && l.section !== "radar" ? (
                     <Link
                       href={`/admin/${l.project.slug}/${l.path}`}
                       prefetch={false}
@@ -439,6 +440,8 @@ type OutilEcriture =
   | "creer_campagne"
   | "changer_compte_cible"
   | "relancer"
+  // Outils du Radar, parti le 20/11/2026 : plus rien ne les appelle, mais le
+  // journal (30 jours) garde leurs lignes écrites avant, qu'il faut savoir nommer.
   | "suivre_compte"
   | "ne_plus_suivre"
   | "noter_compte_suivi"

@@ -9,7 +9,7 @@ import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
 import { getFolderColor } from "@/lib/folder-colors";
 import { formatNumber } from "@/lib/format";
-import { formatOutlierRatio } from "@/components/admin/radar/radar-format";
+import { formatOutlierRatio } from "@/lib/outlier";
 import { resolveOutlierRatio } from "@/lib/inspiration-stats";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
@@ -49,7 +49,7 @@ export function InspirationCard({
   // L'URL de vignette peut casser (lien mort) → onError bascule sur le fallback.
   const [imgError, setImgError] = useState(false);
   // Stats overlay : vues + abonnés (si saisis) + ratio outlier résolu (stocké
-  // Radar ou fallback views/followers ; null pour un compte ou données
+  // ou fallback views/followers ; null pour un compte ou données
   // insuffisantes). Tous optionnels → chacun n'apparaît que s'il existe.
   const views = inspiration.stats?.views;
   const followers = inspiration.stats?.followers;

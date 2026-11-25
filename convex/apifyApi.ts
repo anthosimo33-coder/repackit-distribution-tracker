@@ -188,7 +188,7 @@ function parseTikTokViews(
     const comments = toCount((item as { commentCount?: unknown }).commentCount);
     const title = cleanCaption((item as { text?: unknown }).text);
     // `collectCount` était reçu et jeté : la lecture vit maintenant dans le
-    // helper partagé avec RADAR (convex/apifyItem.ts).
+    // helper partagé convex/apifyItem.ts.
     const profil = parseAuthorProfile(item);
     stats[key] = {
       views,
@@ -196,7 +196,7 @@ function parseTikTokViews(
       comments,
       title,
       // `collectCount` et `authorMeta` étaient reçus et jetés : la lecture vit
-      // maintenant dans le helper partagé avec RADAR (convex/apifyItem.ts).
+      // maintenant dans le helper partagé convex/apifyItem.ts.
       saves: parseSaves(item),
       // `hasAnyCount` répond « y a-t-il un compteur à historiser ». Une photo
       // de profil n'en est pas un, et pourtant elle vaut à elle seule d'être

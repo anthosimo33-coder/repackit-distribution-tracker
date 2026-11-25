@@ -175,7 +175,7 @@ function TikTokEmbed({
   // embed.js) ne se ré-hydratait PAS après le 1er montage — or ici le montage
   // est lazy (au clic), embed.js déjà chargé → le blockquote restait brut et
   // dégénérait en LÉGENDE illisible dans le brief (« @compte / son original… »).
-  // Cf lib/embed.ts (helper partagé, éprouvé dans le Radar admin).
+  // Cf lib/embed.ts (helper partagé).
   const videoId = tiktokPostId(url);
   if (!videoId) {
     // Pas d'id numérique exploitable (shortlink non résolu, URL inhabituelle) →

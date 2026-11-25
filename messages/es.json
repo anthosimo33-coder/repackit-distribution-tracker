@@ -10,7 +10,6 @@
       "pilotage": "Operaciones",
       "createurs": "Creadores",
       "contenu": "Contenido",
-      "veille": "Radar",
       "outils": "Herramientas",
       "administration": "Administración",
       "production": "Producción",
@@ -36,7 +35,6 @@
       "inspirations": "Inspiraciones",
       "assets": "Recursos",
       "guide": "Cómo funciona",
-      "radar": "Radar",
       "defis": "Retos",
       "equipe": "Roles y permisos",
       "maRemuneration": "Mis ganancias",
@@ -1508,9 +1506,6 @@
     "ERR_PUBLISHED_AT_IN_FUTURE": "La fecha de publicación no puede estar en el futuro.",
     "ERR_PUBLISH_ACCOUNT_REQUIRED": "Elige al menos una cuenta de publicación.",
     "ERR_PUBLISH_BEFORE_APPROVAL": "Solo puedes publicar después de que se valide tu vídeo.",
-    "ERR_RADAR_ACCOUNT_ALREADY_FOLLOWED": "@{handle} ya se sigue.",
-    "ERR_RADAR_ACCOUNT_NOT_FOUND": "Cuenta de Radar no encontrada en este proyecto.",
-    "ERR_RADAR_HANDLE_INVALID": "Usuario de TikTok no válido. Pega un @, un usuario o una URL de perfil (tiktok.com/@cuenta).",
     "ERR_RATE_INVALID": "La tarifa debe ser un número ≥ 0.",
     "ERR_REF_TAKEN_BY_CREATOR": "La ref «{next}» ya pertenece a {name}. Una ref solo puede pertenecer a una persona.",
     "ERR_REF_TAKEN_BY_INFLUENCER": "La ref «{next}» está declarada para la influencer {name}. Una ref solo puede pertenecer a una persona.",
@@ -1534,7 +1529,6 @@
     "ERR_SCREENREC_TITLE_REQUIRED": "ScreenRecorder: título obligatorio (3-200 caracteres).",
     "ERR_SCRIPT_COMBO_MISSING": "Falta el combo del guion: no se puede materializar.",
     "ERR_SCRIPT_LOCKED_PUBLISHED": "El guion ya no se puede modificar: el post ya está publicado.",
-    "ERR_SEARCH_KEYWORD_REQUIRED": "Escribe una palabra clave que buscar.",
     "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campaña no encontrada en el proyecto.",
     "ERR_SHARE_CREATOR_REQUIRED": "Elige la creadora que recibirá este enlace.",
     "ERR_SHARE_EXPIRY_INVALID": "Caducidad no válida: de 1 a 365 días.",
@@ -1666,12 +1660,7 @@
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Imagen rechazada: JPEG, PNG o WebP de 8 MB como máximo.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Rango de días no válido: días AAAA-MM-DD, el primero antes del último.",
     "ERR_PRICING_REASSIGN_STALE": "La lista cambió desde la vista previa: {found} vídeo(s) para pasar a esta tarifa en lugar de {expected}. No se modificó nada: revisa la vista previa.",
-    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} no es una creadora partner: publicar sin validación es solo para ellas.",
-    "ERR_RADAR_APP_INVALID": "Ponle un nombre a la app y al menos un patrón de 3 caracteres.",
-    "ERR_RADAR_APP_ALREADY_FOLLOWED": "La app «{name}» ya está en seguimiento.",
-    "ERR_RADAR_APP_PATTERN_TAKEN": "El patrón «{pattern}» ya forma parte de «{name}», una app en seguimiento: elige uno más preciso o añade la cuenta a esa app.",
-    "ERR_RADAR_APP_NOT_FOUND": "App no encontrada.",
-    "ERR_RADAR_TRACKED_FULL": "Ya hay {max} cuentas en seguimiento: pausa algunas primero."
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} no es una creadora partner: publicar sin validación es solo para ellas."
   },
   "calendar": {
     "weekday": {

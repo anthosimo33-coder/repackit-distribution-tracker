@@ -53,9 +53,8 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
   });
 
   it("labo_hooks : ajouter_hooks seulement avec Scripts, toujours désactivés", () => {
-    const avec = texte(promptsJarvia(["scripts"], "2026-10-07").obtenir("labo_hooks", { campagne: "Snytch FR", pays: "us", nombre: "6" }));
+    const avec = texte(promptsJarvia(["scripts"], "2026-10-07").obtenir("labo_hooks", { campagne: "Snytch FR", nombre: "6" }));
     expect(avec).toContain("`ajouter_hooks` (ils sont créés DÉSACTIVÉS");
-    expect(avec).toContain("pays: US");
     expect(avec).toContain("Écris 6 nouveaux hooks");
     // Le playbook d'abord : ses règles s'imposent aux hooks écrits.
     expect(avec).toMatch(/^1\. `playbook`/m);
