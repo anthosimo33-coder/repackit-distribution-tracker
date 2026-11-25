@@ -609,6 +609,8 @@
       "viewsBefore": "{count, plural, one {Falta só {views} visualização para {reward}.} other {Faltam só {views} visualizações para {reward}.}}",
       "paidLabel": "Pago",
       "paidOn": "Pago em {date}",
+      "cancelledLabel": "Cancelado",
+      "cancelledCycle": "Este ciclo foi cancelado.",
       "rewardFallback": "Recompensa",
       "preCapNotice": "Remuneração calculada em {paid}, antes de o limite de 30 dias entrar em vigor (em {effective}). As visualizações obtidas depois de 30 dias ainda contam.",
       "fixeSeuil": {
@@ -1474,6 +1476,8 @@
     "ERR_PAYMENT_NOT_FOUND": "Pagamento não encontrado.",
     "ERR_PAYMENT_NOT_PAID": "Este ciclo não está marcado como pago.",
     "ERR_PAYMENT_REVERT_USED": "Este ciclo já foi anulado uma vez: não existe uma segunda anulação.",
+    "ERR_PAYMENT_DUE_CANCELLED": "Este valor devido foi apagado: restabeleça-o antes de pagá-lo ou de registrar um adiantamento.",
+    "ERR_PAYMENT_NOT_CANCELLED": "Este ciclo não tem valor devido apagado para restabelecer.",
     "ERR_PAYOUT_DAY_INVALID": "O dia de pagamento precisa ser um número inteiro entre 1 e 28.",
     "ERR_PAY_CYCLE_LOCKED": "O ciclo de pagamento{hasRange, select, yes { de {startDate} a {endDate}} other {}} deste post está encerrado{paid, select, yes {, pago em {paidDate}} other { (já pago)}}: {what} está fixado. O valor já pago nunca é recalculado; alterar este ajuste faria a exibição divergir do que foi realmente pago.",
     "ERR_PERMISSION_DENIED": "Você não tem permissão para esta ação. Peça a um administrador.",

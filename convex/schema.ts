@@ -3308,6 +3308,39 @@ export default defineSchema({
     ),
     /** Quand l'annulation a été utilisée (elle ne l'est qu'une fois). */
     revertedAt: v.optional(v.number()),
+    // ─── DÛ EFFACÉ — le cycle ne sera pas payé, et rien n'est marqué payé ─────
+    // Arbitrage du fondateur (25/11/2026, une créatrice qui a manqué à son
+    // contrat) : effacer cycle par cycle, motif obligatoire, rétablir à tout
+    // moment, rentabilité inchangée, aucun e-mail. Présent = le cycle de cette
+    // période vaut 0 et sort de « À payer ». Le statut reste `accruing` (rien
+    // n'a été versé) : ce champ seul fait foi (cf `cyclePaymentsForCreator`).
+    // « Rétablir » le retire, et le cycle se recalcule alors en direct.
+    cancellation: v.optional(
+      v.object({
+        at: v.number(),
+        by: v.optional(v.id("users")),
+        reason: v.string(),
+        /** Ce que valait le cycle à l'effacement (dû du jour, acomptes non déduits). */
+        amount: v.number(),
+        /** Ce qui restait à verser à l'effacement (acomptes déduits) : l'argent non versé. */
+        remaining: v.number(),
+        currency: v.optional(v.string()),
+        /** Le détail de ce qui a été effacé (fixe, CPM, paliers…), relu tel quel ensuite. */
+        lineItems: v.array(paymentLineItem),
+      }),
+    ),
+    /** Journal des effacements et des rétablissements du cycle, du plus ancien au plus récent. */
+    cancellationLog: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("cancel"), v.literal("restore")),
+          at: v.number(),
+          by: v.optional(v.id("users")),
+          reason: v.optional(v.string()),
+          amount: v.optional(v.number()),
+        }),
+      ),
+    ),
     createdAt: v.number(),
   })
     .index("by_project_period", ["projectId", "period"])

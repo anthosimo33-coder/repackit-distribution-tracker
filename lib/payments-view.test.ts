@@ -63,3 +63,35 @@ describe("regrouperPaiements — l'écran Paiements", () => {
     expect(rows.filter(isBulkPayable).map((r) => r.key)).toEqual(["a-1", "b-2", "b-3", "c-0"]);
   });
 });
+
+describe("regrouperPaiements — un dû EFFACÉ (cancelCycleDue)", () => {
+  // Un seul cycle, en cours, effacé : il vaut 0 et doit quitter « À payer »
+  // sans passer pour payé.
+  const effacee = cycle({
+    key: "e-0",
+    creatorId: "e",
+    creatorName: "Zoé Laurent",
+    status: "cancelled",
+    cycleStart: NOW - 7 * DAY,
+    remainingDue: 0,
+    totalDue: 0,
+    currency: "eur",
+    cancellation: { at: NOW - DAY },
+  });
+  const avec = [...rows, effacee];
+
+  it("n'est ni dû, ni à zéro, ni payable en masse", () => {
+    const v = regrouperPaiements(avec, NOW);
+    expect([...v.avecDu, ...v.aZero].map((g) => g.creatorId)).not.toContain("e");
+    expect(isBulkPayable(effacee)).toBe(false);
+    // Les totaux de l'écran ne voient pas d'euros : rien n'est dû en euros.
+    expect(v.aVerser.map((t) => t.currency)).toEqual(["usd"]);
+    expect(v.cyclesDus).toBe(4);
+  });
+
+  it("se range avec les réglés, à la date de l'effacement", () => {
+    const v = regrouperPaiements(avec, NOW);
+    // d-0 payé il y a 2 j, e-0 effacé il y a 1 j, a-0 payé il y a 11 j.
+    expect(v.reglees.map((p) => p.key)).toEqual(["e-0", "d-0", "a-0"]);
+  });
+});

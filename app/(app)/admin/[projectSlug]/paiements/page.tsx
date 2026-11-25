@@ -38,6 +38,11 @@ import { downloadCsv } from "@/lib/csv";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
 import { ProfitabilityCard } from "@/components/ProfitabilityCard";
 import { TalentPayCard } from "@/components/admin/TalentPayCard";
+import {
+  CancelDueButton,
+  CancellationJournal,
+  CancelledRow,
+} from "@/components/admin/CancelDue";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
 import {
@@ -200,6 +205,9 @@ function PaiementsPageContenu() {
   const cyclesDus = partage.cyclesDus;
   const ageDuPlusVieux = partage.ageDuPlusVieux;
   const reglees = partage.reglees;
+  /** Le « Reste à payer » du bandeau dans UNE devise (celle d'une créatrice). */
+  const resteEcranEn = (currency: string | null) =>
+    payableTotal.find((t) => t.currency === currency)?.amount ?? 0;
 
   /** « Tout payer » : sélectionne SES cycles dus puis ouvre la confirmation —
    *  jamais de virement sans le récap chiffré, quel que soit le bouton cliqué. */
@@ -479,6 +487,7 @@ function PaiementsPageContenu() {
                   key={`${g.creatorId}|${g.currency ?? ""}`}
                   group={g}
                   currency={g.currency ?? payCurrency}
+                  resteEcran={resteEcranEn(g.currency)}
                   selected={selected}
                   onToggleCycle={toggleRow}
                   onToggleCreator={() => toggleCreator(g)}
@@ -521,6 +530,7 @@ function PaiementsPageContenu() {
                       key={`${g.creatorId}|${g.currency ?? ""}`}
                       group={g}
                       currency={g.currency ?? payCurrency}
+                      resteEcran={resteEcranEn(g.currency)}
                       selected={selected}
                       onToggleCycle={toggleRow}
                       onToggleCreator={() => toggleCreator(g)}
@@ -534,7 +544,8 @@ function PaiementsPageContenu() {
           )}
 
           {/* ─── RÉGLÉ ──────────────────────────────────────────────────────
-              L'historique, hors du chemin. C'est ici que vit l'annulation. */}
+              L'historique, hors du chemin. C'est ici que vit l'annulation d'un
+              paiement, et le rétablissement d'un dû effacé. */}
           {reglees.length > 0 && (
             <section className="space-y-2" aria-label="Cycles réglés">
               <div className="flex items-baseline justify-between gap-3">
@@ -542,14 +553,19 @@ function PaiementsPageContenu() {
                   Réglé
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Une annulation par cycle, et une seule.
+                  Payés (une annulation par cycle, une seule) et dûs effacés, avec
+                  leur motif.
                 </p>
               </div>
               <Card>
                 <CardContent className="divide-y divide-slate-100 p-0">
-                  {reglees.map((p) => (
-                    <PaidRow key={p.key} p={p} currency={p.currency ?? payCurrency} />
-                  ))}
+                  {reglees.map((p) =>
+                    p.status === "cancelled" ? (
+                      <CancelledRow key={p.key} p={p} currency={p.currency ?? payCurrency} />
+                    ) : (
+                      <PaidRow key={p.key} p={p} currency={p.currency ?? payCurrency} />
+                    ),
+                  )}
                 </CardContent>
               </Card>
             </section>
@@ -839,6 +855,7 @@ function RevertButton({
 function CreatorCard({
   group,
   currency,
+  resteEcran,
   selected,
   onToggleCycle,
   onToggleCreator,
@@ -847,6 +864,8 @@ function CreatorCard({
 }: {
   group: CreatorGroup;
   currency?: string | null;
+  /** « Reste à payer » de l'écran dans la devise de la créatrice. */
+  resteEcran: number;
   selected: Set<string>;
   onToggleCycle: (key: string) => void;
   onToggleCreator: () => void;
@@ -891,6 +910,15 @@ function CreatorCard({
               {group.cycles.length > 1 ? "s" : ""}
             </p>
           </div>
+          {/* EFFACER LE DÛ — on ne la paiera pas (séparation, clause du contrat).
+              Ses cycles ouverts, tous cochés, et un motif obligatoire. */}
+          <CancelDueButton
+            creatorName={group.creatorName}
+            cycles={payables}
+            currency={currency}
+            resteEcran={resteEcran}
+            disabled={selectionDisabled}
+          />
           {/* « Tout payer » n'apparaît qu'à partir de DEUX cycles dus : avec un
               seul, il ferait doublon avec le bouton de la ligne juste en
               dessous, pour exactement le même geste. */}
@@ -1229,6 +1257,8 @@ function CycleDetail({
       {p.lineItems.length === 0 && p.pricingBreakdown.total <= 0 && (
         <p className="text-sm text-slate-400">Aucune ligne.</p>
       )}
+      {/* Un cycle rétabli dit qu'il a été effacé, par qui, et pourquoi. */}
+      <CancellationJournal entries={p.cancellationLog} currency={currency} />
     </div>
   );
 }

@@ -609,6 +609,8 @@
       "viewsBefore": "{count, plural, one {Plus que {views} vue avant {reward}.} other {Plus que {views} vues avant {reward}.}}",
       "paidLabel": "Payé",
       "paidOn": "Payé le {date}",
+      "cancelledLabel": "Annulé",
+      "cancelledCycle": "Ce cycle a été annulé.",
       "rewardFallback": "Récompense",
       "preCapNotice": "Rémunération calculée le {paid}, avant l'entrée en vigueur du plafond de 30 jours (le {effective}). Les vues acquises au-delà de 30 jours y comptent encore.",
       "fixeSeuil": {
@@ -1474,6 +1476,8 @@
     "ERR_PAYMENT_NOT_FOUND": "Paiement introuvable.",
     "ERR_PAYMENT_NOT_PAID": "Ce cycle n'est pas marqué payé.",
     "ERR_PAYMENT_REVERT_USED": "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas.",
+    "ERR_PAYMENT_DUE_CANCELLED": "Ce dû a été effacé : rétablis-le avant de le payer ou d'y verser un acompte.",
+    "ERR_PAYMENT_NOT_CANCELLED": "Ce cycle n'a pas de dû effacé à rétablir.",
     "ERR_PAYOUT_DAY_INVALID": "Le jour de paie doit être un entier entre 1 et 28.",
     "ERR_PAY_CYCLE_LOCKED": "Le cycle de paie{hasRange, select, yes { du {startDate} au {endDate}} other {}} de ce post est clos{paid, select, yes {, payé le {paidDate}} other { (déjà payé)}} : {what} y est figé. Le montant déjà versé n'est jamais recalculé — modifier ce réglage ferait diverger l'affichage de ce qui a réellement été payé.",
     "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur.",

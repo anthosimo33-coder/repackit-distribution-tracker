@@ -559,7 +559,13 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
           <span className="font-medium text-slate-900">
             {formatCycleRange(p.cycleStart, p.cycleEnd, loc)}
           </span>
-          {p.status === "paid" ? (
+          {p.status === "cancelled" ? (
+            // Dû effacé par l'équipe : « Annulé », sans motif (arbitrage du
+            // 25/11/2026 — le motif reste côté admin).
+            <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+              {t("paiements.cancelledLabel")}
+            </span>
+          ) : p.status === "paid" ? (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
               {p.paidAt
                 ? t("paiements.paidOn", {
@@ -653,7 +659,11 @@ export default function PaiementsScreen() {
               >
                 {formatMoney(dueNow, currentCurrency, loc)}
               </p>
-              {nextTs !== null && days !== null ? (
+              {current?.status === "cancelled" ? (
+                <p className="text-sm text-slate-500" data-testid="cycle-cancelled">
+                  {t("paiements.cancelledLabel")}
+                </p>
+              ) : nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
                   {dueNow > 0
                     ? t("paiements.paidIn", {
@@ -674,7 +684,11 @@ export default function PaiementsScreen() {
               modèle) + lineItems legacy éventuelles. */}
           <section className="space-y-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("paiements.currentCycle")}</h2>
-            {!current ||
+            {current?.status === "cancelled" ? (
+              <Card>
+                <CardContent className="py-8 text-center text-sm text-slate-500">{t("paiements.cancelledCycle")}</CardContent>
+              </Card>
+            ) : !current ||
             (current.lineItems.length === 0 &&
               current.pricingBreakdown.total <= 0) ? (
               <Card>

@@ -2265,7 +2265,8 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
       );
       let touched = false;
       for (const cy of cycles) {
-        if (cy.status === "paid") continue;
+        // Payé : gelé. Effacé : vaut 0 par décision, sans détail live à recomposer.
+        if (cy.status !== "accruing") continue;
         const parts =
           cy.lineItems.reduce((s, li) => s + li.amount, 0) +
           cy.pricingBreakdown.fixedTotal +
